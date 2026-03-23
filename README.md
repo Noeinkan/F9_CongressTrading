@@ -35,6 +35,7 @@ L'autodownload dei PTR House in questo repository e limitato ai filing year 2025
 ## Setup rapido Windows
 - Esegui `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 ingest-all` per installare le dipendenze nel venv del progetto e lanciare l’ingestione.
 - Se vuoi un comando diverso, sostituisci `ingest-all` con ad esempio `dashboard`, `export-csv`, `ingest-house` o `ingest-senate`.
+- In VS Code puoi usare direttamente i task workspace `Ingest All (venv)` e `Dashboard (venv)` per eseguire sempre il progetto con `.venv\Scripts\python.exe`.
 
 ## Comandi principali
 - Ingest House 2022+: `python -m src.main ingest-house`
@@ -109,6 +110,17 @@ Vista iniziale inclusa:
 Avvio:
 - `python -m src.main dashboard`
 - oppure `streamlit run streamlit_app.py`
+- in VS Code: task `Dashboard (venv)`
+
+## Troubleshooting interprete VS Code
+Se vedi errori come `ModuleNotFoundError: No module named 'dateutil'`, il problema di solito non e nel repository ma nell'interprete Python usato dalla sessione corrente.
+
+Checklist rapida:
+1. seleziona l'interprete del workspace: `.venv\Scripts\python.exe`
+2. chiudi i terminali gia aperti e aprine uno nuovo dopo il cambio interprete
+3. usa i task `Ingest All (venv)` o `Dashboard (venv)` invece di lanciare `python` generico
+
+Nota: in questo workspace `.vscode/settings.json` punta gia al venv locale, ma un terminale aperto prima del cambio puo continuare a usare un Python globale.
 
 Se il database e vuoto:
 1. `python -m src.main ingest-all`
