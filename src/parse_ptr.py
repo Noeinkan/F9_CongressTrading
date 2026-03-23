@@ -11,6 +11,19 @@ from .utils import normalize_whitespace, parse_date
 DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
 
 
+def _extract_owner_type(*cells: str) -> str | None:
+    joined = " ".join(cell for cell in cells if cell).lower()
+    if "spouse" in joined:
+        return "spouse"
+    if "child" in joined or "dependent" in joined:
+        return "dependent"
+    if "joint" in joined:
+        return "joint"
+    if "self" in joined:
+        return "self"
+    return None
+
+
 def _extract_header(text: str) -> dict[str, str | None]:
     header = {"member": None, "filing_date": None}
     member_match = re.search(r"Name\s*:?\s*(.+)", text, re.IGNORECASE)
@@ -23,7 +36,7 @@ def _extract_header(text: str) -> dict[str, str | None]:
     return header
 
 
-def _parse_table_rows(table: list[list[str | None]]) -> list[dict[str, str | None]]:
+def _parse_table_rows(table: list[list[str | None]], page_number: int) -> list[dict[str, str | None]]:
     rows = []
     for raw_row in table:
         if not raw_row or len(raw_row) < 5:
@@ -31,18 +44,22 @@ def _parse_table_rows(table: list[list[str | None]]) -> list[dict[str, str | Non
         cells = [normalize_whitespace(cell or "") for cell in raw_row]
         if not any(DATE_RE.search(cell or "") for cell in cells):
             continue
+        transaction_date = parse_date(cells[0]) or parse_date(cells[1])
         row = {
-            "transaction_date": parse_date(cells[0]) or parse_date(cells[1]),
+            "transaction_date": transaction_date,
             "asset": cells[2] or cells[1],
             "ticker": None,
             "transaction_type": cells[3] if len(cells) > 3 else None,
             "amount_range": cells[4] if len(cells) > 4 else None,
+            "owner_type": _extract_owner_type(*cells),
+            "source_page": str(page_number),
+            "parse_warning": None if transaction_date else "missing_transaction_date",
         }
         rows.append(row)
     return rows
 
 
-def _parse_text_lines(text: str) -> list[dict[str, str | None]]:
+def _parse_text_lines(text: str, page_number: int) -> list[dict[str, str | None]]:
     rows = []
     lines = [normalize_whitespace(line) for line in text.splitlines()]
     for line in lines:
@@ -62,6 +79,9 @@ def _parse_text_lines(text: str) -> list[dict[str, str | None]]:
                 "ticker": None,
                 "transaction_type": transaction_type,
                 "amount_range": amount_range,
+                "owner_type": _extract_owner_type(line),
+                "source_page": str(page_number),
+                "parse_warning": None if transaction_date else "missing_transaction_date",
             }
         )
     return rows
@@ -78,8 +98,8 @@ def parse_ptr_pdf(pdf_path: Path) -> tuple[dict[str, str | None], list[dict[str,
                 header.update(_extract_header(text))
             table = page.extract_table()
             if table:
-                rows.extend(_parse_table_rows(table))
-            rows.extend(_parse_text_lines(text))
+                rows.extend(_parse_table_rows(table, i + 1))
+            rows.extend(_parse_text_lines(text, i + 1))
 
     return header, rows
 

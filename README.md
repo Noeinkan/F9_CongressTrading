@@ -1,6 +1,6 @@
-# Congress Trading (House + Senate) – PTR → SQLite → CSV
+# Congress Trading (House + Senate)
 
-Pipeline per scaricare e normalizzare i Periodic Transaction Reports (PTR) dal 2022 in poi (House + Senate), con lookup automatico dei ticker e caching locale. Output finale esportabile in CSV.
+Tracker per disclosure pubbliche del Congresso che acquisisce PTR e filing metadata, conserva i documenti raw, normalizza transazioni e asset in SQLite, ed esporta un dataset pronto per analisi e dashboard.
 
 ## Requisiti
 - Python 3.10+
@@ -29,15 +29,76 @@ Se i link bulk PTR non sono esposti dal sito, l’ingestione House passa in moda
 - Ingest Senate 2022+: `python -m src.main ingest-senate`
 - Esegui tutto: `python -m src.main ingest-all`
 - Export CSV: `python -m src.main export-csv --out data/congress_trades.csv`
+- Export review queue: `python -m src.main export-review-csv --out data/review_queue.csv`
+- Dashboard: `python -m src.main dashboard`
+
+## Stato attuale
+Il repository ora mantiene due livelli di storage:
+
+1. tabelle legacy per compatibilita (`trades`, `fd_filings`)
+2. schema normalizzato per il tracker:
+	- `members`
+	- `filings`
+	- `transactions`
+	- `issuers`
+	- `transaction_tags`
+	- `review_queue`
+	- `asset_resolution_cache`
+
+Questo permette di conservare l'asset raw dichiarato, un ticker se risolvibile, un `confidence_score`, e uno `review_status` per distinguere match esatti, match fuzzy e casi da revisione manuale.
+
+## Risoluzione asset
+La pipeline di resolution classifica ogni asset in una di tre categorie:
+- `exact_match`: nome/ticker risolto con corrispondenza canonica affidabile; non entra in review queue per la sola resolution
+- `fuzzy_match`: ticker trovato ma con corrispondenza approssimata; resta disponibile nel dataset ma viene messo in review queue
+- `manual_review`: nessun ticker affidabile; il record viene trattenuto per revisione manuale
+
+La cache `asset_resolution_cache` persiste anche questa classificazione, cosi le riesecuzioni non ricadono ogni volta sugli stessi lookup esterni.
 
 ## Schema CSV
-Colonne:
+Colonne principali dell'export normalizzato:
 - `member`
 - `chamber`
+- `filing_type`
 - `filing_date`
 - `transaction_date`
-- `asset`
+- `owner_type`
+- `asset_name_raw`
+- `asset_name_normalized`
+- `asset_type`
+- `issuer_name`
 - `ticker`
 - `transaction_type`
-- `amount_range`
+- `amount_low`
+- `amount_high`
+- `amount_range_raw`
+- `confidence_score`
+- `review_status`
 - `source_url`
+- `raw_document_path`
+
+## Limiti correnti
+- il parser PTR resta euristico e dipende dalla struttura del PDF
+- la risoluzione degli asset distingue ora exact match, fuzzy match e manual review, ma resta limitata dalla qualita dei nomi dichiarati nei PDF
+- i fuzzy match vengono esportati con ticker e tenuti in review queue; i manual review restano senza ticker finche non vengono corretti a valle
+- non esiste ancora un sistema di alert; la dashboard Streamlit e il primo layer di analisi sopra il backend normalizzato
+
+## Dashboard Streamlit
+La prima dashboard legge prima dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`) e, se non trova righe, prova i CSV esportati.
+
+Vista iniziale inclusa:
+- KPI su volume transazioni, membri attivi, ticker risolti e review aperte
+- timeline mensile dell'attivita
+- ranking di membri e ticker
+- filtri per camera, tipo transazione, tipo asset, review status, data e testo libero
+- pannello review queue per casi irrisolti o derivati dal `review_status`
+- tabella raw con download CSV del subset filtrato
+
+Avvio:
+- `python -m src.main dashboard`
+- oppure `streamlit run streamlit_app.py`
+
+Se il database e vuoto:
+1. `python -m src.main ingest-all`
+2. `python -m src.main export-csv --out data/congress_trades.csv`
+3. `python -m src.main dashboard`

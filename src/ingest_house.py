@@ -10,11 +10,33 @@ from datetime import datetime
 from tqdm import tqdm
 
 from .config import HOUSE_DISCLOSURE_URL, HOUSE_RAW_DIR, RAW_DIR, START_YEAR, USER_AGENT
-from .db import get_connection, init_db, insert_fd_filings, insert_trades, is_file_ingested, mark_file_ingested
+from .db import (
+    get_connection,
+    init_db,
+    insert_fd_filings,
+    insert_filing,
+    insert_trades,
+    insert_transaction,
+    insert_transaction_tag,
+    is_file_ingested,
+    mark_file_ingested,
+    queue_transaction_review,
+    upsert_issuer,
+    upsert_member,
+)
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
 from .parse_ptr import iter_ptr_pdfs, parse_ptr_pdf
-from .ticker_lookup import lookup_ticker
-from .utils import ensure_dirs, extract_zip, normalize_whitespace, parse_date, sha256_file
+from .ticker_lookup import resolve_asset
+from .utils import (
+    ensure_dirs,
+    extract_zip,
+    make_content_hash,
+    normalize_whitespace,
+    parse_amount_range,
+    parse_date,
+    sha256_file,
+    split_state_district,
+)
 
 
 def _discover_house_ptr_links() -> list[tuple[int, str]]:
@@ -123,6 +145,26 @@ def ingest_house() -> None:
         mark_file_ingested(conn, str(fd_path), sha)
     if fd_rows:
         insert_fd_filings(conn, fd_rows)
+        for row in fd_rows:
+            state, district = split_state_district(row.get("state_district"))
+            member_id = upsert_member(
+                conn,
+                full_name=row.get("member") or "Unknown Member",
+                chamber="House",
+                state=state,
+                district=district,
+            )
+            insert_filing(
+                conn,
+                member_id=member_id,
+                chamber="House",
+                filing_type=row.get("filing_type") or "FD",
+                filing_date=row.get("filing_date"),
+                doc_id=row.get("doc_id"),
+                source_url="",
+                raw_document_path=row.get("source_file") or "",
+                source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
+            )
 
     links = _discover_house_ptr_links()
     if not links:
@@ -148,12 +190,99 @@ def ingest_house() -> None:
         member = header.get("member") or pdf_path.stem
         filing_date = header.get("filing_date")
         source_url = ""
+        member_id = upsert_member(conn, full_name=normalize_whitespace(member), chamber="House")
+        filing_id = insert_filing(
+            conn,
+            member_id=member_id,
+            chamber="House",
+            filing_type="PTR",
+            filing_date=filing_date,
+            doc_id=pdf_path.stem,
+            source_url=source_url,
+            raw_document_path=str(pdf_path),
+            source_hash=sha,
+        )
         to_insert = []
-        for row in rows:
+        for index, row in enumerate(rows):
             asset = normalize_whitespace(row.get("asset") or "")
             if not asset:
                 continue
-            ticker = lookup_ticker(conn, asset)
+            resolution = resolve_asset(conn, asset)
+            amount_range = normalize_whitespace(row.get("amount_range") or "")
+            amount_low, amount_high = parse_amount_range(amount_range)
+            source_page = int(row["source_page"]) if row.get("source_page") else None
+            issuer_id = upsert_issuer(
+                conn,
+                issuer_name=resolution.get("issuer_name") or asset,
+                ticker=resolution.get("ticker"),
+                sector=resolution.get("sector"),
+                industry=resolution.get("industry"),
+                asset_type=resolution.get("asset_type"),
+            )
+            transaction_id = insert_transaction(
+                conn,
+                filing_id=filing_id,
+                issuer_id=issuer_id,
+                transaction_date=parse_date(row.get("transaction_date") or ""),
+                owner_type=row.get("owner_type"),
+                asset_name_raw=asset,
+                asset_name_normalized=resolution.get("asset_name_normalized"),
+                asset_type=resolution.get("asset_type"),
+                ticker=resolution.get("ticker"),
+                cusip_or_figi=resolution.get("cusip_or_figi"),
+                transaction_type=normalize_whitespace(row.get("transaction_type") or ""),
+                amount_low=amount_low,
+                amount_high=amount_high,
+                amount_range_raw=amount_range,
+                confidence_score=float(resolution.get("confidence_score") or 0.0),
+                review_status=resolution.get("review_status"),
+                source_page=source_page,
+                source_row=str(index),
+                source_hash=make_content_hash(
+                    sha,
+                    str(index),
+                    row.get("transaction_date"),
+                    asset,
+                    row.get("transaction_type"),
+                    amount_range,
+                ),
+            )
+            review_status = resolution.get("review_status")
+            if review_status != "exact_match":
+                if review_status == "fuzzy_match":
+                    review_notes = (
+                        f"Fuzzy asset match: {asset} -> "
+                        f"{resolution.get('issuer_name') or asset} ({resolution.get('ticker') or 'no ticker'})"
+                    )
+                else:
+                    review_notes = f"Asset requires manual review: {asset}"
+                queue_transaction_review(
+                    conn,
+                    transaction_id=transaction_id,
+                    reason="asset_resolution",
+                    notes=review_notes,
+                )
+            if row.get("parse_warning"):
+                queue_transaction_review(
+                    conn,
+                    transaction_id=transaction_id,
+                    reason="parse_warning",
+                    notes=row.get("parse_warning"),
+                )
+            if resolution.get("sector"):
+                insert_transaction_tag(
+                    conn,
+                    transaction_id=transaction_id,
+                    tag="sector",
+                    value=str(resolution.get("sector")),
+                )
+            if resolution.get("industry"):
+                insert_transaction_tag(
+                    conn,
+                    transaction_id=transaction_id,
+                    tag="industry",
+                    value=str(resolution.get("industry")),
+                )
             to_insert.append(
                 {
                     "member": normalize_whitespace(member),
@@ -161,9 +290,9 @@ def ingest_house() -> None:
                     "filing_date": filing_date,
                     "transaction_date": parse_date(row.get("transaction_date") or ""),
                     "asset": asset,
-                    "ticker": ticker,
+                    "ticker": resolution.get("ticker"),
                     "transaction_type": normalize_whitespace(row.get("transaction_type") or ""),
-                    "amount_range": normalize_whitespace(row.get("amount_range") or ""),
+                    "amount_range": amount_range,
                     "source_url": source_url,
                     "source_file": str(pdf_path),
                 }

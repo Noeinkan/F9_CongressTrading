@@ -22,4 +22,5 @@ USER_AGENT = (
 HOUSE_DISCLOSURE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
 
 POLYGON_TICKER_SEARCH = "https://api.polygon.io/v3/reference/tickers"
+POLYGON_TICKER_DETAILS = "https://api.polygon.io/v3/reference/tickers/{ticker}"
 OPENFIGI_API_URL = "https://api.openfigi.com/v3/mapping"
