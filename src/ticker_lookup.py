@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import requests
 from rapidfuzz import fuzz
+from requests import Response
+from requests.exceptions import RequestException
 
 from .config import OPENFIGI_API_URL, POLYGON_TICKER_SEARCH, USER_AGENT
 from .db import get_asset_resolution, upsert_asset_resolution
@@ -26,6 +28,10 @@ class RateLimiter:
             time.sleep(self.min_interval - elapsed)
         self.last_call = time.time()
 
+    def backoff(self, delay_seconds: float) -> None:
+        delay = max(delay_seconds, self.min_interval)
+        self.last_call = time.time() + delay - self.min_interval
+
 
 @dataclass
 class AssetMatch:
@@ -36,6 +42,15 @@ class AssetMatch:
     confidence_score: float
     match_source: str
     resolution_status: str
+
+
+DEFAULT_POLYGON_MIN_INTERVAL = float(os.getenv("POLYGON_MIN_INTERVAL_SECONDS", "0.35"))
+DEFAULT_OPENFIGI_MIN_INTERVAL = float(os.getenv("OPENFIGI_MIN_INTERVAL_SECONDS", "0.6"))
+DEFAULT_RATE_LIMIT_BACKOFF = float(os.getenv("LOOKUP_RATE_LIMIT_BACKOFF_SECONDS", "60"))
+MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_SECONDS", "5"))
+
+POLYGON_LIMITER = RateLimiter(DEFAULT_POLYGON_MIN_INTERVAL)
+OPENFIGI_LIMITER = RateLimiter(DEFAULT_OPENFIGI_MIN_INTERVAL)
 
 
 def _canonical_company_key(text: str | None) -> str:
@@ -97,8 +112,53 @@ def _manual_review_match(asset: str, match_source: str) -> AssetMatch:
     )
 
 
-def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
+def _parse_retry_after(response: Response | None, default_seconds: float) -> float:
+    if response is None:
+        return default_seconds
+    retry_after = response.headers.get("Retry-After")
+    if not retry_after:
+        return default_seconds
+    try:
+        return max(float(retry_after), 0.0)
+    except ValueError:
+        return default_seconds
+
+
+def _request_with_rate_limit(
+    method: str,
+    url: str,
+    *,
+    limiter: RateLimiter,
+    retry_after_cap: float = MAX_RATE_LIMIT_RETRY_AFTER,
+    backoff_seconds: float = DEFAULT_RATE_LIMIT_BACKOFF,
+    **request_kwargs: Any,
+) -> Response | None:
     limiter.wait()
+    try:
+        response = requests.request(method, url, **request_kwargs)
+    except RequestException:
+        return None
+
+    if response.status_code == 429:
+        retry_after = _parse_retry_after(response, backoff_seconds)
+        limiter.backoff(retry_after)
+        if retry_after <= retry_after_cap:
+            limiter.wait()
+            try:
+                response = requests.request(method, url, **request_kwargs)
+            except RequestException:
+                return None
+        else:
+            return None
+
+    try:
+        response.raise_for_status()
+    except RequestException:
+        return None
+    return response
+
+
+def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
     params = {
         "search": asset,
         "market": "stocks",
@@ -107,8 +167,16 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
         "apiKey": api_key,
     }
     headers = {"User-Agent": USER_AGENT}
-    resp = requests.get(POLYGON_TICKER_SEARCH, params=params, headers=headers, timeout=30)
-    resp.raise_for_status()
+    resp = _request_with_rate_limit(
+        "GET",
+        POLYGON_TICKER_SEARCH,
+        limiter=limiter,
+        params=params,
+        headers=headers,
+        timeout=30,
+    )
+    if resp is None:
+        return None
     data = resp.json()
     results = data.get("results", [])
     if not results:
@@ -146,15 +214,22 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
 
 
 def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
-    limiter.wait()
     headers = {
         "Content-Type": "application/json",
         "X-OPENFIGI-APIKEY": api_key,
         "User-Agent": USER_AGENT,
     }
     payload = [{"name": asset, "exchCode": "US", "securityType2": "Common Stock"}]
-    resp = requests.post(OPENFIGI_API_URL, headers=headers, json=payload, timeout=30)
-    resp.raise_for_status()
+    resp = _request_with_rate_limit(
+        "POST",
+        OPENFIGI_API_URL,
+        limiter=limiter,
+        headers=headers,
+        json=payload,
+        timeout=30,
+    )
+    if resp is None:
+        return None
     data = resp.json()
     if not data:
         return None
@@ -256,12 +331,12 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
     matched_asset: AssetMatch = _manual_review_match(asset_norm, "none")
 
     if polygon_key:
-        polygon_match = polygon_lookup(asset_norm, polygon_key, RateLimiter(0.3))
+        polygon_match = polygon_lookup(asset_norm, polygon_key, POLYGON_LIMITER)
         if polygon_match is not None:
             matched_asset = polygon_match
 
     if matched_asset.ticker is None and openfigi_key:
-        openfigi_match = openfigi_lookup(asset_norm, openfigi_key, RateLimiter(0.5))
+        openfigi_match = openfigi_lookup(asset_norm, openfigi_key, OPENFIGI_LIMITER)
         if openfigi_match is not None:
             matched_asset = openfigi_match
 

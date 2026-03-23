@@ -12,6 +12,7 @@ DB_PATH = DB_DIR / "congress_trades.sqlite"
 CACHE_DIR = DATA_DIR / "cache"
 
 START_YEAR = 2022
+HOUSE_PTR_DOWNLOAD_YEARS = {2025, 2026}
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -20,6 +21,7 @@ USER_AGENT = (
 )
 
 HOUSE_DISCLOSURE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
+HOUSE_PTR_PDF_URL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}/{doc_id}.pdf"
 
 POLYGON_TICKER_SEARCH = "https://api.polygon.io/v3/reference/tickers"
 POLYGON_TICKER_DETAILS = "https://api.polygon.io/v3/reference/tickers/{ticker}"

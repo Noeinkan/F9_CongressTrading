@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Iterable
 
 import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
 from tqdm import tqdm
 
-from .config import HOUSE_DISCLOSURE_URL, HOUSE_RAW_DIR, RAW_DIR, START_YEAR, USER_AGENT
+from .config import HOUSE_PTR_DOWNLOAD_YEARS, HOUSE_PTR_PDF_URL, HOUSE_RAW_DIR, RAW_DIR, START_YEAR, USER_AGENT
 from .db import (
     get_connection,
     init_db,
@@ -39,67 +36,6 @@ from .utils import (
 )
 
 
-def _discover_house_ptr_links() -> list[tuple[int, str]]:
-    headers = {"User-Agent": USER_AGENT}
-    resp = requests.get(HOUSE_DISCLOSURE_URL, headers=headers, timeout=30)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = a.get_text(" ", strip=True)
-        if "ptr" not in href.lower() and "ptr" not in text.lower():
-            continue
-        if not href.lower().endswith(".zip"):
-            continue
-        year_match = re.search(r"(20\d{2})", href) or re.search(r"(20\d{2})", text)
-        if not year_match:
-            continue
-        year = int(year_match.group(1))
-        if year < START_YEAR:
-            continue
-        if href.startswith("/"):
-            href = "https://disclosures-clerk.house.gov" + href
-        links.append((year, href))
-
-    if links:
-        return sorted(set(links))
-
-    return _probe_ptr_zip_urls()
-
-
-def _probe_ptr_zip_urls() -> list[tuple[int, str]]:
-    headers = {"User-Agent": USER_AGENT}
-    patterns = [
-        "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}PTR.zip",
-        "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}ptr.zip",
-        "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}PTRs.zip",
-        "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}Ptr.zip",
-        "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}.zip",
-    ]
-
-    def _url_exists(url: str) -> bool:
-        try:
-            range_headers = {**headers, "Range": "bytes=0-0"}
-            resp = requests.get(url, headers=range_headers, stream=True, timeout=20, allow_redirects=True)
-            try:
-                return resp.status_code in (200, 206)
-            finally:
-                resp.close()
-        except requests.RequestException:
-            return False
-
-    links = []
-    current_year = datetime.utcnow().year
-    for year in range(START_YEAR, current_year + 1):
-        for pattern in patterns:
-            url = pattern.format(year=year)
-            if _url_exists(url):
-                links.append((year, url))
-                break
-    return links
-
-
 def _download_zip(url: str, dest: Path) -> Path:
     headers = {"User-Agent": USER_AGENT}
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +48,64 @@ def _download_zip(url: str, dest: Path) -> Path:
                     f.write(chunk)
                     pbar.update(len(chunk))
     return dest
+
+
+def _download_house_ptr_pdf(year: int, doc_id: str, dest: Path) -> bool:
+    url = HOUSE_PTR_PDF_URL.format(year=year, doc_id=doc_id)
+    headers = {"User-Agent": USER_AGENT}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with requests.get(url, headers=headers, stream=True, timeout=60) as resp:
+            if resp.status_code == 404:
+                return False
+            resp.raise_for_status()
+            if "pdf" not in (resp.headers.get("Content-Type") or "").lower():
+                return False
+
+            total = int(resp.headers.get("Content-Length", 0))
+            with dest.open("wb") as f, tqdm(total=total, unit="B", unit_scale=True, desc=dest.name) as pbar:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+        return True
+    except requests.RequestException:
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        return False
+
+
+def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
+    targets: list[tuple[int, str, Path]] = []
+    seen: set[tuple[int, str]] = set()
+
+    for row in fd_rows:
+        if normalize_whitespace(row.get("filing_type") or "").upper() != "P":
+            continue
+        doc_id = normalize_whitespace(row.get("doc_id") or "")
+        year_text = normalize_whitespace(row.get("year") or "")
+        if not doc_id or not year_text.isdigit():
+            continue
+        year = int(year_text)
+        if year < START_YEAR:
+            continue
+        if year not in HOUSE_PTR_DOWNLOAD_YEARS:
+            continue
+        key = (year, doc_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        dest = HOUSE_RAW_DIR / str(year) / f"{doc_id}.pdf"
+        if dest.exists():
+            continue
+        targets.append((year, doc_id, dest))
+
+    downloaded = 0
+    for year, doc_id, dest in targets:
+        if _download_house_ptr_pdf(year, doc_id, dest):
+            downloaded += 1
+    return downloaded
 
 
 def _extract_local_zip_files() -> None:
@@ -132,20 +126,24 @@ def ingest_house() -> None:
     _extract_local_zip_files()
 
     fd_rows: list[dict[str, str | None]] = []
+    new_fd_rows: list[dict[str, str | None]] = []
     for fd_path in iter_fd_files(HOUSE_RAW_DIR):
         if fd_path.suffix.lower() not in {".txt", ".xml"}:
             continue
+        if fd_path.suffix.lower() == ".txt":
+            parsed_rows = list(parse_fd_txt(fd_path, "House"))
+        else:
+            parsed_rows = list(parse_fd_xml(fd_path, "House"))
+        fd_rows.extend(parsed_rows)
+
         sha = sha256_file(fd_path)
         if is_file_ingested(conn, str(fd_path), sha):
             continue
-        if fd_path.suffix.lower() == ".txt":
-            fd_rows.extend(parse_fd_txt(fd_path, "House"))
-        else:
-            fd_rows.extend(parse_fd_xml(fd_path, "House"))
+        new_fd_rows.extend(parsed_rows)
         mark_file_ingested(conn, str(fd_path), sha)
-    if fd_rows:
-        insert_fd_filings(conn, fd_rows)
-        for row in fd_rows:
+    if new_fd_rows:
+        insert_fd_filings(conn, new_fd_rows)
+        for row in new_fd_rows:
             state, district = split_state_district(row.get("state_district"))
             member_id = upsert_member(
                 conn,
@@ -166,19 +164,15 @@ def ingest_house() -> None:
                 source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
             )
 
-    links = _discover_house_ptr_links()
-    if not links:
-        print("Nessun link PTR trovato sul sito House. Uso modalità manuale: inserisci i PDF in data/raw/house/.")
+    downloaded_count = _download_house_ptr_pdfs(fd_rows)
+    if downloaded_count:
+        print(f"Scaricati {downloaded_count} PTR House automaticamente.")
     else:
-        for year, url in links:
-            year_dir = HOUSE_RAW_DIR / str(year)
-            zip_path = HOUSE_RAW_DIR / f"house_ptr_{year}.zip"
-            if not zip_path.exists():
-                _download_zip(url, zip_path)
-            extract_zip(zip_path, year_dir)
+        years = ", ".join(str(year) for year in sorted(HOUSE_PTR_DOWNLOAD_YEARS))
+        print(f"Download automatico House limitato agli anni: {years}.")
 
     if not any(HOUSE_RAW_DIR.rglob("*.pdf")):
-        print("Nessun PDF trovato in data/raw/house/. Aggiungi i PTR manualmente.")
+        print("Nessun PDF trovato in data/raw/house/. Nessun PTR House scaricabile automaticamente dai metadata disponibili.")
         conn.close()
         return
 

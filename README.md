@@ -24,6 +24,8 @@ Imposta le variabili d’ambiente:
 ## Nota House (PTR)
 Se i link bulk PTR non sono esposti dal sito, l’ingestione House passa in modalità manuale: scarica i PDF dal portale House e salvali in data/raw/house/ (dal 2022 in poi), poi riesegui il comando.
 
+L'autodownload dei PTR House in questo repository e limitato ai filing year 2025 e 2026.
+
 ## Dove trovare i PDF
 - House: usa il portale ufficiale del Clerk della House su https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure. I file FD annuali sono scaricabili in blocco, ma i PTR spesso non hanno un link bulk stabile. In pratica conviene usare la ricerca del portale, aprire il report Periodic Transaction Report del membro interessato e salvare il PDF sotto `data/raw/house/<anno>/`.
 - Senate: usa il portale ufficiale eFD su https://efdsearch.senate.gov/search/. Devi prima accettare i termini di utilizzo, poi puoi cercare i filing dal 2012 in avanti. Filtra o cerca i Periodic Transaction Report, apri il filing e salva il PDF sotto `data/raw/senate/<anno>/`.
