@@ -26,6 +26,11 @@ Se i link bulk PTR non sono esposti dal sito, l’ingestione House passa in moda
 
 L'autodownload dei PTR House in questo repository e limitato ai filing year 2025 e 2026.
 
+Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i PTR House gia presenti nel database:
+- recupera `filing_date` dai metadata FD quando il PDF PTR non lo espone chiaramente
+- ripara `transaction_date` e campi transazione quando vecchie righe erano state parse male
+- consolida filing PTR duplicati creati in precedenza per lo stesso PDF/raw path
+
 ## Dove trovare i PDF
 - House: usa il portale ufficiale del Clerk della House su https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure. I file FD annuali sono scaricabili in blocco, ma i PTR spesso non hanno un link bulk stabile. In pratica conviene usare la ricerca del portale, aprire il report Periodic Transaction Report del membro interessato e salvare il PDF sotto `data/raw/house/<anno>/`.
 - Senate: usa il portale ufficiale eFD su https://efdsearch.senate.gov/search/. Devi prima accettare i termini di utilizzo, poi puoi cercare i filing dal 2012 in avanti. Filtra o cerca i Periodic Transaction Report, apri il filing e salva il PDF sotto `data/raw/senate/<anno>/`.
@@ -41,6 +46,7 @@ L'autodownload dei PTR House in questo repository e limitato ai filing year 2025
 - Ingest House 2022+: `python -m src.main ingest-house`
 - Ingest Senate 2022+: `python -m src.main ingest-senate`
 - Esegui tutto: `python -m src.main ingest-all`
+- Refresh completo + riavvio dashboard: `python -m src.main refresh-dashboard`
 - Export CSV: `python -m src.main export-csv --out data/congress_trades.csv`
 - Export review queue: `python -m src.main export-review-csv --out data/review_queue.csv`
 - Dashboard: `python -m src.main dashboard`
@@ -92,12 +98,19 @@ Colonne principali dell'export normalizzato:
 
 ## Limiti correnti
 - il parser PTR resta euristico e dipende dalla struttura del PDF
+- alcuni PDF House con layout o note molto anomale possono ancora richiedere affinamenti puntuali del parser
 - la risoluzione degli asset distingue ora exact match, fuzzy match e manual review, ma resta limitata dalla qualita dei nomi dichiarati nei PDF
 - i fuzzy match vengono esportati con ticker e tenuti in review queue; i manual review restano senza ticker finche non vengono corretti a valle
 - non esiste ancora un sistema di alert; la dashboard Streamlit e il primo layer di analisi sopra il backend normalizzato
 
 ## Dashboard Streamlit
 La prima dashboard legge prima dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`) e, se non trova righe, prova i CSV esportati.
+
+Per un refresh completo da terminale con ingestione, rigenerazione export e riavvio automatico della dashboard sulla porta `8501`:
+- `python -m src.main refresh-dashboard`
+- oppure su Windows con bootstrap del venv: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 refresh-dashboard`
+
+In VS Code e disponibile anche il task `Refresh Dashboard (venv)`.
 
 Vista iniziale inclusa:
 - KPI su volume transazioni, membri attivi, ticker risolti e review aperte

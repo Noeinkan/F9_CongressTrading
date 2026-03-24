@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import platform
 import subprocess
 import sys
 
@@ -34,7 +35,90 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--server-port", type=int, default=8501)
     dashboard.add_argument("--server-address", default="127.0.0.1")
 
+    refresh_dashboard = sub.add_parser(
+        "refresh-dashboard",
+        help="Aggiorna ingest/export e riavvia la dashboard Streamlit",
+    )
+    refresh_dashboard.add_argument("--server-port", type=int, default=8501)
+    refresh_dashboard.add_argument("--server-address", default="127.0.0.1")
+
     return parser
+
+
+def _run_dashboard(*, server_port: int, server_address: str) -> int:
+    app_path = Path(__file__).resolve().parents[1] / "streamlit_app.py"
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
+        "--server.port",
+        str(server_port),
+        "--server.address",
+        server_address,
+    ]
+    return subprocess.call(command)
+
+
+def _find_pids_listening_on_port(port: int) -> list[int]:
+    system = platform.system().lower()
+    if system == "windows":
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        pids: list[int] = []
+        target = f":{port}"
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            if parts[0].upper() != "TCP":
+                continue
+            local_address = parts[1]
+            state = parts[3].upper()
+            pid_text = parts[4]
+            if not local_address.endswith(target):
+                continue
+            if state != "LISTENING":
+                continue
+            if pid_text.isdigit():
+                pids.append(int(pid_text))
+        return sorted(set(pids))
+
+    result = subprocess.run(
+        ["lsof", "-ti", f"tcp:{port}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return sorted({int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()})
+
+
+def _stop_processes_on_port(port: int) -> None:
+    pids = _find_pids_listening_on_port(port)
+    for pid in pids:
+        if platform.system().lower() == "windows":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False)
+        else:
+            subprocess.run(["kill", "-9", str(pid)], check=False)
+
+
+def _refresh_dashboard(*, server_port: int, server_address: str) -> int:
+    from .export_csv import export_csv, export_fd_csv, export_review_csv
+    from .ingest_house import ingest_house
+    from .ingest_senate import ingest_senate
+
+    ingest_house()
+    ingest_senate()
+    export_csv(Path("data/congress_trades.csv"))
+    export_fd_csv(Path("data/fd_filings.csv"))
+    export_review_csv(Path("data/review_queue.csv"))
+    _stop_processes_on_port(server_port)
+    return _run_dashboard(server_port=server_port, server_address=server_address)
 
 
 def main() -> None:
@@ -59,19 +143,9 @@ def main() -> None:
     elif args.command == "export-review-csv":
         export_review_csv(args.out)
     elif args.command == "dashboard":
-        app_path = Path(__file__).resolve().parents[1] / "streamlit_app.py"
-        command = [
-            sys.executable,
-            "-m",
-            "streamlit",
-            "run",
-            str(app_path),
-            "--server.port",
-            str(args.server_port),
-            "--server.address",
-            args.server_address,
-        ]
-        raise SystemExit(subprocess.call(command))
+        raise SystemExit(_run_dashboard(server_port=args.server_port, server_address=args.server_address))
+    elif args.command == "refresh-dashboard":
+        raise SystemExit(_refresh_dashboard(server_port=args.server_port, server_address=args.server_address))
 
 
 if __name__ == "__main__":

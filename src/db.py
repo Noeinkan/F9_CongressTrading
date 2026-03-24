@@ -381,6 +381,47 @@ def insert_filing(
     raw_document_path_value = _text(raw_document_path)
     source_hash_value = _text(source_hash)
 
+    existing = conn.execute(
+        """
+        SELECT id, filing_date
+        FROM filings
+        WHERE member_id = ? AND chamber = ? AND filing_type = ?
+          AND doc_id = ? AND raw_document_path = ?
+        ORDER BY CASE WHEN COALESCE(filing_date, '') <> '' THEN 0 ELSE 1 END, id ASC
+        LIMIT 1
+        """,
+        (
+            member_id,
+            chamber_value,
+            filing_type_value,
+            doc_id_value,
+            raw_document_path_value,
+        ),
+    ).fetchone()
+    if existing is not None:
+        existing_filing_date = _text(existing["filing_date"])
+        next_filing_date = filing_date_value or existing_filing_date
+        conn.execute(
+            """
+            UPDATE filings
+            SET filing_date = ?,
+                source_url = CASE WHEN ? <> '' THEN ? ELSE source_url END,
+                source_hash = CASE WHEN ? <> '' THEN ? ELSE source_hash END,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (
+                next_filing_date,
+                source_url_value,
+                source_url_value,
+                source_hash_value,
+                source_hash_value,
+                existing["id"],
+            ),
+        )
+        conn.commit()
+        return int(existing["id"])
+
     conn.execute(
         """
         INSERT INTO filings (

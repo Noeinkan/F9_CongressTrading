@@ -58,6 +58,26 @@ def make_content_hash(*parts: str | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def make_transaction_source_hash(
+    document_hash: str | None,
+    source_page: str | int | None,
+    transaction_date: str | None,
+    asset_name: str | None,
+    transaction_type: str | None,
+    amount_range: str | None,
+    owner_type: str | None = None,
+) -> str:
+    return make_content_hash(
+        document_hash,
+        str(source_page) if source_page is not None else None,
+        transaction_date,
+        asset_name,
+        transaction_type,
+        amount_range,
+        owner_type,
+    )
+
+
 def parse_amount_range(value: str | None) -> tuple[int | None, int | None]:
     if not value:
         return None, None

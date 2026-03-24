@@ -18,11 +18,12 @@ from .db import (
     upsert_member,
 )
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
-from .parse_ptr import iter_ptr_pdfs, parse_ptr_pdf
+from .parse_ptr import iter_ptr_pdfs, parse_ptr_pdf_safe
 from .ticker_lookup import resolve_asset
 from .utils import (
     extract_zip,
     make_content_hash,
+    make_transaction_source_hash,
     normalize_whitespace,
     parse_amount_range,
     parse_date,
@@ -94,7 +95,7 @@ def ingest_senate() -> None:
         sha = sha256_file(pdf_path)
         if is_file_ingested(conn, str(pdf_path), sha):
             continue
-        header, rows = parse_ptr_pdf(pdf_path)
+        header, rows = parse_ptr_pdf_safe(pdf_path)
         member = header.get("member") or pdf_path.stem
         filing_date = header.get("filing_date")
         source_url = ""
@@ -118,7 +119,8 @@ def ingest_senate() -> None:
             resolution = resolve_asset(conn, asset)
             amount_range = normalize_whitespace(row.get("amount_range") or "")
             amount_low, amount_high = parse_amount_range(amount_range)
-            source_page = int(row["source_page"]) if row.get("source_page") else None
+            source_page_value = row.get("source_page")
+            source_page = int(source_page_value) if source_page_value else None
             issuer_id = upsert_issuer(
                 conn,
                 issuer_name=resolution.get("issuer_name") or asset,
@@ -146,13 +148,14 @@ def ingest_senate() -> None:
                 review_status=resolution.get("review_status"),
                 source_page=source_page,
                 source_row=str(index),
-                source_hash=make_content_hash(
+                source_hash=make_transaction_source_hash(
                     sha,
-                    str(index),
+                    source_page,
                     row.get("transaction_date"),
                     asset,
                     row.get("transaction_type"),
                     amount_range,
+                    row.get("owner_type"),
                 ),
             )
             review_status = resolution.get("review_status")
