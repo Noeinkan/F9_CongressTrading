@@ -96,6 +96,8 @@ DASHBOARD_COPY = {
     "tab_overview": "Overview",
     "tab_review": "Review Queue",
     "tab_raw": "Raw Data",
+    "overview_detail_heading": "Latest activity and ticker drill-down",
+    "overview_detail_caption": "Row-level data and per-ticker views; use the summary charts above for the big picture.",
     "sub_monthly_activity": "Monthly activity",
     "sub_top_members": "Top members",
     "sub_chamber_mix": "Chamber mix",
@@ -957,10 +959,16 @@ def _inject_styles() -> None:
             border-color: rgba(126, 53, 29, 0.72) !important;
             filter: brightness(1.04);
         }
-        .stButton > button:focus,
-        .stDownloadButton > button:focus,
-        button[kind="secondary"]:focus {
-            box-shadow: 0 0 0 4px rgba(166, 75, 42, 0.16) !important;
+        .stButton > button:focus:not(:focus-visible),
+        .stDownloadButton > button:focus:not(:focus-visible),
+        button[kind="secondary"]:focus:not(:focus-visible) {
+            box-shadow: 0 12px 24px rgba(126, 53, 29, 0.16);
+        }
+        .stButton > button:focus-visible,
+        .stDownloadButton > button:focus-visible,
+        button[kind="secondary"]:focus-visible {
+            box-shadow: 0 0 0 3px rgba(166, 75, 42, 0.22), 0 12px 24px rgba(126, 53, 29, 0.16) !important;
+            outline: none;
         }
         .dashboard-shell {
             background:
@@ -1130,22 +1138,37 @@ def _inject_styles() -> None:
             border: 1px solid rgba(32, 52, 74, 0.12);
         }
         .stTabs [data-baseweb="tab-list"] {
-            gap: 0.4rem;
+            gap: 0.45rem;
+            margin-bottom: 0.65rem;
+            padding: 0.2rem 0;
+            flex-wrap: wrap;
         }
         .stTabs [data-baseweb="tab"] {
             background: rgba(255, 250, 241, 0.72);
             border: 1px solid rgba(48, 58, 71, 0.10);
             border-radius: 999px;
-            padding: 0.3rem 0.95rem;
+            padding: 0.38rem 1.05rem;
             height: auto;
+            min-height: 2.35rem;
             color: var(--ink);
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
         }
         .stTabs [data-baseweb="tab"] * {
             color: var(--ink);
         }
+        .stTabs [data-baseweb="tab"]:hover {
+            border-color: rgba(166, 75, 42, 0.28);
+            background: rgba(255, 250, 241, 0.95);
+        }
+        .stTabs [data-baseweb="tab"]:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
         .stTabs [aria-selected="true"] {
-            background: rgba(166, 75, 42, 0.10);
+            background: rgba(166, 75, 42, 0.14);
             color: var(--accent-deep);
+            border-color: rgba(166, 75, 42, 0.35);
+            font-weight: 700;
         }
         .stTabs [aria-selected="true"] * {
             color: var(--accent-deep);
@@ -1215,6 +1238,19 @@ def _inject_styles() -> None:
             }
             .hero-title {
                 font-size: 2.2rem;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .stTabs [data-baseweb="tab"],
+            .stButton > button,
+            .stDownloadButton > button,
+            button[kind="secondary"] {
+                transition: none;
+            }
+            .stButton > button:hover,
+            .stDownloadButton > button:hover,
+            button[kind="secondary"]:hover {
+                transform: none;
             }
         }
         </style>
@@ -2164,7 +2200,7 @@ def _filter_review_queue(review_queue: pd.DataFrame, filtered_transactions: pd.D
 def render_dashboard() -> None:
     st.set_page_config(
         page_title=_copy("page_title"),
-        page_icon="/",
+        page_icon="🏛️",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -2232,123 +2268,11 @@ def render_dashboard() -> None:
         unsafe_allow_html=True,
     )
 
+    st.divider()
     overview_tab, review_tab, raw_tab = st.tabs([_copy("tab_overview"), _copy("tab_review"), _copy("tab_raw")])
 
     with overview_tab:
-        latest_transactions = filtered.sort_values(
-            ["transaction_date", "filing_date"],
-            ascending=[False, False],
-        ).head(50)
-        st.subheader(_copy("sub_latest_transactions"))
-        _latest_df = latest_transactions[
-            [
-                "transaction_date",
-                "filing_date",
-                "filing_type",
-                "member",
-                "chamber",
-                "issuer_name",
-                "ticker",
-                "transaction_type_label",
-                "transaction_type",
-                "amount_range_raw",
-                "confidence_score",
-                "review_status",
-                "disclosure_url",
-            ]
-        ]
-        st.dataframe(
-            _style_dataframe_buy_sell(_latest_df),
-            hide_index=True,
-            width="stretch",
-            height=420,
-            column_config={
-                "transaction_date": st.column_config.DateColumn("Transaction Date", format="YYYY-MM-DD"),
-                "filing_date": st.column_config.DateColumn("Filing Date", format="YYYY-MM-DD"),
-                "transaction_type_label": st.column_config.TextColumn(
-                    "Buy / Sell",
-                    help="P = purchase (Buy). S = sale (Sell). Partial sales count as sells.",
-                ),
-                "transaction_type": st.column_config.TextColumn(
-                    "Code",
-                    help="Raw code from the disclosure (P, S, S (partial), E, …).",
-                ),
-                "confidence_score": st.column_config.ProgressColumn(
-                    "Confidence",
-                    format="%.2f",
-                    min_value=0.0,
-                    max_value=1.0,
-                ),
-                "disclosure_url": st.column_config.LinkColumn(
-                    "Source PDF (PTR)",
-                    help=(
-                        "U.S. House Periodic Transaction Report (PTR) on disclosures-clerk.house.gov when year and "
-                        "DocID are known. Congressional PTRs are not SEC Form 13F institutional holdings filings."
-                    ),
-                    display_text="Open PDF",
-                ),
-            },
-        )
-
-        st.subheader(_copy("sub_ticker_who_when"))
-        st.caption(_copy("ticker_chart_caption"))
-        tickers_available = sorted(
-            x for x in filtered.loc[filtered["ticker"].astype(str) != "", "ticker"].astype(str).unique() if x
-        )
-        if not tickers_available:
-            st.info(
-                "No resolved tickers in the current slice. Widen filters, set the sidebar Member or Ticker "
-                "clear the sidebar Member / Ticker text filters, or pick a different issuer; many disclosures still lack ticker mapping."
-            )
-        else:
-            pick_col, override_col = st.columns([1, 1])
-            with pick_col:
-                selected_ticker = st.selectbox(
-                    "Ticker",
-                    tickers_available,
-                    label_visibility="collapsed",
-                    key="overview_ticker_timeline_pick",
-                )
-            with override_col:
-                manual = st.text_input(
-                    "Ticker override (optional)",
-                    placeholder="e.g. MSFT",
-                    key="overview_ticker_manual",
-                ).strip().upper()
-            ticker_for_chart = manual if manual else selected_ticker
-            ticker_chart = _build_ticker_member_timeline(filtered, ticker_for_chart)
-            if ticker_chart is None:
-                st.info(f"No transactions for ticker **{ticker_for_chart}** in the current slice.")
-            else:
-                slice_tick = filtered[filtered["ticker"].astype(str).str.upper().eq(ticker_for_chart)]
-                labs = slice_tick["transaction_type"].map(transaction_type_display_label).astype(str).unique().tolist()
-                preferred = ["Buy", "Sell", "Sell (partial)", "Exchange", "Unknown"]
-                color_key_order = [x for x in preferred if x in labs] + sorted(x for x in labs if x not in preferred)
-                st.markdown(_ticker_timeline_color_key_html(color_key_order), unsafe_allow_html=True)
-                st.altair_chart(ticker_chart, width="stretch")
-                st.subheader(_copy("sub_ticker_3d"))
-                st.caption(_copy("ticker_3d_caption"))
-                fig_3d = _build_ticker_3d_figure(filtered, ticker_for_chart)
-                if fig_3d is None:
-                    st.warning("Install **plotly** (`pip install plotly`) to use the 3D view.")
-                else:
-                    st.plotly_chart(fig_3d, width="stretch")
-
-            st.subheader(_copy("sub_cumulative_exposure"))
-            st.caption(_copy("cumulative_exposure_caption"))
-            cum_chart, _cum_members = _build_member_cumulative_notional_chart(filtered, ticker_for_chart)
-            if cum_chart is None:
-                st.info(
-                    f"No dated transactions for ticker **{ticker_for_chart}** in the current slice "
-                    "— pick another ticker or widen filters."
-                )
-            else:
-                st.caption(
-                    "At most 16 members are drawn (those with the most trades on this ticker in the current slice)."
-                )
-                st.caption(_copy("chart_caption_cumulative"))
-                st.altair_chart(cum_chart, width="stretch")
-
+        # Context and aggregate charts first (progressive disclosure — summary before row-level detail).
         _render_section_intro(
             _copy("overview_kicker"),
             _copy("overview_title"),
@@ -2470,6 +2394,124 @@ def render_dashboard() -> None:
                         "estimated_value": st.column_config.NumberColumn("Estimated Midpoint", format="$%d"),
                     },
                 )
+
+        st.divider()
+        st.subheader(_copy("overview_detail_heading"))
+        st.caption(_copy("overview_detail_caption"))
+
+        latest_transactions = filtered.sort_values(
+            ["transaction_date", "filing_date"],
+            ascending=[False, False],
+        ).head(50)
+        st.subheader(_copy("sub_latest_transactions"))
+        _latest_df = latest_transactions[
+            [
+                "transaction_date",
+                "filing_date",
+                "filing_type",
+                "member",
+                "chamber",
+                "issuer_name",
+                "ticker",
+                "transaction_type_label",
+                "transaction_type",
+                "amount_range_raw",
+                "confidence_score",
+                "review_status",
+                "disclosure_url",
+            ]
+        ]
+        st.dataframe(
+            _style_dataframe_buy_sell(_latest_df),
+            hide_index=True,
+            width="stretch",
+            height=420,
+            column_config={
+                "transaction_date": st.column_config.DateColumn("Transaction Date", format="YYYY-MM-DD"),
+                "filing_date": st.column_config.DateColumn("Filing Date", format="YYYY-MM-DD"),
+                "transaction_type_label": st.column_config.TextColumn(
+                    "Buy / Sell",
+                    help="P = purchase (Buy). S = sale (Sell). Partial sales count as sells.",
+                ),
+                "transaction_type": st.column_config.TextColumn(
+                    "Code",
+                    help="Raw code from the disclosure (P, S, S (partial), E, …).",
+                ),
+                "confidence_score": st.column_config.ProgressColumn(
+                    "Confidence",
+                    format="%.2f",
+                    min_value=0.0,
+                    max_value=1.0,
+                ),
+                "disclosure_url": st.column_config.LinkColumn(
+                    "Source PDF (PTR)",
+                    help=(
+                        "U.S. House Periodic Transaction Report (PTR) on disclosures-clerk.house.gov when year and "
+                        "DocID are known. Congressional PTRs are not SEC Form 13F institutional holdings filings."
+                    ),
+                    display_text="Open PDF",
+                ),
+            },
+        )
+
+        st.subheader(_copy("sub_ticker_who_when"))
+        st.caption(_copy("ticker_chart_caption"))
+        tickers_available = sorted(
+            x for x in filtered.loc[filtered["ticker"].astype(str) != "", "ticker"].astype(str).unique() if x
+        )
+        if not tickers_available:
+            st.info(
+                "No resolved tickers in the current slice. Widen filters, set the sidebar Member or Ticker "
+                "clear the sidebar Member / Ticker text filters, or pick a different issuer; many disclosures still lack ticker mapping."
+            )
+        else:
+            pick_col, override_col = st.columns([1, 1])
+            with pick_col:
+                selected_ticker = st.selectbox(
+                    "Ticker",
+                    tickers_available,
+                    label_visibility="collapsed",
+                    key="overview_ticker_timeline_pick",
+                )
+            with override_col:
+                manual = st.text_input(
+                    "Ticker override (optional)",
+                    placeholder="e.g. MSFT",
+                    key="overview_ticker_manual",
+                ).strip().upper()
+            ticker_for_chart = manual if manual else selected_ticker
+            ticker_chart = _build_ticker_member_timeline(filtered, ticker_for_chart)
+            if ticker_chart is None:
+                st.info(f"No transactions for ticker **{ticker_for_chart}** in the current slice.")
+            else:
+                slice_tick = filtered[filtered["ticker"].astype(str).str.upper().eq(ticker_for_chart)]
+                labs = slice_tick["transaction_type"].map(transaction_type_display_label).astype(str).unique().tolist()
+                preferred = ["Buy", "Sell", "Sell (partial)", "Exchange", "Unknown"]
+                color_key_order = [x for x in preferred if x in labs] + sorted(x for x in labs if x not in preferred)
+                st.markdown(_ticker_timeline_color_key_html(color_key_order), unsafe_allow_html=True)
+                st.altair_chart(ticker_chart, width="stretch")
+                st.subheader(_copy("sub_ticker_3d"))
+                st.caption(_copy("ticker_3d_caption"))
+                fig_3d = _build_ticker_3d_figure(filtered, ticker_for_chart)
+                if fig_3d is None:
+                    st.warning("Install **plotly** (`pip install plotly`) to use the 3D view.")
+                else:
+                    st.plotly_chart(fig_3d, width="stretch")
+
+            st.subheader(_copy("sub_cumulative_exposure"))
+            st.caption(_copy("cumulative_exposure_caption"))
+            cum_chart, _cum_members = _build_member_cumulative_notional_chart(filtered, ticker_for_chart)
+            if cum_chart is None:
+                st.info(
+                    f"No dated transactions for ticker **{ticker_for_chart}** in the current slice "
+                    "— pick another ticker or widen filters."
+                )
+            else:
+                st.caption(
+                    "At most 16 members are drawn (those with the most trades on this ticker in the current slice)."
+                )
+                st.caption(_copy("chart_caption_cumulative"))
+                st.altair_chart(cum_chart, width="stretch")
 
     with review_tab:
         _render_section_intro(
