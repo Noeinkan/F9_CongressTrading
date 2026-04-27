@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 from collections import defaultdict
 
 import requests
@@ -37,7 +38,7 @@ from .db import (
 )
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
 from .parse_ptr import parse_ptr_pdf_safe
-from .ticker_lookup import resolve_asset
+from .ticker_lookup import bulk_resolve_unique_assets_for_reconcile, resolve_asset
 from .house_coverage import print_house_coverage_report
 from .utils import (
     ensure_dirs,
@@ -255,10 +256,22 @@ def re_resolve_all_transaction_tickers(conn) -> int:
 
     count = 0
     n_tx = sum(len(v) for v in by_asset.values())
+    unique_assets = list(dict.fromkeys(by_asset.keys()))
+    bulk: dict[str, dict[str, Any]] | None = None
+    if (os.getenv("CONGRESS_DISABLE_RE_RESOLVE_OPENFIGI_BATCH") or "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        bulk = bulk_resolve_unique_assets_for_reconcile(conn, unique_assets)
+
     bar = tqdm(by_asset.items(), desc="Re-resolve tickers", unit="asset")
     for asset, tid_pairs in bar:
         bar.set_postfix_str(f"{n_tx:,} tx")
-        resolution = resolve_asset(conn, asset)
+        resolution = (bulk or {}).get(asset) if bulk is not None else None
+        if resolution is None:
+            resolution = resolve_asset(conn, asset)
         issuer_id = upsert_issuer(
             conn,
             issuer_name=resolution.get("issuer_name") or asset,
@@ -275,7 +288,10 @@ def re_resolve_all_transaction_tickers(conn) -> int:
         res_cusip = normalize_whitespace(resolution.get("cusip_or_figi") or "")
         res_conf = float(resolution.get("confidence_score") or 0.0)
         res_review_db = normalize_whitespace(resolution.get("review_status") or "pending")
-        for tid, existing_ticker in tid_pairs:
+        n_pairs = len(tid_pairs)
+        for i, (tid, existing_ticker) in enumerate(tid_pairs):
+            if n_pairs > 500 and i > 0 and i % 500 == 0:
+                bar.set_postfix_str(f"{n_tx:,} tx · DB {i}/{n_pairs} same asset")
             conn.execute(
                 """
                 UPDATE transactions

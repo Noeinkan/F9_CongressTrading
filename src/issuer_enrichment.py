@@ -73,9 +73,16 @@ def _fetch_polygon_ticker_details_cached(ticker: str, api_key: str) -> dict[str,
 def fetch_polygon_ticker_details(ticker: str | None) -> dict[str, Any] | None:
     if not ticker:
         return None
+    # Halves Polygon traffic during re-resolve / bulk ingest; sector/industry fall back to heuristics only.
+    if (os.getenv("CONGRESS_SKIP_POLYGON_TICKER_DETAILS") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
     api_key = os.getenv("POLYGON_API_KEY")
     if not api_key:
         return None
+    # Share the same interval limiter as ticker search to avoid 429 bursts during re-resolve.
+    from . import ticker_lookup as _ticker_lookup
+
+    _ticker_lookup.POLYGON_LIMITER.wait()
     try:
         return _fetch_polygon_ticker_details_cached(ticker, api_key)
     except requests.RequestException:

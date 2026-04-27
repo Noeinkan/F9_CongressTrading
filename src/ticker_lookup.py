@@ -4,7 +4,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import requests
 from rapidfuzz import fuzz
@@ -44,8 +44,10 @@ class AssetMatch:
     resolution_status: str
 
 
-DEFAULT_POLYGON_MIN_INTERVAL = float(os.getenv("POLYGON_MIN_INTERVAL_SECONDS", "0.35"))
-DEFAULT_OPENFIGI_MIN_INTERVAL = float(os.getenv("OPENFIGI_MIN_INTERVAL_SECONDS", "0.6"))
+DEFAULT_POLYGON_MIN_INTERVAL = float(os.getenv("POLYGON_MIN_INTERVAL_SECONDS", "0.28"))
+# OpenFIGI docs: with API key, ~25 mapping requests / 6s; ~0.24s spacing is safe headroom.
+DEFAULT_OPENFIGI_MIN_INTERVAL = float(os.getenv("OPENFIGI_MIN_INTERVAL_SECONDS", "0.28"))
+OPENFIGI_BATCH_SIZE = max(1, min(100, int(os.getenv("OPENFIGI_BATCH_SIZE", "100"))))
 DEFAULT_RATE_LIMIT_BACKOFF = float(os.getenv("LOOKUP_RATE_LIMIT_BACKOFF_SECONDS", "60"))
 MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_SECONDS", "5"))
 
@@ -205,14 +207,17 @@ def _request_with_rate_limit(
 
     if response.status_code == 429:
         retry_after = _parse_retry_after(response, backoff_seconds)
-        limiter.backoff(retry_after)
         if retry_after <= retry_after_cap:
+            limiter.backoff(retry_after)
             limiter.wait()
             try:
                 response = requests.request(method, url, **request_kwargs)
             except RequestException:
                 return None
         else:
+            # Do not push last_call minutes into the future when we skip the retry
+            # (that would freeze the next many lookups on this limiter).
+            limiter.backoff(limiter.min_interval)
             return None
 
     try:
@@ -277,27 +282,7 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
     return best_match
 
 
-def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
-    headers = {
-        "Content-Type": "application/json",
-        "X-OPENFIGI-APIKEY": api_key,
-        "User-Agent": USER_AGENT,
-    }
-    payload = [{"name": asset, "exchCode": "US", "securityType2": "Common Stock"}]
-    resp = _request_with_rate_limit(
-        "POST",
-        OPENFIGI_API_URL,
-        limiter=limiter,
-        headers=headers,
-        json=payload,
-        timeout=30,
-    )
-    if resp is None:
-        return None
-    data = resp.json()
-    if not data:
-        return None
-    results = data[0].get("data", [])
+def _best_openfigi_match(asset: str, results: list[Any]) -> Optional[AssetMatch]:
     if not results:
         return None
     best_match: AssetMatch | None = None
@@ -337,6 +322,71 @@ def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[
     return best_match
 
 
+def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
+    headers = {
+        "Content-Type": "application/json",
+        "X-OPENFIGI-APIKEY": api_key,
+        "User-Agent": USER_AGENT,
+    }
+    payload = [{"name": asset, "exchCode": "US", "securityType2": "Common Stock"}]
+    resp = _request_with_rate_limit(
+        "POST",
+        OPENFIGI_API_URL,
+        limiter=limiter,
+        headers=headers,
+        json=payload,
+        timeout=30,
+    )
+    if resp is None:
+        return None
+    data = resp.json()
+    if not data:
+        return None
+    results = data[0].get("data", [])
+    return _best_openfigi_match(asset, results)
+
+
+def openfigi_lookup_batch(assets: list[str], api_key: str, limiter: RateLimiter) -> dict[str, Optional[AssetMatch]]:
+    """Up to 100 name-mapping jobs per HTTP request (OpenFIGI authenticated limit)."""
+    out: dict[str, Optional[AssetMatch]] = {a: None for a in assets}
+    if not assets:
+        return out
+    headers = {
+        "Content-Type": "application/json",
+        "X-OPENFIGI-APIKEY": api_key,
+        "User-Agent": USER_AGENT,
+    }
+    for start in range(0, len(assets), OPENFIGI_BATCH_SIZE):
+        chunk = assets[start : start + OPENFIGI_BATCH_SIZE]
+        payload = [{"name": a, "exchCode": "US", "securityType2": "Common Stock"} for a in chunk]
+        timeout = min(120, 25 + 5 * len(chunk))
+        resp = _request_with_rate_limit(
+            "POST",
+            OPENFIGI_API_URL,
+            limiter=limiter,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        if resp is None:
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            continue
+        if not isinstance(data, list):
+            continue
+        for j, asset in enumerate(chunk):
+            if j >= len(data):
+                break
+            block = data[j]
+            if not isinstance(block, dict):
+                continue
+            rows = block.get("data") or []
+            out[asset] = _best_openfigi_match(asset, rows)
+    return out
+
+
 def infer_asset_type(asset: str, ticker: str | None) -> str:
     asset_key = normalize_key(asset)
     if re.search(r"\b(call|put|option|options)\b", asset_key):
@@ -350,6 +400,118 @@ def infer_asset_type(asset: str, ticker: str | None) -> str:
     if ticker:
         return "equity"
     return "unknown"
+
+
+def _resolution_dict_from_cached_row(asset_norm: str, cached: Any) -> dict[str, Any]:
+    ticker = cached["ticker"] or None
+    confidence = float(cached["confidence_score"] or 0.0)
+    review_status = _infer_resolution_status(ticker, confidence, cached["resolution_status"])
+    return {
+        "asset_name_raw": asset_norm,
+        "asset_name_normalized": cached["asset_name_normalized"] or asset_norm,
+        "issuer_name": cached["issuer_name"] or asset_norm,
+        "ticker": ticker,
+        "cusip_or_figi": cached["cusip_or_figi"] or None,
+        "asset_type": cached["asset_type"] or infer_asset_type(asset_norm, ticker),
+        "sector": cached["sector"] or "",
+        "industry": cached["industry"] or "",
+        "confidence_score": confidence,
+        "match_source": cached["match_source"] or "cache",
+        "review_status": review_status,
+    }
+
+
+def _finalize_resolution_from_match(
+    conn,
+    asset_norm: str,
+    matched: AssetMatch,
+    *,
+    issuer_enrich_hint: str | None = None,
+) -> dict[str, Any]:
+    asset_type = infer_asset_type(matched.asset_name_normalized, matched.ticker)
+    enrich_src = issuer_enrich_hint if issuer_enrich_hint is not None else (matched.issuer_name or asset_norm)
+    issuer_metadata = enrich_issuer_metadata(
+        enrich_src,
+        matched.ticker,
+        asset_type,
+    )
+    issuer_name = issuer_metadata.get("issuer_name") or matched.issuer_name or asset_norm
+    upsert_asset_resolution(
+        conn,
+        asset_name_raw=asset_norm,
+        asset_name_normalized=matched.asset_name_normalized,
+        issuer_name=issuer_name,
+        ticker=matched.ticker,
+        cusip_or_figi=matched.cusip_or_figi,
+        asset_type=asset_type,
+        sector=issuer_metadata.get("sector"),
+        industry=issuer_metadata.get("industry"),
+        confidence_score=matched.confidence_score,
+        resolution_status=matched.resolution_status,
+        match_source=matched.match_source,
+    )
+    return {
+        "asset_name_raw": asset_norm,
+        "asset_name_normalized": matched.asset_name_normalized,
+        "issuer_name": issuer_name,
+        "ticker": matched.ticker,
+        "cusip_or_figi": matched.cusip_or_figi,
+        "asset_type": asset_type,
+        "sector": issuer_metadata.get("sector") or "",
+        "industry": issuer_metadata.get("industry") or "",
+        "confidence_score": matched.confidence_score,
+        "match_source": matched.match_source,
+        "review_status": matched.resolution_status,
+    }
+
+
+def bulk_resolve_unique_assets_for_reconcile(conn, assets_unique: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """
+    Resolve each distinct asset string once, using batched OpenFIGI name lookups (up to 100 per HTTP call).
+    Intended for `re-resolve-tickers`; same DB/cache outcome as sequential resolve_asset for these paths.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    ordered = [normalize_whitespace(x) for x in dict.fromkeys(assets_unique)]
+    ordered = [a for a in ordered if a]
+
+    polygon_key = os.getenv("POLYGON_API_KEY") if not house_ingest_skip_external_asset_lookup() else None
+    openfigi_key = os.getenv("OPENFIGI_API_KEY") if not house_ingest_skip_external_asset_lookup() else None
+
+    need_openfigi_batch: list[str] = []
+
+    for an in ordered:
+        if cached := get_asset_resolution(conn, an):
+            out[an] = _resolution_dict_from_cached_row(an, cached)
+            continue
+        if paren := _try_disclosure_parenthetical_match(an):
+            out[an] = _finalize_resolution_from_match(conn, an, paren, issuer_enrich_hint=an)
+            continue
+        if house_ingest_skip_external_asset_lookup():
+            out[an] = _finalize_resolution_from_match(
+                conn, an, _manual_review_match(an, "skipped_external_lookup")
+            )
+            continue
+
+        matched: AssetMatch = _manual_review_match(an, "none")
+        if polygon_key:
+            hit = polygon_lookup(an, polygon_key, POLYGON_LIMITER)
+            if hit is not None:
+                matched = hit
+        if matched.ticker is not None:
+            out[an] = _finalize_resolution_from_match(conn, an, matched)
+        elif openfigi_key:
+            need_openfigi_batch.append(an)
+        else:
+            out[an] = _finalize_resolution_from_match(conn, an, matched)
+
+    if need_openfigi_batch and openfigi_key:
+        batch = openfigi_lookup_batch(need_openfigi_batch, openfigi_key, OPENFIGI_LIMITER)
+        for an in need_openfigi_batch:
+            om = batch.get(an)
+            final_m = om if om is not None else _manual_review_match(an, "none")
+            out[an] = _finalize_resolution_from_match(conn, an, final_m)
+
+    return out
 
 
 def resolve_asset(conn, asset: str) -> dict[str, Any]:
@@ -370,61 +532,11 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
             "review_status": empty_match.resolution_status,
         }
 
-    paren_match = _try_disclosure_parenthetical_match(asset_norm)
-    if paren_match is not None:
-        asset_type = infer_asset_type(paren_match.asset_name_normalized, paren_match.ticker)
-        issuer_metadata = enrich_issuer_metadata(
-            asset_norm,
-            paren_match.ticker,
-            asset_type,
-        )
-        issuer_name = issuer_metadata.get("issuer_name") or paren_match.issuer_name or asset_norm
-        upsert_asset_resolution(
-            conn,
-            asset_name_raw=asset_norm,
-            asset_name_normalized=paren_match.asset_name_normalized,
-            issuer_name=issuer_name,
-            ticker=paren_match.ticker,
-            cusip_or_figi=paren_match.cusip_or_figi,
-            asset_type=asset_type,
-            sector=issuer_metadata.get("sector"),
-            industry=issuer_metadata.get("industry"),
-            confidence_score=paren_match.confidence_score,
-            resolution_status=paren_match.resolution_status,
-            match_source=paren_match.match_source,
-        )
-        return {
-            "asset_name_raw": asset_norm,
-            "asset_name_normalized": paren_match.asset_name_normalized,
-            "issuer_name": issuer_name,
-            "ticker": paren_match.ticker,
-            "cusip_or_figi": paren_match.cusip_or_figi,
-            "asset_type": asset_type,
-            "sector": issuer_metadata.get("sector") or "",
-            "industry": issuer_metadata.get("industry") or "",
-            "confidence_score": paren_match.confidence_score,
-            "match_source": paren_match.match_source,
-            "review_status": paren_match.resolution_status,
-        }
+    if paren_match := _try_disclosure_parenthetical_match(asset_norm):
+        return _finalize_resolution_from_match(conn, asset_norm, paren_match, issuer_enrich_hint=asset_norm)
 
-    cached = get_asset_resolution(conn, asset_norm)
-    if cached is not None:
-        ticker = cached["ticker"] or None
-        confidence = float(cached["confidence_score"] or 0.0)
-        review_status = _infer_resolution_status(ticker, confidence, cached["resolution_status"])
-        return {
-            "asset_name_raw": asset_norm,
-            "asset_name_normalized": cached["asset_name_normalized"] or asset_norm,
-            "issuer_name": cached["issuer_name"] or asset_norm,
-            "ticker": ticker,
-            "cusip_or_figi": cached["cusip_or_figi"] or None,
-            "asset_type": cached["asset_type"] or infer_asset_type(asset_norm, ticker),
-            "sector": cached["sector"] or "",
-            "industry": cached["industry"] or "",
-            "confidence_score": confidence,
-            "match_source": cached["match_source"] or "cache",
-            "review_status": review_status,
-        }
+    if cached := get_asset_resolution(conn, asset_norm):
+        return _resolution_dict_from_cached_row(asset_norm, cached)
 
     polygon_key = os.getenv("POLYGON_API_KEY")
     openfigi_key = os.getenv("OPENFIGI_API_KEY")
@@ -444,42 +556,7 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
     else:
         matched_asset = _manual_review_match(asset_norm, "skipped_external_lookup")
 
-    asset_type = infer_asset_type(matched_asset.asset_name_normalized, matched_asset.ticker)
-    issuer_metadata = enrich_issuer_metadata(
-        matched_asset.issuer_name,
-        matched_asset.ticker,
-        asset_type,
-    )
-    issuer_name = issuer_metadata.get("issuer_name") or matched_asset.issuer_name or asset_norm
-
-    upsert_asset_resolution(
-        conn,
-        asset_name_raw=asset_norm,
-        asset_name_normalized=matched_asset.asset_name_normalized,
-        issuer_name=issuer_name,
-        ticker=matched_asset.ticker,
-        cusip_or_figi=matched_asset.cusip_or_figi,
-        asset_type=asset_type,
-        sector=issuer_metadata.get("sector"),
-        industry=issuer_metadata.get("industry"),
-        confidence_score=matched_asset.confidence_score,
-        resolution_status=matched_asset.resolution_status,
-        match_source=matched_asset.match_source,
-    )
-
-    return {
-        "asset_name_raw": asset_norm,
-        "asset_name_normalized": matched_asset.asset_name_normalized,
-        "issuer_name": issuer_name,
-        "ticker": matched_asset.ticker,
-        "cusip_or_figi": matched_asset.cusip_or_figi,
-        "asset_type": asset_type,
-        "sector": issuer_metadata.get("sector") or "",
-        "industry": issuer_metadata.get("industry") or "",
-        "confidence_score": matched_asset.confidence_score,
-        "match_source": matched_asset.match_source,
-        "review_status": matched_asset.resolution_status,
-    }
+    return _finalize_resolution_from_match(conn, asset_norm, matched_asset)
 
 
 def lookup_ticker(conn, asset: str) -> Optional[str]:
