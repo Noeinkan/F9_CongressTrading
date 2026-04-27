@@ -21,7 +21,8 @@ All CLI: **`python -m src.main <command>`** from repo root.
 | `ingest-house` | House PTR + FD pipeline |
 | `ingest-senate` | Senate PTR (expects PDFs present) |
 | `ingest-all` | House + Senate |
-| `export-csv` | Normalized trades → `--out` (default `data/congress_trades.csv`) |
+| `export-csv` | Normalized trades → `--out` (default `data/congress_trades.csv`). Optional Polygon columns: `--polygon-pnl` [`--as-of YYYY-MM-DD`] [`--polygon-pnl-cache-only`] [`--polygon-pnl-refresh`] |
+| `warm-polygon-price-cache` | Prefetch Polygon daily bars into `polygon_daily_bar_cache` for tickers in `transactions` (`--as-of`, `--refresh`, `--cache-only`) |
 | `export-fd-csv` | FD report CSV |
 | `export-review-csv` | Review queue CSV |
 | `dashboard` | Streamlit (`--server-port`, `--server-address`) |
@@ -38,7 +39,7 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 ## Data model (high level)
 
-SQLite holds legacy tables plus normalized tracker tables: `members`, `filings`, `transactions`, `issuers`, `transaction_tags`, `review_queue`, `asset_resolution_cache`. Asset resolution: `exact_match` / `fuzzy_match` / `manual_review` — parser and mapping are heuristic.
+SQLite holds legacy tables plus normalized tracker tables: `members`, `filings`, `transactions`, `issuers`, `transaction_tags`, `review_queue`, `asset_resolution_cache`, `polygon_daily_bar_cache` (Polygon daily closes for optional return/PnL-style export and dashboard). Asset resolution: `exact_match` / `fuzzy_match` / `manual_review` — parser and mapping are heuristic.
 
 ## When editing code
 

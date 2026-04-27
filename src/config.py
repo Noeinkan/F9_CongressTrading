@@ -90,7 +90,11 @@ HOUSE_PTR_PDF_URL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{y
 
 POLYGON_TICKER_SEARCH = "https://api.polygon.io/v3/reference/tickers"
 POLYGON_TICKER_DETAILS = "https://api.polygon.io/v3/reference/tickers/{ticker}"
+# Daily aggregates (ms from/to, America/New_York session dates in response `t`).
+POLYGON_AGGS_DAY = "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{from_ms}/{to_ms}"
 OPENFIGI_API_URL = "https://api.openfigi.com/v3/mapping"
+# Name / keyword resolution (FIGI mapping jobs use idType/idValue; plain-name jobs are not accepted).
+OPENFIGI_SEARCH_URL = "https://api.openfigi.com/v3/search"
 
 try:
     from dotenv import load_dotenv

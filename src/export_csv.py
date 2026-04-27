@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import csv
+import os
+from datetime import date
 from pathlib import Path
+from typing import Any
 
-from .db import get_connection
+from .db import get_connection, init_db
 
 
-def export_csv(out_path: Path) -> None:
+def export_csv(
+    out_path: Path,
+    *,
+    polygon_pnl: bool = False,
+    polygon_pnl_cache_only: bool = False,
+    polygon_pnl_refresh: bool = False,
+    as_of: date | None = None,
+) -> None:
     conn = get_connection()
+    init_db(conn)
     cursor = conn.execute(
         """
         SELECT
@@ -40,60 +51,84 @@ def export_csv(out_path: Path) -> None:
         """
     )
     rows = cursor.fetchall()
+    as_of_d = as_of or date.today()
+    enriched: list[dict[str, Any]] | None = None
+    polygon_cols: list[str] = []
+    if polygon_pnl or polygon_pnl_cache_only:
+        from .polygon_prices import POLYGON_PNL_EXTRA_COLUMNS, enrich_export_rows_with_polygon_pnl
+
+        polygon_cols = list(POLYGON_PNL_EXTRA_COLUMNS)
+        api_key = os.getenv("POLYGON_API_KEY", "").strip()
+        if not api_key and not polygon_pnl_cache_only:
+            conn.close()
+            raise SystemExit("POLYGON_API_KEY richiesto per --polygon-pnl (oppure usa --polygon-pnl-cache-only).")
+        enriched = enrich_export_rows_with_polygon_pnl(
+            conn,
+            rows,
+            as_of=as_of_d,
+            api_key=api_key,
+            force_refetch=polygon_pnl_refresh,
+            cache_only=polygon_pnl_cache_only,
+        )
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    base_headers = [
+        "member",
+        "chamber",
+        "filing_type",
+        "filing_date",
+        "transaction_date",
+        "owner_type",
+        "asset_name_raw",
+        "asset_name_normalized",
+        "asset_type",
+        "issuer_name",
+        "sector",
+        "industry",
+        "ticker",
+        "transaction_type",
+        "amount_low",
+        "amount_high",
+        "amount_range_raw",
+        "confidence_score",
+        "review_status",
+        "source_url",
+        "raw_document_path",
+    ]
+    headers = base_headers + polygon_cols
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            [
-                "member",
-                "chamber",
-                "filing_type",
-                "filing_date",
-                "transaction_date",
-                "owner_type",
-                "asset_name_raw",
-                "asset_name_normalized",
-                "asset_type",
-                "issuer_name",
-                "sector",
-                "industry",
-                "ticker",
-                "transaction_type",
-                "amount_low",
-                "amount_high",
-                "amount_range_raw",
-                "confidence_score",
-                "review_status",
-                "source_url",
-                "raw_document_path",
-            ]
-        )
-        for row in rows:
-            writer.writerow(
-                [
-                    row["member"],
-                    row["chamber"],
-                    row["filing_type"],
-                    row["filing_date"],
-                    row["transaction_date"],
-                    row["owner_type"],
-                    row["asset_name_raw"],
-                    row["asset_name_normalized"],
-                    row["asset_type"],
-                    row["issuer_name"],
-                    row["sector"],
-                    row["industry"],
-                    row["ticker"],
-                    row["transaction_type"],
-                    row["amount_low"],
-                    row["amount_high"],
-                    row["amount_range_raw"],
-                    row["confidence_score"],
-                    row["review_status"],
-                    row["source_url"],
-                    row["raw_document_path"],
-                ]
-            )
+        writer.writerow(headers)
+        if enriched is not None:
+            for r in enriched:
+                writer.writerow([r[c] for c in headers])
+        else:
+            for row in rows:
+                writer.writerow(
+                    [
+                        row["member"],
+                        row["chamber"],
+                        row["filing_type"],
+                        row["filing_date"],
+                        row["transaction_date"],
+                        row["owner_type"],
+                        row["asset_name_raw"],
+                        row["asset_name_normalized"],
+                        row["asset_type"],
+                        row["issuer_name"],
+                        row["sector"],
+                        row["industry"],
+                        row["ticker"],
+                        row["transaction_type"],
+                        row["amount_low"],
+                        row["amount_high"],
+                        row["amount_range_raw"],
+                        row["confidence_score"],
+                        row["review_status"],
+                        row["source_url"],
+                        row["raw_document_path"],
+                    ]
+                )
     conn.close()
     print(f"CSV export completato: {out_path}")
 

@@ -98,13 +98,22 @@ def _backfill_house_ptr_filing_dates(conn) -> int:
     return updated
 
 
-def _set_review_reason(conn, transaction_id: int, review_status: str | None, asset: str, parse_warning: str | None) -> None:
+def _set_review_reason(
+    conn,
+    transaction_id: int,
+    review_status: str | None,
+    asset: str,
+    parse_warning: str | None,
+    *,
+    commit: bool = True,
+) -> None:
     if parse_warning:
         queue_transaction_review(
             conn,
             transaction_id=transaction_id,
             reason="parse_warning",
             notes=parse_warning,
+            commit=commit,
         )
         return
 
@@ -114,11 +123,13 @@ def _set_review_reason(conn, transaction_id: int, review_status: str | None, ass
             transaction_id=transaction_id,
             reason="asset_resolution",
             notes=f"Asset requires review: {asset}",
+            commit=commit,
         )
         return
 
     conn.execute("DELETE FROM review_queue WHERE transaction_id = ?", (transaction_id,))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def _apply_parsed_row_to_transaction(conn, transaction_id: int, parsed_row: dict[str, str | None], *, existing_ticker: str | None = None) -> None:
@@ -256,22 +267,32 @@ def re_resolve_all_transaction_tickers(conn) -> int:
 
     count = 0
     n_tx = sum(len(v) for v in by_asset.values())
-    unique_assets = list(dict.fromkeys(by_asset.keys()))
     bulk: dict[str, dict[str, Any]] | None = None
-    if (os.getenv("CONGRESS_DISABLE_RE_RESOLVE_OPENFIGI_BATCH") or "").strip().lower() not in {
+    # Prefetching every distinct asset before DB updates was fast with batched OpenFIGI mapping; with
+    # /v3/search per asset it can run for hours and hit tool timeouts. Default: resolve per asset in the
+    # loop (cache still dedupes). Opt in: CONGRESS_RE_RESOLVE_TICKERS_BULK=1
+    use_bulk = (os.getenv("CONGRESS_RE_RESOLVE_TICKERS_BULK") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if use_bulk and (os.getenv("CONGRESS_DISABLE_RE_RESOLVE_OPENFIGI_BATCH") or "").strip().lower() not in {
         "1",
         "true",
         "yes",
         "on",
     }:
-        bulk = bulk_resolve_unique_assets_for_reconcile(conn, unique_assets)
+        bulk = bulk_resolve_unique_assets_for_reconcile(
+            conn, list(dict.fromkeys(by_asset.keys())), commit=False
+        )
 
     bar = tqdm(by_asset.items(), desc="Re-resolve tickers", unit="asset")
-    for asset, tid_pairs in bar:
+    for asset_i, (asset, tid_pairs) in enumerate(bar, start=1):
         bar.set_postfix_str(f"{n_tx:,} tx")
         resolution = (bulk or {}).get(asset) if bulk is not None else None
         if resolution is None:
-            resolution = resolve_asset(conn, asset)
+            resolution = resolve_asset(conn, asset, commit=False)
         issuer_id = upsert_issuer(
             conn,
             issuer_name=resolution.get("issuer_name") or asset,
@@ -279,6 +300,7 @@ def re_resolve_all_transaction_tickers(conn) -> int:
             sector=resolution.get("sector"),
             industry=resolution.get("industry"),
             asset_type=resolution.get("asset_type"),
+            commit=False,
         )
         if issuer_id is None:
             continue
@@ -317,8 +339,28 @@ def re_resolve_all_transaction_tickers(conn) -> int:
                     tid,
                 ),
             )
-            _set_review_reason(conn, tid, review_status_for_queue, asset, None)
             count += 1
+        # Match _set_review_reason (no parse_warning): one batched DELETE per asset when cleared from review.
+        if review_status_for_queue and review_status_for_queue != "exact_match":
+            for tid, _ in tid_pairs:
+                queue_transaction_review(
+                    conn,
+                    transaction_id=tid,
+                    reason="asset_resolution",
+                    notes=f"Asset requires review: {asset}",
+                    commit=False,
+                )
+        else:
+            tids_only = [t[0] for t in tid_pairs]
+            for off in range(0, len(tids_only), 500):
+                chunk = tids_only[off : off + 500]
+                placeholders = ",".join("?" * len(chunk))
+                conn.execute(
+                    f"DELETE FROM review_queue WHERE transaction_id IN ({placeholders})",
+                    chunk,
+                )
+        if asset_i % 25 == 0:
+            conn.commit()
     conn.commit()
     return count
 

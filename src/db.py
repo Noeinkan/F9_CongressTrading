@@ -22,9 +22,13 @@ def _ensure_columns(conn: sqlite3.Connection, table_name: str, columns: Mapping[
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=60.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 
@@ -225,6 +229,17 @@ def init_db(conn: sqlite3.Connection) -> None:
         ON fd_filings (
             member, chamber, filing_type, state_district,
             year, filing_date, doc_id, source_file
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS polygon_daily_bar_cache (
+            ticker TEXT NOT NULL,
+            bar_date TEXT NOT NULL,
+            close REAL NOT NULL,
+            fetched_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (ticker, bar_date)
         )
         """
     )
@@ -474,6 +489,7 @@ def upsert_issuer(
     sector: str | None = None,
     industry: str | None = None,
     asset_type: str | None = None,
+    commit: bool = True,
 ) -> int | None:
     issuer_name_value = _text(issuer_name) or _text(ticker)
     if not issuer_name_value:
@@ -502,7 +518,8 @@ def upsert_issuer(
         """,
         (issuer_name_value, ticker_value, asset_type_value),
     ).fetchone()
-    conn.commit()
+    if commit:
+        conn.commit()
     if row is None:
         raise RuntimeError("Failed to upsert issuer")
     return int(row["id"])
@@ -615,6 +632,7 @@ def queue_transaction_review(
     reason: str,
     notes: str | None = None,
     status: str = "open",
+    commit: bool = True,
 ) -> None:
     conn.execute(
         """
@@ -628,7 +646,8 @@ def queue_transaction_review(
         """,
         (transaction_id, _text(reason), _text(status), _text(notes)),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def upsert_asset_resolution(
@@ -645,6 +664,7 @@ def upsert_asset_resolution(
     confidence_score: float,
     resolution_status: str,
     match_source: str,
+    commit: bool = True,
 ) -> None:
     asset_name_key = normalize_key(asset_name_raw)
     conn.execute(
@@ -694,7 +714,8 @@ def upsert_asset_resolution(
         """,
         (_text(asset_name_raw), _text(ticker) or None, _text(match_source)),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def get_asset_resolution(conn: sqlite3.Connection, asset_name_raw: str) -> sqlite3.Row | None:

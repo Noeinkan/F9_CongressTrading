@@ -11,7 +11,13 @@ from rapidfuzz import fuzz
 from requests import Response
 from requests.exceptions import RequestException
 
-from .config import OPENFIGI_API_URL, POLYGON_TICKER_SEARCH, USER_AGENT, house_ingest_skip_external_asset_lookup
+from .config import (
+    OPENFIGI_API_URL,
+    OPENFIGI_SEARCH_URL,
+    POLYGON_TICKER_SEARCH,
+    USER_AGENT,
+    house_ingest_skip_external_asset_lookup,
+)
 from .db import get_asset_resolution, upsert_asset_resolution
 from .issuer_enrichment import enrich_issuer_metadata
 from .utils import normalize_key, normalize_whitespace
@@ -47,12 +53,22 @@ class AssetMatch:
 DEFAULT_POLYGON_MIN_INTERVAL = float(os.getenv("POLYGON_MIN_INTERVAL_SECONDS", "0.28"))
 # OpenFIGI docs: with API key, ~25 mapping requests / 6s; ~0.24s spacing is safe headroom.
 DEFAULT_OPENFIGI_MIN_INTERVAL = float(os.getenv("OPENFIGI_MIN_INTERVAL_SECONDS", "0.28"))
-OPENFIGI_BATCH_SIZE = max(1, min(100, int(os.getenv("OPENFIGI_BATCH_SIZE", "100"))))
 DEFAULT_RATE_LIMIT_BACKOFF = float(os.getenv("LOOKUP_RATE_LIMIT_BACKOFF_SECONDS", "60"))
 MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_SECONDS", "5"))
 
 POLYGON_LIMITER = RateLimiter(DEFAULT_POLYGON_MIN_INTERVAL)
 OPENFIGI_LIMITER = RateLimiter(DEFAULT_OPENFIGI_MIN_INTERVAL)
+
+# Disclosure text often includes suffixes that hurt name search; thresholds tuned for PTR noise.
+POLYGON_FUZZY_MIN_SCORE = float(os.getenv("POLYGON_FUZZY_MIN_SCORE", "82"))
+OPENFIGI_FUZZY_MIN_SCORE = float(os.getenv("OPENFIGI_FUZZY_MIN_SCORE", "78"))
+
+# If set to 1, OpenFIGI name mapping adds securityType2=Common Stock (narrower; can miss ADRs).
+OPENFIGI_NAME_STRICT_COMMON_STOCK = (
+    (os.getenv("OPENFIGI_NAME_STRICT_COMMON_STOCK") or "").strip().lower() in {"1", "true", "yes", "on"}
+)
+
+_MATCH_SOURCES_RETRY_EMPTY_TICKER = frozenset({"none", "skipped_external_lookup"})
 
 # House/Senate PTR descriptions often end with "(TICKER) [ST]" or "(BRK.B) [OP]".
 _PAREN_TICKER_RE = re.compile(
@@ -77,6 +93,43 @@ _PAREN_TICKER_DENYLIST = frozenset(
         "SHARES",
     }
 )
+
+
+def _simplify_for_equity_search(asset: str) -> str:
+    """Strip PTR boilerplate so Polygon/OpenFIGI name search matches issuer lines."""
+    s = normalize_whitespace(asset)
+    if not s:
+        return ""
+    s = re.sub(r"\s*\[[A-Z]{2,4}\]\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-\s*Common Stock\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-\s*Common Shares?\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-\s*Class\s+[A-Z]\b.*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-\s*$", "", s)
+    s = normalize_whitespace(s).strip(" ,")
+    return s if s else normalize_whitespace(asset)
+
+
+_CUSIP_IN_PARENS_RE = re.compile(r"\(([0-9A-Z]{9})\)")
+
+
+def _first_cusip_token(asset: str) -> str | None:
+    """Nine-character CUSIP inside parentheses (distinct from disclosure ticker parens)."""
+    for m in _CUSIP_IN_PARENS_RE.finditer(asset.upper()):
+        token = m.group(1)
+        if re.fullmatch(r"[0-9A-Z]{9}", token):
+            return token
+    return None
+
+
+def _asset_resolution_cache_blocks_retry(cached: Any) -> bool:
+    """
+    When True, treat cache as authoritative and skip Polygon/OpenFIGI.
+    Failed lookups (no ticker, source none/skipped) are re-tried so improved heuristics/APIs can fill in.
+    """
+    if (cached["ticker"] or "").strip():
+        return True
+    src = (cached["match_source"] or "").strip().lower()
+    return src not in _MATCH_SOURCES_RETRY_EMPTY_TICKER
 
 
 def _extract_ticker_from_parentheses(asset: str) -> str | None:
@@ -228,65 +281,89 @@ def _request_with_rate_limit(
 
 
 def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
-    params = {
-        "search": asset,
-        "market": "stocks",
-        "active": "true",
-        "limit": 10,
-        "apiKey": api_key,
-    }
-    headers = {"User-Agent": USER_AGENT}
-    resp = _request_with_rate_limit(
-        "GET",
-        POLYGON_TICKER_SEARCH,
-        limiter=limiter,
-        params=params,
-        headers=headers,
-        timeout=30,
-    )
-    if resp is None:
-        return None
-    data = resp.json()
-    results = data.get("results", [])
-    if not results:
-        return None
+    search_queries: list[str] = []
+    simplified = _simplify_for_equity_search(asset)
+    if simplified and simplified.casefold() != asset.casefold():
+        search_queries.append(simplified)
+    search_queries.append(asset)
+    seen_q: set[str] = set()
     best_match: AssetMatch | None = None
     best_score = 0.0
-    for item in results:
-        name = normalize_whitespace(item.get("name") or "")
-        ticker = normalize_whitespace(item.get("ticker") or "") or None
-        if not name or not ticker:
+    headers = {"User-Agent": USER_AGENT}
+    for search in search_queries:
+        qkey = search.casefold()
+        if qkey in seen_q:
             continue
-        if _is_exact_match(asset, name):
-            return AssetMatch(
-                asset_name_normalized=name,
-                issuer_name=name,
-                ticker=ticker,
-                cusip_or_figi=item.get("composite_figi") or None,
-                confidence_score=1.0,
-                match_source="polygon_exact",
-                resolution_status="exact_match",
-            )
-        score = _match_score(asset, name)
-        if score >= 88.0 and score > best_score:
-            best_score = score
-            best_match = AssetMatch(
-                asset_name_normalized=name,
-                issuer_name=name,
-                ticker=ticker,
-                cusip_or_figi=item.get("composite_figi") or None,
-                confidence_score=round(score / 100.0, 3),
-                match_source="polygon_fuzzy",
-                resolution_status="fuzzy_match",
-            )
+        seen_q.add(qkey)
+        params = {
+            "search": search,
+            "market": "stocks",
+            "active": "true",
+            "limit": 10,
+            "apiKey": api_key,
+        }
+        resp = _request_with_rate_limit(
+            "GET",
+            POLYGON_TICKER_SEARCH,
+            limiter=limiter,
+            params=params,
+            headers=headers,
+            timeout=30,
+        )
+        if resp is None:
+            continue
+        data = resp.json()
+        results = data.get("results", [])
+        if not results:
+            continue
+        for item in results:
+            name = normalize_whitespace(item.get("name") or "")
+            ticker = normalize_whitespace(item.get("ticker") or "") or None
+            if not name or not ticker:
+                continue
+            if _is_exact_match(asset, name):
+                return AssetMatch(
+                    asset_name_normalized=name,
+                    issuer_name=name,
+                    ticker=ticker,
+                    cusip_or_figi=item.get("composite_figi") or None,
+                    confidence_score=1.0,
+                    match_source="polygon_exact",
+                    resolution_status="exact_match",
+                )
+            score = _match_score(asset, name)
+            if score >= POLYGON_FUZZY_MIN_SCORE and score > best_score:
+                best_score = score
+                best_match = AssetMatch(
+                    asset_name_normalized=name,
+                    issuer_name=name,
+                    ticker=ticker,
+                    cusip_or_figi=item.get("composite_figi") or None,
+                    confidence_score=round(score / 100.0, 3),
+                    match_source="polygon_fuzzy",
+                    resolution_status="fuzzy_match",
+                )
     return best_match
+
+
+def _openfigi_choice_rank(asset: str, name: str, ticker: str, fuzzy_score: float) -> tuple[float, int, int, int, int]:
+    """
+    Higher tuple sorts later under max(): prefer higher fuzzy score, sponsored/ADR lines,
+    avoid OTC *F tickers when OpenFIGI returns many near-ties, and avoid obvious option strings.
+    """
+    name_u = (name or "").upper()
+    tu = ticker.upper()
+    adr = 1 if ("ADR" in name_u or "DEPOSITARY" in name_u or "SPONSORED" in name_u) else 0
+    otc_f = 1 if (len(tu) <= 6 and tu.endswith("F") and tu.isalpha()) else 0
+    otc_wf = 1 if re.search(r"[A-Z]{2,4}WF$", tu) else 0
+    opt_like = 1 if ("CALL" in name_u or "PUT" in name_u or " FLX" in name_u or "/" in tu) else 0
+    return (fuzzy_score, adr, -otc_f, -otc_wf, -opt_like)
 
 
 def _best_openfigi_match(asset: str, results: list[Any]) -> Optional[AssetMatch]:
     if not results:
         return None
-    best_match: AssetMatch | None = None
-    best_score = 0.0
+    best_choice: tuple[tuple[float, int, int, int, int], AssetMatch] | None = None
     for item in results:
         ticker = normalize_whitespace(item.get("ticker") or "") or None
         if not ticker:
@@ -298,37 +375,39 @@ def _best_openfigi_match(asset: str, results: list[Any]) -> Optional[AssetMatch]
             or ""
         )
         if name and _is_exact_match(asset, name):
-            return AssetMatch(
-                asset_name_normalized=name,
-                issuer_name=name,
-                ticker=ticker,
-                cusip_or_figi=item.get("figi") or None,
-                confidence_score=0.99,
-                match_source="openfigi_exact",
-                resolution_status="exact_match",
-            )
-        score = _match_score(asset, name or ticker)
-        if score >= 85.0 and score > best_score:
-            best_score = score
-            best_match = AssetMatch(
-                asset_name_normalized=name or asset,
-                issuer_name=name or asset,
-                ticker=ticker,
-                cusip_or_figi=item.get("figi") or None,
-                confidence_score=round(max(score, 85.0) / 100.0, 3),
-                match_source="openfigi_fuzzy",
-                resolution_status="fuzzy_match",
-            )
-    return best_match
+            fuzzy_score = 100.0
+            match_source = "openfigi_exact"
+            res_status = "exact_match"
+            conf = 0.99
+        else:
+            fuzzy_score = _match_score(asset, name or ticker)
+            if fuzzy_score < OPENFIGI_FUZZY_MIN_SCORE:
+                continue
+            match_source = "openfigi_fuzzy"
+            res_status = "fuzzy_match"
+            conf = round(max(fuzzy_score, OPENFIGI_FUZZY_MIN_SCORE) / 100.0, 3)
+        rank = _openfigi_choice_rank(asset, name, ticker, fuzzy_score)
+        candidate = AssetMatch(
+            asset_name_normalized=name or asset,
+            issuer_name=name or asset,
+            ticker=ticker,
+            cusip_or_figi=item.get("figi") or None,
+            confidence_score=conf,
+            match_source=match_source,
+            resolution_status=res_status,
+        )
+        if best_choice is None or rank > best_choice[0]:
+            best_choice = (rank, candidate)
+    return best_choice[1] if best_choice else None
 
 
-def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
+def openfigi_lookup_cusip(cusip: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
     headers = {
         "Content-Type": "application/json",
         "X-OPENFIGI-APIKEY": api_key,
         "User-Agent": USER_AGENT,
     }
-    payload = [{"name": asset, "exchCode": "US", "securityType2": "Common Stock"}]
+    payload = [{"idType": "ID_CUSIP", "idValue": cusip.upper()}]
     resp = _request_with_rate_limit(
         "POST",
         OPENFIGI_API_URL,
@@ -339,34 +418,80 @@ def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[
     )
     if resp is None:
         return None
-    data = resp.json()
-    if not data:
+    try:
+        data = resp.json()
+    except ValueError:
         return None
-    results = data[0].get("data", [])
-    return _best_openfigi_match(asset, results)
+    if not data or not isinstance(data, list):
+        return None
+    rows = data[0].get("data", []) if isinstance(data[0], dict) else []
+    if not rows:
+        return None
+    item = rows[0]
+    ticker = normalize_whitespace(item.get("ticker") or "") or None
+    name = normalize_whitespace(
+        item.get("name")
+        or item.get("securityDescription")
+        or item.get("securityDescription2")
+        or ""
+    )
+    if not ticker:
+        return None
+    return AssetMatch(
+        asset_name_normalized=name or cusip,
+        issuer_name=name or cusip,
+        ticker=ticker,
+        cusip_or_figi=item.get("figi") or None,
+        confidence_score=0.995,
+        match_source="openfigi_cusip",
+        resolution_status="exact_match",
+    )
 
 
-def openfigi_lookup_batch(assets: list[str], api_key: str, limiter: RateLimiter) -> dict[str, Optional[AssetMatch]]:
-    """Up to 100 name-mapping jobs per HTTP request (OpenFIGI authenticated limit)."""
-    out: dict[str, Optional[AssetMatch]] = {a: None for a in assets}
-    if not assets:
-        return out
+def _openfigi_search_query_variants(asset: str) -> list[str]:
+    """OpenFIGI /v3/search often returns empty for long PTR lines; try shorter keyword queries."""
+    base = _simplify_for_equity_search(asset)
+    parts: list[str] = []
+    if base:
+        parts.append(base)
+    words = [w for w in re.split(r"[\s,]+", base) if len(w) >= 2]
+    for n in (6, 4, 3, 2):
+        if len(words) >= n:
+            parts.append(" ".join(words[:n]))
+    if words:
+        parts.append(words[0])
+    seen: set[str] = set()
+    out: list[str] = []
+    for q in parts:
+        key = q.casefold()
+        if key in seen or not q:
+            continue
+        seen.add(key)
+        out.append(q)
+    return out
+
+
+def openfigi_search_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
+    """Resolve issuer line via OpenFIGI keyword search (/v3/search); /v3/mapping rejects plain `name` jobs."""
+    queries = _openfigi_search_query_variants(asset)
+    if not queries:
+        return None
     headers = {
         "Content-Type": "application/json",
         "X-OPENFIGI-APIKEY": api_key,
         "User-Agent": USER_AGENT,
     }
-    for start in range(0, len(assets), OPENFIGI_BATCH_SIZE):
-        chunk = assets[start : start + OPENFIGI_BATCH_SIZE]
-        payload = [{"name": a, "exchCode": "US", "securityType2": "Common Stock"} for a in chunk]
-        timeout = min(120, 25 + 5 * len(chunk))
+    for query in queries:
+        payload: dict[str, Any] = {"query": query, "exchCode": "US"}
+        if OPENFIGI_NAME_STRICT_COMMON_STOCK:
+            payload["securityType2"] = "Common Stock"
         resp = _request_with_rate_limit(
             "POST",
-            OPENFIGI_API_URL,
+            OPENFIGI_SEARCH_URL,
             limiter=limiter,
             headers=headers,
             json=payload,
-            timeout=timeout,
+            timeout=30,
         )
         if resp is None:
             continue
@@ -374,16 +499,26 @@ def openfigi_lookup_batch(assets: list[str], api_key: str, limiter: RateLimiter)
             data = resp.json()
         except ValueError:
             continue
-        if not isinstance(data, list):
+        if not isinstance(data, dict) or data.get("error"):
             continue
-        for j, asset in enumerate(chunk):
-            if j >= len(data):
-                break
-            block = data[j]
-            if not isinstance(block, dict):
-                continue
-            rows = block.get("data") or []
-            out[asset] = _best_openfigi_match(asset, rows)
+        rows = data.get("data") or []
+        if not rows:
+            continue
+        hit = _best_openfigi_match(asset, rows)
+        if hit is not None:
+            return hit
+    return None
+
+
+def openfigi_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[AssetMatch]:
+    return openfigi_search_lookup(asset, api_key, limiter)
+
+
+def openfigi_lookup_batch(assets: list[str], api_key: str, limiter: RateLimiter) -> dict[str, Optional[AssetMatch]]:
+    """One /v3/search per asset (same limiter as single lookups)."""
+    out: dict[str, Optional[AssetMatch]] = {a: None for a in assets}
+    for asset in assets:
+        out[asset] = openfigi_search_lookup(asset, api_key, limiter)
     return out
 
 
@@ -427,6 +562,7 @@ def _finalize_resolution_from_match(
     matched: AssetMatch,
     *,
     issuer_enrich_hint: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     asset_type = infer_asset_type(matched.asset_name_normalized, matched.ticker)
     enrich_src = issuer_enrich_hint if issuer_enrich_hint is not None else (matched.issuer_name or asset_norm)
@@ -449,6 +585,7 @@ def _finalize_resolution_from_match(
         confidence_score=matched.confidence_score,
         resolution_status=matched.resolution_status,
         match_source=matched.match_source,
+        commit=commit,
     )
     return {
         "asset_name_raw": asset_norm,
@@ -465,9 +602,11 @@ def _finalize_resolution_from_match(
     }
 
 
-def bulk_resolve_unique_assets_for_reconcile(conn, assets_unique: Sequence[str]) -> dict[str, dict[str, Any]]:
+def bulk_resolve_unique_assets_for_reconcile(
+    conn, assets_unique: Sequence[str], *, commit: bool = True
+) -> dict[str, dict[str, Any]]:
     """
-    Resolve each distinct asset string once, using batched OpenFIGI name lookups (up to 100 per HTTP call).
+    Resolve each distinct asset string once (Polygon + OpenFIGI /v3/search + CUSIP mapping).
     Intended for `re-resolve-tickers`; same DB/cache outcome as sequential resolve_asset for these paths.
     """
     out: dict[str, dict[str, Any]] = {}
@@ -481,40 +620,48 @@ def bulk_resolve_unique_assets_for_reconcile(conn, assets_unique: Sequence[str])
 
     for an in ordered:
         if cached := get_asset_resolution(conn, an):
-            out[an] = _resolution_dict_from_cached_row(an, cached)
-            continue
+            if _asset_resolution_cache_blocks_retry(cached):
+                out[an] = _resolution_dict_from_cached_row(an, cached)
+                continue
         if paren := _try_disclosure_parenthetical_match(an):
-            out[an] = _finalize_resolution_from_match(conn, an, paren, issuer_enrich_hint=an)
+            out[an] = _finalize_resolution_from_match(conn, an, paren, issuer_enrich_hint=an, commit=commit)
             continue
         if house_ingest_skip_external_asset_lookup():
             out[an] = _finalize_resolution_from_match(
-                conn, an, _manual_review_match(an, "skipped_external_lookup")
+                conn, an, _manual_review_match(an, "skipped_external_lookup"), commit=commit
             )
             continue
 
         matched: AssetMatch = _manual_review_match(an, "none")
+        if openfigi_key:
+            cusip = _first_cusip_token(an)
+            if cusip:
+                c_hit = openfigi_lookup_cusip(cusip, openfigi_key, OPENFIGI_LIMITER)
+                if c_hit is not None:
+                    out[an] = _finalize_resolution_from_match(conn, an, c_hit, issuer_enrich_hint=an, commit=commit)
+                    continue
         if polygon_key:
             hit = polygon_lookup(an, polygon_key, POLYGON_LIMITER)
             if hit is not None:
                 matched = hit
         if matched.ticker is not None:
-            out[an] = _finalize_resolution_from_match(conn, an, matched)
+            out[an] = _finalize_resolution_from_match(conn, an, matched, commit=commit)
         elif openfigi_key:
             need_openfigi_batch.append(an)
         else:
-            out[an] = _finalize_resolution_from_match(conn, an, matched)
+            out[an] = _finalize_resolution_from_match(conn, an, matched, commit=commit)
 
     if need_openfigi_batch and openfigi_key:
         batch = openfigi_lookup_batch(need_openfigi_batch, openfigi_key, OPENFIGI_LIMITER)
         for an in need_openfigi_batch:
             om = batch.get(an)
             final_m = om if om is not None else _manual_review_match(an, "none")
-            out[an] = _finalize_resolution_from_match(conn, an, final_m)
+            out[an] = _finalize_resolution_from_match(conn, an, final_m, commit=commit)
 
     return out
 
 
-def resolve_asset(conn, asset: str) -> dict[str, Any]:
+def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
     asset_norm = normalize_whitespace(asset)
     if not asset_norm:
         empty_match = _manual_review_match("", "empty")
@@ -533,10 +680,13 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
         }
 
     if paren_match := _try_disclosure_parenthetical_match(asset_norm):
-        return _finalize_resolution_from_match(conn, asset_norm, paren_match, issuer_enrich_hint=asset_norm)
+        return _finalize_resolution_from_match(
+            conn, asset_norm, paren_match, issuer_enrich_hint=asset_norm, commit=commit
+        )
 
     if cached := get_asset_resolution(conn, asset_norm):
-        return _resolution_dict_from_cached_row(asset_norm, cached)
+        if _asset_resolution_cache_blocks_retry(cached):
+            return _resolution_dict_from_cached_row(asset_norm, cached)
 
     polygon_key = os.getenv("POLYGON_API_KEY")
     openfigi_key = os.getenv("OPENFIGI_API_KEY")
@@ -544,6 +694,14 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
     matched_asset: AssetMatch = _manual_review_match(asset_norm, "none")
 
     if not house_ingest_skip_external_asset_lookup():
+        if openfigi_key:
+            cusip = _first_cusip_token(asset_norm)
+            if cusip:
+                cusip_match = openfigi_lookup_cusip(cusip, openfigi_key, OPENFIGI_LIMITER)
+                if cusip_match is not None:
+                    return _finalize_resolution_from_match(
+                        conn, asset_norm, cusip_match, issuer_enrich_hint=asset_norm, commit=commit
+                    )
         if polygon_key:
             polygon_match = polygon_lookup(asset_norm, polygon_key, POLYGON_LIMITER)
             if polygon_match is not None:
@@ -556,7 +714,7 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
     else:
         matched_asset = _manual_review_match(asset_norm, "skipped_external_lookup")
 
-    return _finalize_resolution_from_match(conn, asset_norm, matched_asset)
+    return _finalize_resolution_from_match(conn, asset_norm, matched_asset, commit=commit)
 
 
 def lookup_ticker(conn, asset: str) -> Optional[str]:
