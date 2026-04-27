@@ -91,3 +91,11 @@ HOUSE_PTR_PDF_URL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{y
 POLYGON_TICKER_SEARCH = "https://api.polygon.io/v3/reference/tickers"
 POLYGON_TICKER_DETAILS = "https://api.polygon.io/v3/reference/tickers/{ticker}"
 OPENFIGI_API_URL = "https://api.openfigi.com/v3/mapping"
+
+try:
+    from dotenv import load_dotenv
+
+    # Repo-root `.env` (gitignored). Does not override variables already set in the environment.
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass

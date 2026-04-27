@@ -239,15 +239,25 @@ def _apply_parsed_row_to_transaction(conn, transaction_id: int, parsed_row: dict
 
 
 def re_resolve_all_transaction_tickers(conn) -> int:
-    """Re-run resolve_asset on every transaction (e.g. after improving local ticker extraction)."""
+    """Re-run resolve_asset on every transaction (e.g. after improving local ticker extraction).
+
+    Groups rows by normalized asset text so Polygon/OpenFIGI run once per distinct asset instead
+    of once per transaction (same UPDATE/review outcome, far fewer API calls and cache lookups).
+    """
     rows = conn.execute("SELECT id, asset_name_raw, ticker FROM transactions").fetchall()
-    count = 0
-    for row in tqdm(rows, desc="Re-resolve tickers"):
-        tid = int(row["id"])
+    by_asset: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for row in rows:
         asset = normalize_whitespace(row["asset_name_raw"] or "")
         if not asset:
             continue
         existing_ticker = normalize_whitespace(row["ticker"] or "")
+        by_asset[asset].append((int(row["id"]), existing_ticker))
+
+    count = 0
+    n_tx = sum(len(v) for v in by_asset.values())
+    bar = tqdm(by_asset.items(), desc="Re-resolve tickers", unit="asset")
+    for asset, tid_pairs in bar:
+        bar.set_postfix_str(f"{n_tx:,} tx")
         resolution = resolve_asset(conn, asset)
         issuer_id = upsert_issuer(
             conn,
@@ -259,34 +269,40 @@ def re_resolve_all_transaction_tickers(conn) -> int:
         )
         if issuer_id is None:
             continue
-        conn.execute(
-            """
-            UPDATE transactions
-            SET issuer_id = ?,
-                asset_name_normalized = ?,
-                asset_type = ?,
-                ticker = CASE WHEN ? <> '' THEN ? ELSE ticker END,
-                cusip_or_figi = ?,
-                confidence_score = ?,
-                review_status = ?,
-                updated_at = datetime('now')
-            WHERE id = ?
-            """,
-            (
-                issuer_id,
-                normalize_whitespace(resolution.get("asset_name_normalized") or ""),
-                normalize_whitespace(resolution.get("asset_type") or ""),
-                normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
-                normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
-                normalize_whitespace(resolution.get("cusip_or_figi") or ""),
-                float(resolution.get("confidence_score") or 0.0),
-                normalize_whitespace(resolution.get("review_status") or "pending"),
-                tid,
-            ),
-        )
-        review_status = normalize_whitespace(resolution.get("review_status") or "")
-        _set_review_reason(conn, tid, review_status, asset, None)
-        count += 1
+        review_status_for_queue = normalize_whitespace(resolution.get("review_status") or "")
+        res_norm = normalize_whitespace(resolution.get("asset_name_normalized") or "")
+        res_type = normalize_whitespace(resolution.get("asset_type") or "")
+        res_cusip = normalize_whitespace(resolution.get("cusip_or_figi") or "")
+        res_conf = float(resolution.get("confidence_score") or 0.0)
+        res_review_db = normalize_whitespace(resolution.get("review_status") or "pending")
+        for tid, existing_ticker in tid_pairs:
+            conn.execute(
+                """
+                UPDATE transactions
+                SET issuer_id = ?,
+                    asset_name_normalized = ?,
+                    asset_type = ?,
+                    ticker = CASE WHEN ? <> '' THEN ? ELSE ticker END,
+                    cusip_or_figi = ?,
+                    confidence_score = ?,
+                    review_status = ?,
+                    updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (
+                    issuer_id,
+                    res_norm,
+                    res_type,
+                    normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
+                    normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
+                    res_cusip,
+                    res_conf,
+                    res_review_db,
+                    tid,
+                ),
+            )
+            _set_review_reason(conn, tid, review_status_for_queue, asset, None)
+            count += 1
     conn.commit()
     return count
 

@@ -65,9 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_dashboard.add_argument("--server-port", type=int, default=8501)
     refresh_dashboard.add_argument("--server-address", default="127.0.0.1")
 
-    sub.add_parser(
+    rr = sub.add_parser(
         "re-resolve-tickers",
         help="Ricalcola ticker/issuer su tutte le transazioni SQLite (no re-parse PDF; usa testo disclosure + cache/API)",
+    )
+    rr.add_argument(
+        "--clear-asset-cache",
+        action="store_true",
+        help="Svuota asset_resolution_cache prima del ricalcolo (obbligatorio dopo nuove chiavi API o ingest senza lookup esterno).",
     )
 
     return parser
@@ -201,6 +206,10 @@ def main() -> None:
 
         conn = get_connection()
         init_db(conn)
+        if args.clear_asset_cache:
+            conn.execute("DELETE FROM asset_resolution_cache")
+            conn.commit()
+            print("Cleared asset_resolution_cache (Polygon/OpenFIGI will run per distinct asset).")
         processed = re_resolve_all_transaction_tickers(conn)
         print(f"Processed {processed:,} transactions.")
         conn.close()
