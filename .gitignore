@@ -1,0 +1,19 @@
+# Local data (download / ingest / export; not for GitHub)
+/data/raw/
+/data/db/
+/data/cache/
+/data/*.csv
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.Python
+
+# Secrets
+.env
+.env.local
+
+# OS
+Thumbs.db
+.DS_Store

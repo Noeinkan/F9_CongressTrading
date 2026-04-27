@@ -10,6 +10,8 @@ Tracker per disclosure pubbliche del Congresso che acquisisce PTR e filing metad
 Imposta le variabili d’ambiente:
 - `POLYGON_API_KEY`
 - `OPENFIGI_API_KEY` (opzionale)
+- (Opzionale, House PTR) `HOUSE_PTR_AUTO_DOWNLOAD`, `HOUSE_PTR_AUTO_DOWNLOAD_MIN_YEAR`, `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR`, `HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS` — vedi sezione House (PTR).
+- (Opzionale, ingest veloce) `HOUSE_INGEST_SKIP_EXTERNAL_ASSET_LOOKUP=1` — durante `ingest-house` non chiama Polygon/OpenFIGI per asset non in cache (solo `manual_review` locale); utile con molti PDF; poi puoi rilanciare senza per arricchire i ticker dove serve.
 
 ## Struttura
 - `src/` codice
@@ -18,13 +20,24 @@ Imposta le variabili d’ambiente:
 - `data/db/` SQLite
 - `data/cache/` cache lookup ticker
 
+I contenuti sotto `data/raw/`, `data/db/`, `data/cache/` e i CSV in `data/*.csv` sono esclusi da Git (vedi `.gitignore`): si ricreano in locale con download, ingest ed export.
+
 ## Note legali
 - Senate eFD richiede accettazione dei termini. Il downloader è progettato per uso conforme; verifica i termini prima dell’uso.
+- Per `download-house-fd` e per l’autodownload dei PTR House durante `ingest-house`, verifica i termini e le policy di `disclosures-clerk.house.gov` e non schedulare richieste massicce o troppo frequenti.
 
 ## Nota House (PTR)
-Se i link bulk PTR non sono esposti dal sito, l’ingestione House passa in modalità manuale: scarica i PDF dal portale House e salvali in data/raw/house/ (dal 2022 in poi), poi riesegui il comando.
+Con i metadata FD (`.txt`/`.xml`) gia presenti sotto `data/raw/house/`, `ingest-house` prova a scaricare dal Clerk ogni PTR mancante (`FilingType` = `P`) usando l’URL `public_disc/ptr-pdfs/<Year>/<DocID>.pdf`, per gli anni di filing da **`HOUSE_PTR_AUTO_DOWNLOAD_MIN_FILING_YEAR_DEFAULT`** in `src/config.py` (oggi **2023**) fino all’anno solare corrente, salvo override con le variabili sotto. Tra un download e l’altro viene applicata una breve pausa (default 0,2 s) per ridurre il carico sul server.
 
-L'autodownload dei PTR House in questo repository e limitato ai filing year 2025 e 2026.
+**Nota:** i `DocID` dei PTR spesso **iniziano con `200…`** (es. `20022428`); non sono l’anno 2002, sono identificativi del Clerk. Nella barra di avanzamento viene mostrato `Year/DocID.pdf` per evitare ambiguita.
+
+Opzioni ambiente:
+- `HOUSE_PTR_AUTO_DOWNLOAD` — default attivo; `0` / `false` / `no` disattiva del tutto il download PTR dal Clerk (restano solo i PDF gia su disco).
+- `HOUSE_PTR_AUTO_DOWNLOAD_MIN_YEAR` — primo `Year` incluso (default in codice: **2023**; imposta `2022` se ti servono anche i PTR con filing year 2022).
+- `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR` — se impostato (es. `2024`), non si richiedono PDF con `Year` oltre quel valore (default: anno corrente).
+- `HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS` — pausa minima tra richieste successive (default `0.2`).
+
+Se un `DocID` non e piu disponibile o l’URL cambia, salva il PDF a mano in `data/raw/house/<Year>/<DocID>.pdf` e rilancia l’ingest.
 
 Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i PTR House gia presenti nel database:
 - recupera `filing_date` dai metadata FD quando il PDF PTR non lo espone chiaramente
@@ -32,7 +45,7 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 - consolida filing PTR duplicati creati in precedenza per lo stesso PDF/raw path
 
 ## Dove trovare i PDF
-- House: usa il portale ufficiale del Clerk della House su https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure. I file FD annuali sono scaricabili in blocco, ma i PTR spesso non hanno un link bulk stabile. In pratica conviene usare la ricerca del portale, aprire il report Periodic Transaction Report del membro interessato e salvare il PDF sotto `data/raw/house/<anno>/`.
+- House: usa il portale ufficiale del Clerk della House su https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure. I file FD annuali sono scaricabili in blocco (`download-house-fd` o zip manuali); i PTR possono essere scaricati automaticamente da `ingest-house` quando conosci `Year` e `DocID` dai metadata, oppure dal portale e salvati sotto `data/raw/house/<anno>/`.
 - Senate: usa il portale ufficiale eFD su https://efdsearch.senate.gov/search/. Devi prima accettare i termini di utilizzo, poi puoi cercare i filing dal 2012 in avanti. Filtra o cerca i Periodic Transaction Report, apri il filing e salva il PDF sotto `data/raw/senate/<anno>/`.
 - Il parser cerca ricorsivamente qualsiasi file `.pdf` dentro `data/raw/house/` e `data/raw/senate/`, quindi le sottocartelle per anno sono consigliate ma non obbligatorie.
 - Se hai archivi `.zip`, puoi anche copiarli in `data/raw/`, `data/raw/house/` o `data/raw/senate/`: la pipeline prova a estrarli automaticamente prima del parsing.
@@ -43,6 +56,7 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 - In VS Code puoi usare direttamente i task workspace `Ingest All (venv)` e `Dashboard (venv)` per eseguire sempre il progetto con `.venv\Scripts\python.exe`.
 
 ## Comandi principali
+- Bulk FD House (metadata annuali `.zip` dal Clerk, poi estrazione in `data/raw/house/<anno>FD/`): `python -m src.main download-house-fd` (default: anni da `START_YEAR` in `src/config.py` fino all’anno corrente). Opzioni: `--years 2020 2021`, `--overwrite`, `--zip-only` (solo zip; l’estrazione avviene al prossimo `ingest-house`).
 - Ingest House 2022+: `python -m src.main ingest-house`
 - Ingest Senate 2022+: `python -m src.main ingest-senate`
 - Esegui tutto: `python -m src.main ingest-all`
@@ -97,6 +111,7 @@ Colonne principali dell'export normalizzato:
 - `raw_document_path`
 
 ## Limiti correnti
+- un `ingest-house` con molti anni di metadata FD puo innescare centinaia o migliaia di download PTR dal Clerk; usa `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR` o disattiva con `HOUSE_PTR_AUTO_DOWNLOAD=0` se vuoi solo file locali
 - il parser PTR resta euristico e dipende dalla struttura del PDF
 - alcuni PDF House con layout o note molto anomale possono ancora richiedere affinamenti puntuali del parser
 - la risoluzione degli asset distingue ora exact match, fuzzy match e manual review, ma resta limitata dalla qualita dei nomi dichiarati nei PDF
