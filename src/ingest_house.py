@@ -14,6 +14,7 @@ from .config import (
     RAW_DIR,
     START_YEAR,
     USER_AGENT,
+    house_ingest_force_reparse_pdfs,
     house_ingest_skip_external_asset_lookup,
     house_ptr_auto_download_enabled,
     house_ptr_auto_download_max_filing_year,
@@ -729,6 +730,8 @@ def ingest_house() -> None:
 
     total_pdfs = len(ptr_paths)
     print(f"Trovati {total_pdfs} PDF PTR in {HOUSE_RAW_DIR}; avvio parsing...", flush=True)
+    if house_ingest_force_reparse_pdfs():
+        print("Modalita HOUSE_INGEST_FORCE_REPARSE_PDFS: ogni PDF verra riparsato anche se gia ingerito.", flush=True)
     if not house_ingest_skip_external_asset_lookup() and total_pdfs > 80:
         print(
             "Suggerimento: con molti PDF la risoluzione ticker (Polygon) puo richiedere molto tempo. "
@@ -740,7 +743,7 @@ def ingest_house() -> None:
         if pdf_index == 0 or (pdf_index + 1) % 25 == 0 or pdf_index == total_pdfs - 1:
             print(f"PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name}", flush=True)
         sha = sha256_file(pdf_path)
-        if is_file_ingested(conn, str(pdf_path), sha):
+        if not house_ingest_force_reparse_pdfs() and is_file_ingested(conn, str(pdf_path), sha):
             continue
         try:
             header, rows = parse_ptr_pdf_safe(pdf_path)

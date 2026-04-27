@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 import sqlite3
@@ -13,6 +14,9 @@ from .db import get_connection, init_db
 
 NORMALIZED_EXPORT_PATH = DATA_DIR / "congress_trades.csv"
 REVIEW_EXPORT_PATH = DATA_DIR / "review_queue.csv"
+
+# Default transaction date range in the sidebar (clamped to available data).
+DEFAULT_TRANSACTION_FILTER_START = date(2023, 1, 1)
 
 THEME = {
     "bg": "#f4efe6",
@@ -56,7 +60,9 @@ DASHBOARD_COPY = {
         "to inspect trades, concentration, and unresolved records."
     ),
     "sidebar_header": "Filters",
-    "sidebar_copy": "Narrow the dataset, then inspect the overview, review queue, or raw rows for the same slice.",
+    "sidebar_dataset_expander": "Full dataset (reference)",
+    "sidebar_dataset_expander_caption": "Totals across every loaded row; filters below apply on top of this.",
+    "sidebar_slice_summary_title": "Active slice",
     "current_slice": "Current slice",
     "no_chamber_selected": "No chamber selected",
     "no_dated_trades": "No dated trades",
@@ -79,6 +85,11 @@ DASHBOARD_COPY = {
     "sub_transaction_type_mix": "Transaction type mix",
     "sub_top_tickers": "Top tickers",
     "sub_latest_transactions": "Latest transactions",
+    "sub_ticker_who_when": "Ticker activity: who traded and when",
+    "ticker_chart_caption": "Choose a resolved ticker below, or type one in the override field. Points are individual disclosures in your current filter slice.",
+    "sidebar_pick_member_label": "Member",
+    "sidebar_pick_ticker_label": "Ticker",
+    "sidebar_pick_issuer_label": "Issuer",
     "sub_records_needing_review": "Records needing review",
     "sub_filtered_dataset": "Filtered normalized dataset",
 }
@@ -126,6 +137,11 @@ REVIEW_COLUMNS = [
     "source_page",
     "source_row",
 ]
+
+# Sidebar selectbox sentinels (stable labels; shown first in each dropdown).
+_SIDEBAR_ANY = "— Any —"
+_SIDEBAR_NO_TICKER = "— No ticker —"
+_SIDEBAR_NO_ISSUER = "— No issuer —"
 
 SQLITE_TRANSACTION_QUERY = """
 SELECT
@@ -362,8 +378,8 @@ def _inject_styles() -> None:
             background: transparent;
         }
         [data-testid="stSidebarUserContent"] {
-            padding-top: 0.55rem;
-            padding-bottom: 1.5rem;
+            padding-top: 0.35rem;
+            padding-bottom: 0.75rem;
         }
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
@@ -390,6 +406,63 @@ def _inject_styles() -> None:
             padding: 1rem 1rem 0.95rem 1rem;
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
             margin-bottom: 0.95rem;
+        }
+        [data-testid="stSidebar"] .sidebar-filters-heading {
+            color: var(--sidebar-ink) !important;
+            font-size: 0.95rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 0 0 0.35rem 0;
+        }
+        [data-testid="stSidebar"] .sidebar-stat-grid-compact {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.4rem;
+            margin-top: 0.45rem;
+        }
+        [data-testid="stSidebar"] .sidebar-stat-tiny {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 0.38rem 0.45rem;
+        }
+        [data-testid="stSidebar"] .sidebar-stat-tiny .sidebar-stat-label {
+            font-size: 0.62rem !important;
+            letter-spacing: 0.06em !important;
+        }
+        [data-testid="stSidebar"] .sidebar-stat-tiny .sidebar-stat-value {
+            font-size: 0.78rem !important;
+            line-height: 1.2 !important;
+            margin-top: 0.15rem !important;
+            word-break: break-word;
+        }
+        [data-testid="stSidebar"] .sidebar-expander-caption {
+            color: var(--sidebar-muted) !important;
+            font-size: 0.72rem !important;
+            line-height: 1.35 !important;
+            margin: 0 0 0.35rem 0 !important;
+        }
+        [data-testid="stSidebar"] .sidebar-slice-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 0.35rem 0.55rem;
+            background: var(--sidebar-card);
+            border: 1px solid var(--sidebar-border);
+            border-radius: 12px;
+            padding: 0.45rem 0.55rem;
+            margin: 0.5rem 0 0.35rem 0;
+            color: var(--sidebar-muted) !important;
+            font-size: 0.72rem !important;
+            line-height: 1.35 !important;
+        }
+        [data-testid="stSidebar"] .sidebar-slice-bar strong {
+            color: var(--sidebar-ink) !important;
+            font-weight: 800;
+        }
+        [data-testid="stSidebar"] .sidebar-slice-bar .sep {
+            opacity: 0.35;
+            user-select: none;
         }
         [data-testid="stSidebar"] .sidebar-intro-title,
         [data-testid="stSidebar"] .sidebar-summary-title {
@@ -435,19 +508,28 @@ def _inject_styles() -> None:
         }
         [data-testid="stSidebar"] .filter-section-label {
             color: var(--sidebar-ink) !important;
-            font-size: 0.9rem;
+            font-size: 0.82rem;
             font-weight: 800;
             letter-spacing: -0.01em;
-            margin: 0.65rem 0 0 0;
+            margin: 0.38rem 0 0.08rem 0;
+        }
+        [data-testid="stSidebar"] .filter-section-label.filter-first {
+            margin-top: 0.15rem;
         }
         [data-testid="stSidebar"] .filter-section-copy {
-            margin-bottom: 0.35rem;
+            margin-bottom: 0.2rem;
+            font-size: 0.78rem !important;
+            line-height: 1.35 !important;
         }
-        [data-testid="stSidebar"] .sidebar-note {
-            color: var(--sidebar-muted) !important;
-            font-size: 0.8rem;
-            line-height: 1.55;
-            margin-top: 0.45rem;
+        [data-testid="stSidebar"] .stMultiSelect [data-baseweb="select"] > div {
+            min-height: 2.1rem !important;
+            max-height: 4.25rem !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            align-items: flex-start !important;
+        }
+        [data-testid="stSidebar"] .stMultiSelect [data-baseweb="select"] [data-baseweb="tag"] {
+            margin: 2px 4px 2px 0 !important;
         }
         [data-testid="stSidebar"] [data-baseweb="select"] > div,
         [data-testid="stSidebar"] [data-baseweb="input"] > div,
@@ -509,8 +591,19 @@ def _inject_styles() -> None:
         [data-testid="stSidebar"] .stDateInput,
         [data-testid="stSidebar"] .stTextInput,
         [data-testid="stSidebar"] .stMultiSelect,
+        [data-testid="stSidebar"] .stSelectbox,
         [data-testid="stSidebar"] .stSlider {
-            margin-bottom: 1rem;
+            margin-bottom: 0.42rem;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            margin-bottom: 0.35rem;
+        }
+        [data-testid="stSidebar"] .sidebar-note {
+            color: var(--sidebar-muted) !important;
+            margin-top: 0.2rem;
+            margin-bottom: 0.35rem;
+            font-size: 0.72rem !important;
+            line-height: 1.35 !important;
         }
         .stButton > button,
         .stDownloadButton > button,
@@ -918,96 +1011,175 @@ def _build_mix_chart(frame: pd.DataFrame, label_field: str, *, color: str) -> al
     )
 
 
-def _sidebar_intro(data: pd.DataFrame) -> None:
+def _build_ticker_member_timeline(frame: pd.DataFrame, ticker: str) -> alt.Chart | None:
+    if not ticker or not str(ticker).strip():
+        return None
+    t = str(ticker).strip().upper()
+    sub = frame[frame["ticker"].astype(str).str.upper() == t].copy()
+    sub = sub.dropna(subset=["transaction_date"])
+    if sub.empty:
+        return None
+    member_order = (
+        sub.groupby("member", observed=True)["transaction_date"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+    height = min(520, max(220, 32 * max(6, len(member_order))))
+    return (
+        alt.Chart(sub)
+        .mark_circle(size=88, opacity=0.78)
+        .encode(
+            x=alt.X(
+                "transaction_date:T",
+                title="Transaction date",
+                axis=alt.Axis(labelColor=THEME["muted"], gridColor=THEME["chart_grid"]),
+            ),
+            y=alt.Y(
+                "member:N",
+                title=None,
+                sort=member_order,
+                axis=alt.Axis(labelColor=THEME["ink_soft"], labelLimit=220),
+            ),
+            color=alt.Color(
+                "transaction_type:N",
+                legend=alt.Legend(title="Type"),
+                scale=alt.Scale(range=[THEME["teal"], THEME["accent"], THEME["navy"], THEME["gold"]]),
+            ),
+            tooltip=[
+                alt.Tooltip("member:N", title="Member"),
+                alt.Tooltip("transaction_date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("transaction_type:N", title="Type"),
+                alt.Tooltip("amount_range_raw:N", title="Amount range"),
+                alt.Tooltip("issuer_name:N", title="Issuer"),
+                alt.Tooltip("chamber:N", title="Chamber"),
+            ],
+        )
+        .properties(height=height)
+        .configure(background="transparent")
+        .configure_view(stroke=None)
+    )
+
+
+def _sidebar_full_dataset_stats_compact(data: pd.DataFrame) -> None:
     transaction_count = len(data)
     member_count = data["member"].nunique()
     ticker_count = data.loc[data["ticker"] != "", "ticker"].nunique()
     valid_dates = data["transaction_date"].dropna()
     coverage = _copy("no_dated_trades")
     if not valid_dates.empty:
-        coverage = f"{valid_dates.min():%Y-%m-%d} to {valid_dates.max():%Y-%m-%d}"
+        coverage = f"{valid_dates.min():%Y-%m-%d} → {valid_dates.max():%Y-%m-%d}"
 
-    st.sidebar.markdown(
+    st.markdown(
         f"""
-        <section class="sidebar-intro">
-            <p class="sidebar-intro-title">{_copy("sidebar_header")}</p>
-            <p class="sidebar-intro-copy">{_copy("sidebar_copy")}</p>
-            <div class="sidebar-stat-grid">
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Transactions</div>
-                    <div class="sidebar-stat-value">{transaction_count:,}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Members</div>
-                    <div class="sidebar-stat-value">{member_count:,}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Tickers</div>
-                    <div class="sidebar-stat-value">{ticker_count:,}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Coverage</div>
-                    <div class="sidebar-stat-value">{coverage}</div>
-                </div>
+        <div class="sidebar-stat-grid-compact">
+            <div class="sidebar-stat-tiny">
+                <div class="sidebar-stat-label">Txns</div>
+                <div class="sidebar-stat-value">{transaction_count:,}</div>
             </div>
-        </section>
+            <div class="sidebar-stat-tiny">
+                <div class="sidebar-stat-label">Members</div>
+                <div class="sidebar-stat-value">{member_count:,}</div>
+            </div>
+            <div class="sidebar-stat-tiny">
+                <div class="sidebar-stat-label">Tickers</div>
+                <div class="sidebar-stat-value">{ticker_count:,}</div>
+            </div>
+            <div class="sidebar-stat-tiny">
+                <div class="sidebar-stat-label">Dates</div>
+                <div class="sidebar-stat-value">{coverage}</div>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _sidebar_filter_label(title: str, copy: str) -> None:
-    st.sidebar.markdown(
-        f"""
-        <div class="filter-section-label">{title}</div>
-        <div class="filter-section-copy">{copy}</div>
-        """,
-        unsafe_allow_html=True,
-    )
+def _sidebar_filter_label(title: str, copy: str = "", *, first: bool = False) -> None:
+    extra = " filter-first" if first else ""
+    if copy:
+        st.sidebar.markdown(
+            f"""
+            <div class="filter-section-label{extra}">{title}</div>
+            <div class="filter-section-copy">{copy}</div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.sidebar.markdown(
+            f'<div class="filter-section-label{extra}">{title}</div>',
+            unsafe_allow_html=True,
+        )
 
 
-def _sidebar_summary(filtered: pd.DataFrame) -> None:
+def _sidebar_slice_bar(filtered: pd.DataFrame) -> None:
     visible_records = len(filtered)
     visible_members = filtered["member"].nunique()
     avg_confidence = filtered["confidence_score"].mean() if visible_records else 0.0
     unresolved = int((filtered["review_status"] != "resolved").sum()) if visible_records else 0
-
+    title = _copy("sidebar_slice_summary_title")
     st.sidebar.markdown(
         f"""
-        <section class="sidebar-summary">
-            <p class="sidebar-summary-title">Visible Slice</p>
-            <p class="sidebar-summary-copy">These counts update with every filter so you can tell immediately when a selection is too narrow.</p>
-            <div class="sidebar-stat-grid">
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Rows</div>
-                    <div class="sidebar-stat-value">{visible_records:,}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Members</div>
-                    <div class="sidebar-stat-value">{visible_members:,}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Confidence</div>
-                    <div class="sidebar-stat-value">{avg_confidence:.0%}</div>
-                </div>
-                <div class="sidebar-stat">
-                    <div class="sidebar-stat-label">Needs Review</div>
-                    <div class="sidebar-stat-value">{unresolved:,}</div>
-                </div>
-            </div>
-        </section>
+        <div class="sidebar-slice-bar">
+            <span><strong>{title}</strong> {visible_records:,} rows</span>
+            <span class="sep">·</span>
+            <span>{visible_members:,} members</span>
+            <span class="sep">·</span>
+            <span>{avg_confidence:.0%} avg conf.</span>
+            <span class="sep">·</span>
+            <span>{unresolved:,} need review</span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
 
 
 def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
+    """Scope first (dates, chamber), then pick lists (member, ticker, issuer), facets, confidence."""
     filtered = data.copy()
-    _sidebar_intro(filtered)
+    st.sidebar.markdown(
+        f'<p class="sidebar-filters-heading">{_copy("sidebar_header")}</p>',
+        unsafe_allow_html=True,
+    )
+    with st.sidebar.expander(_copy("sidebar_dataset_expander"), expanded=False):
+        st.markdown(
+            f'<p class="sidebar-expander-caption">{_copy("sidebar_dataset_expander_caption")}</p>',
+            unsafe_allow_html=True,
+        )
+        _sidebar_full_dataset_stats_compact(data)
+
+    first_label = True
+
+    valid_dates = filtered["transaction_date"].dropna()
+    if not valid_dates.empty:
+        min_date = valid_dates.min().date()
+        max_date = valid_dates.max().date()
+        today = date.today()
+        picker_max = max(max_date, today)
+        default_start = max(min_date, DEFAULT_TRANSACTION_FILTER_START)
+        default_end = min(max_date, today)
+        if default_start > default_end:
+            default_start, default_end = min_date, max_date
+        _sidebar_filter_label("Transaction dates", first=first_label)
+        first_label = False
+        date_range = st.sidebar.date_input(
+            "Transaction Date Range",
+            value=(default_start, default_end),
+            min_value=min_date,
+            max_value=picker_max,
+            label_visibility="collapsed",
+            key="sidebar_transaction_date_filter",
+        )
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date, end_date = date_range
+            filtered = filtered[
+                filtered["transaction_date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
+            ]
 
     chambers = sorted(value for value in filtered["chamber"].dropna().astype(str).unique() if value)
     if chambers:
-        _sidebar_filter_label("Chamber", "Choose one or more disclosure sources.")
+        _sidebar_filter_label("Chamber", first=first_label)
+        first_label = False
         selected_chambers = st.sidebar.multiselect(
             "Chamber",
             chambers,
@@ -1017,9 +1189,80 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         )
         filtered = filtered[filtered["chamber"].isin(selected_chambers)]
 
+    members_sorted = sorted({str(m).strip() for m in filtered["member"].dropna().unique() if str(m).strip()})
+    if members_sorted:
+        _sidebar_filter_label(_copy("sidebar_pick_member_label"), first=first_label)
+        first_label = False
+        member_options = [_SIDEBAR_ANY, *members_sorted]
+        member_choice = st.sidebar.selectbox(
+            "Member",
+            member_options,
+            label_visibility="collapsed",
+            key="sidebar_pick_member",
+        )
+        if member_choice != _SIDEBAR_ANY:
+            mcol = filtered["member"].astype(str).str.strip()
+            filtered = filtered[mcol == member_choice]
+
+    tickers_nonempty = sorted(
+        {str(t).strip() for t in filtered["ticker"].dropna().unique() if str(t).strip()}
+    )
+    has_blank_ticker = filtered["ticker"].fillna("").astype(str).str.strip().eq("").any()
+    ticker_options = [_SIDEBAR_ANY]
+    if has_blank_ticker:
+        ticker_options.append(_SIDEBAR_NO_TICKER)
+    ticker_options.extend(tickers_nonempty)
+    if len(ticker_options) > 1:
+        _sidebar_filter_label(_copy("sidebar_pick_ticker_label"), first=first_label)
+        first_label = False
+        ticker_choice = st.sidebar.selectbox(
+            "Ticker",
+            ticker_options,
+            label_visibility="collapsed",
+            key="sidebar_pick_ticker",
+        )
+        if ticker_choice == _SIDEBAR_NO_TICKER:
+            filtered = filtered[filtered["ticker"].fillna("").astype(str).str.strip().eq("")]
+        elif ticker_choice != _SIDEBAR_ANY:
+            tcol = filtered["ticker"].fillna("").astype(str).str.strip()
+            filtered = filtered[tcol == ticker_choice]
+
+    issuers_nonempty = sorted(
+        {str(i).strip() for i in filtered["issuer_name"].dropna().unique() if str(i).strip()}
+    )
+    has_blank_issuer = filtered["issuer_name"].fillna("").astype(str).str.strip().eq("").any()
+    issuer_options: list[str] = []
+    if has_blank_issuer:
+        issuer_options.append(_SIDEBAR_NO_ISSUER)
+    issuer_options.extend(issuers_nonempty)
+    if issuer_options:
+        _sidebar_filter_label(_copy("sidebar_pick_issuer_label"), first=first_label)
+        first_label = False
+        issuer_pick = st.sidebar.multiselect(
+            "Issuer",
+            issuer_options,
+            default=[],
+            label_visibility="collapsed",
+            key="sidebar_pick_issuer",
+            help="Leave empty for all issuers. Pick one or more; type in the box to search the list.",
+        )
+        if issuer_pick:
+            icol = filtered["issuer_name"].fillna("").astype(str).str.strip()
+            parts: list[pd.Series] = []
+            if _SIDEBAR_NO_ISSUER in issuer_pick:
+                parts.append(icol.eq(""))
+            rest = [x for x in issuer_pick if x != _SIDEBAR_NO_ISSUER]
+            if rest:
+                parts.append(icol.isin(rest))
+            if parts:
+                combined = parts[0]
+                for p in parts[1:]:
+                    combined = combined | p
+                filtered = filtered[combined]
+
     transaction_types = sorted(value for value in filtered["transaction_type"].dropna().astype(str).unique() if value)
     if transaction_types:
-        _sidebar_filter_label("Transaction Type", "Separate buys, sales, exchanges, and partial actions.")
+        _sidebar_filter_label("Transaction type")
         selected_types = st.sidebar.multiselect(
             "Transaction Type",
             transaction_types,
@@ -1031,7 +1274,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
 
     asset_types = sorted(value for value in filtered["asset_type"].dropna().astype(str).unique() if value)
     if asset_types:
-        _sidebar_filter_label("Asset Type", "Narrow to instruments with the same structure or risk profile.")
+        _sidebar_filter_label("Asset type")
         selected_asset_types = st.sidebar.multiselect(
             "Asset Type",
             asset_types,
@@ -1043,7 +1286,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
 
     review_statuses = sorted(value for value in filtered["review_status"].dropna().astype(str).unique() if value)
     if review_statuses:
-        _sidebar_filter_label("Review Status", "Focus on resolved rows or isolate the backlog that still needs manual attention.")
+        _sidebar_filter_label("Review status")
         selected_statuses = st.sidebar.multiselect(
             "Review Status",
             review_statuses,
@@ -1053,43 +1296,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         )
         filtered = filtered[filtered["review_status"].isin(selected_statuses)]
 
-    valid_dates = filtered["transaction_date"].dropna()
-    if not valid_dates.empty:
-        min_date = valid_dates.min().date()
-        max_date = valid_dates.max().date()
-        _sidebar_filter_label("Transaction Date Range", "Constrain the visible slice to a specific filing period.")
-        date_range = st.sidebar.date_input(
-            "Transaction Date Range",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date,
-            label_visibility="collapsed",
-            key="sidebar_transaction_date_filter",
-        )
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_date, end_date = date_range
-            filtered = filtered[
-                filtered["transaction_date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
-            ]
-
-    _sidebar_filter_label("Search", "Match member name, asset, issuer, or ticker from a single query.")
-    search = st.sidebar.text_input(
-        "Search Member / Asset / Ticker",
-        placeholder="Type a member, asset, issuer, or ticker",
-        label_visibility="collapsed",
-        key="sidebar_search_filter",
-    )
-    if search:
-        mask = (
-            filtered["member"].astype(str).str.contains(search, case=False, na=False)
-            | filtered["asset_name_raw"].astype(str).str.contains(search, case=False, na=False)
-            | filtered["asset_name_normalized"].astype(str).str.contains(search, case=False, na=False)
-            | filtered["ticker"].astype(str).str.contains(search, case=False, na=False)
-            | filtered["issuer_name"].astype(str).str.contains(search, case=False, na=False)
-        )
-        filtered = filtered[mask]
-
-    _sidebar_filter_label("Minimum Confidence", "Hide low-confidence matches when you want a cleaner analytical slice.")
+    _sidebar_filter_label("Minimum confidence (0–1)")
     confidence_threshold = st.sidebar.slider(
         "Minimum Confidence",
         min_value=0.0,
@@ -1100,11 +1307,8 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         key="sidebar_confidence_filter",
     )
     filtered = filtered[filtered["confidence_score"] >= confidence_threshold]
-    st.sidebar.markdown(
-        '<div class="sidebar-note">Confidence ranges from 0.00 to 1.00 and reflects how certain the ticker or issuer resolution is.</div>',
-        unsafe_allow_html=True,
-    )
-    _sidebar_summary(filtered)
+
+    _sidebar_slice_bar(filtered)
     return filtered
 
 
@@ -1229,6 +1433,71 @@ def render_dashboard() -> None:
     overview_tab, review_tab, raw_tab = st.tabs([_copy("tab_overview"), _copy("tab_review"), _copy("tab_raw")])
 
     with overview_tab:
+        latest_transactions = filtered.sort_values(
+            ["transaction_date", "filing_date"],
+            ascending=[False, False],
+        ).head(50)
+        st.subheader(_copy("sub_latest_transactions"))
+        st.dataframe(
+            latest_transactions[
+                [
+                    "transaction_date",
+                    "member",
+                    "chamber",
+                    "issuer_name",
+                    "ticker",
+                    "transaction_type",
+                    "amount_range_raw",
+                    "confidence_score",
+                    "review_status",
+                ]
+            ],
+            hide_index=True,
+            width="stretch",
+            height=420,
+            column_config={
+                "transaction_date": st.column_config.DateColumn("Transaction Date", format="YYYY-MM-DD"),
+                "confidence_score": st.column_config.ProgressColumn(
+                    "Confidence",
+                    format="%.2f",
+                    min_value=0.0,
+                    max_value=1.0,
+                ),
+            },
+        )
+
+        st.subheader(_copy("sub_ticker_who_when"))
+        st.caption(_copy("ticker_chart_caption"))
+        tickers_available = sorted(
+            x for x in filtered.loc[filtered["ticker"].astype(str) != "", "ticker"].astype(str).unique() if x
+        )
+        if not tickers_available:
+            st.info(
+                "No resolved tickers in the current slice. Widen filters, set the sidebar Member or Ticker "
+                "dropdown to **Any**, or pick a different issuer; many disclosures still lack ticker mapping."
+            )
+        else:
+            pick_col, override_col = st.columns([1, 1])
+            with pick_col:
+                selected_ticker = st.selectbox(
+                    "Ticker",
+                    tickers_available,
+                    label_visibility="collapsed",
+                    key="overview_ticker_timeline_pick",
+                )
+            with override_col:
+                manual = st.text_input(
+                    "Ticker override (optional)",
+                    placeholder="e.g. MSFT",
+                    key="overview_ticker_manual",
+                ).strip().upper()
+            ticker_for_chart = manual if manual else selected_ticker
+            ticker_chart = _build_ticker_member_timeline(filtered, ticker_for_chart)
+            if ticker_chart is None:
+                st.info(f"No transactions for ticker **{ticker_for_chart}** in the current slice.")
+            else:
+                st.altair_chart(ticker_chart, width="stretch")
+
         _render_section_intro(
             _copy("overview_kicker"),
             _copy("overview_title"),
@@ -1322,39 +1591,6 @@ def render_dashboard() -> None:
                         "estimated_value": st.column_config.NumberColumn("Estimated Midpoint", format="$%d"),
                     },
                 )
-
-        latest_transactions = filtered.sort_values(
-            ["transaction_date", "filing_date"],
-            ascending=[False, False],
-        ).head(50)
-        st.subheader(_copy("sub_latest_transactions"))
-        st.dataframe(
-            latest_transactions[
-                [
-                    "transaction_date",
-                    "member",
-                    "chamber",
-                    "issuer_name",
-                    "ticker",
-                    "transaction_type",
-                    "amount_range_raw",
-                    "confidence_score",
-                    "review_status",
-                ]
-            ],
-            hide_index=True,
-            width="stretch",
-            height=420,
-            column_config={
-                "transaction_date": st.column_config.DateColumn("Transaction Date", format="YYYY-MM-DD"),
-                "confidence_score": st.column_config.ProgressColumn(
-                    "Confidence",
-                    format="%.2f",
-                    min_value=0.0,
-                    max_value=1.0,
-                ),
-            },
-        )
 
     with review_tab:
         _render_section_intro(

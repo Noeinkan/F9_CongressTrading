@@ -47,6 +47,12 @@ def house_ptr_download_min_interval_seconds() -> float:
     return float(os.getenv("HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS", "0.2"))
 
 
+def house_ingest_force_reparse_pdfs() -> bool:
+    """Se true, riesegue il parsing di ogni PDF PTR anche se gia in files_ingested (aggiorna transazioni via upsert)."""
+    v = (os.getenv("HOUSE_INGEST_FORCE_REPARSE_PDFS") or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
 def house_ingest_skip_external_asset_lookup() -> bool:
     """
     Se true, durante l'ingest non vengono chiamati Polygon/OpenFIGI per asset non in cache
