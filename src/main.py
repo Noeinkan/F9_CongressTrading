@@ -22,6 +22,25 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ingest-senate", help="Ingesta PTR Senate (manuale)")
     sub.add_parser("ingest-all", help="Esegue ingestione House + Senate")
 
+    dl = sub.add_parser(
+        "download-house-fd",
+        help="Scarica bulk FD annuali (.zip) dal Clerk della House in data/raw/house/",
+    )
+    dl.add_argument(
+        "--years",
+        type=int,
+        nargs="*",
+        default=None,
+        metavar="YEAR",
+        help="Anni (default: da START_YEAR config fino all'anno corrente)",
+    )
+    dl.add_argument("--overwrite", action="store_true", help="Riscarica anche se .txt già presente")
+    dl.add_argument(
+        "--zip-only",
+        action="store_true",
+        help="Solo zip; l'estrazione avviene al prossimo ingest-house",
+    )
+
     export = sub.add_parser("export-csv", help="Esporta CSV normalizzato da SQLite")
     export.add_argument("--out", type=Path, default=Path("data/congress_trades.csv"))
 
@@ -122,12 +141,25 @@ def _refresh_dashboard(*, server_port: int, server_address: str) -> int:
 
 
 def main() -> None:
+    from datetime import datetime
+
+    from .config import START_YEAR
     from .export_csv import export_csv, export_fd_csv, export_review_csv
     from .ingest_house import ingest_house
     from .ingest_senate import ingest_senate
 
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "download-house-fd":
+        from .download_house_fd import download_house_fd_bulk
+
+        if args.years is None:
+            years = list(range(START_YEAR, datetime.now().year + 1))
+        else:
+            years = list(args.years)
+        download_house_fd_bulk(years, overwrite=args.overwrite, extract=not args.zip_only)
+        return
 
     if args.command == "ingest-house":
         ingest_house()

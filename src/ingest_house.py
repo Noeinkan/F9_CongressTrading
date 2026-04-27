@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Iterable
 from collections import defaultdict
@@ -7,7 +8,18 @@ from collections import defaultdict
 import requests
 from tqdm import tqdm
 
-from .config import HOUSE_PTR_DOWNLOAD_YEARS, HOUSE_PTR_PDF_URL, HOUSE_RAW_DIR, RAW_DIR, START_YEAR, USER_AGENT
+from .config import (
+    HOUSE_PTR_PDF_URL,
+    HOUSE_RAW_DIR,
+    RAW_DIR,
+    START_YEAR,
+    USER_AGENT,
+    house_ingest_skip_external_asset_lookup,
+    house_ptr_auto_download_enabled,
+    house_ptr_auto_download_max_filing_year,
+    house_ptr_auto_download_min_filing_year,
+    house_ptr_download_min_interval_seconds,
+)
 from .db import (
     get_connection,
     init_db,
@@ -23,7 +35,7 @@ from .db import (
     upsert_member,
 )
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
-from .parse_ptr import iter_ptr_pdfs, parse_ptr_pdf_safe
+from .parse_ptr import parse_ptr_pdf_safe
 from .ticker_lookup import resolve_asset
 from .utils import (
     ensure_dirs,
@@ -576,7 +588,9 @@ def _download_house_ptr_pdf(year: int, doc_id: str, dest: Path) -> bool:
                 return False
 
             total = int(resp.headers.get("Content-Length", 0))
-            with dest.open("wb") as f, tqdm(total=total, unit="B", unit_scale=True, desc=dest.name) as pbar:
+            # DocID spesso inizia con "200…" (non e l'anno 2002): mostra filing year nella barra.
+            pbar_desc = f"{year}/{doc_id}.pdf"
+            with dest.open("wb") as f, tqdm(total=total, unit="B", unit_scale=True, desc=pbar_desc) as pbar:
                 for chunk in resp.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
@@ -589,6 +603,11 @@ def _download_house_ptr_pdf(year: int, doc_id: str, dest: Path) -> bool:
 
 
 def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
+    if not house_ptr_auto_download_enabled():
+        return 0
+
+    min_filing_year = house_ptr_auto_download_min_filing_year()
+    max_filing_year = house_ptr_auto_download_max_filing_year()
     targets: list[tuple[int, str, Path]] = []
     seen: set[tuple[int, str]] = set()
 
@@ -600,9 +619,7 @@ def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
         if not doc_id or not year_text.isdigit():
             continue
         year = int(year_text)
-        if year < START_YEAR:
-            continue
-        if year not in HOUSE_PTR_DOWNLOAD_YEARS:
+        if year < min_filing_year or year > max_filing_year:
             continue
         key = (year, doc_id)
         if key in seen:
@@ -613,10 +630,15 @@ def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
             continue
         targets.append((year, doc_id, dest))
 
+    interval = house_ptr_download_min_interval_seconds()
     downloaded = 0
-    for year, doc_id, dest in targets:
+    for i, (year, doc_id, dest) in enumerate(targets):
+        if i > 0 and interval > 0:
+            time.sleep(interval)
         if _download_house_ptr_pdf(year, doc_id, dest):
             downloaded += 1
+            if downloaded % 50 == 0:
+                print(f"PTR scaricati finora: {downloaded}...", flush=True)
     return downloaded
 
 
@@ -691,16 +713,32 @@ def ingest_house() -> None:
     downloaded_count = _download_house_ptr_pdfs(fd_rows)
     if downloaded_count:
         print(f"Scaricati {downloaded_count} PTR House automaticamente.")
+    elif not house_ptr_auto_download_enabled():
+        print("Autodownload PTR House disattivato (imposta HOUSE_PTR_AUTO_DOWNLOAD=1 per riattivarlo).")
     else:
-        years = ", ".join(str(year) for year in sorted(HOUSE_PTR_DOWNLOAD_YEARS))
-        print(f"Download automatico House limitato agli anni: {years}.")
+        print(
+            "Nessun nuovo PTR House scaricato dal Clerk (PDF gia presenti, nessuna riga P nei metadata, "
+            f"o anni fuori da [{house_ptr_auto_download_min_filing_year()}, {house_ptr_auto_download_max_filing_year()}] per filing Year)."
+        )
 
-    if not any(HOUSE_RAW_DIR.rglob("*.pdf")):
+    ptr_paths = sorted(HOUSE_RAW_DIR.rglob("*.pdf"), key=lambda p: str(p).casefold())
+    if not ptr_paths:
         print("Nessun PDF trovato in data/raw/house/. Nessun PTR House scaricabile automaticamente dai metadata disponibili.")
         conn.close()
         return
 
-    for pdf_path in iter_ptr_pdfs(HOUSE_RAW_DIR):
+    total_pdfs = len(ptr_paths)
+    print(f"Trovati {total_pdfs} PDF PTR in {HOUSE_RAW_DIR}; avvio parsing...", flush=True)
+    if not house_ingest_skip_external_asset_lookup() and total_pdfs > 80:
+        print(
+            "Suggerimento: con molti PDF la risoluzione ticker (Polygon) puo richiedere molto tempo. "
+            "Per un ingest veloce: $env:HOUSE_INGEST_SKIP_EXTERNAL_ASSET_LOOKUP='1' poi rilancia senza per arricchire.",
+            flush=True,
+        )
+
+    for pdf_index, pdf_path in enumerate(ptr_paths):
+        if pdf_index == 0 or (pdf_index + 1) % 25 == 0 or pdf_index == total_pdfs - 1:
+            print(f"PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name}", flush=True)
         sha = sha256_file(pdf_path)
         if is_file_ingested(conn, str(pdf_path), sha):
             continue

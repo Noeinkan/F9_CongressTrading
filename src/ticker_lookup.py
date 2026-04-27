@@ -11,7 +11,7 @@ from rapidfuzz import fuzz
 from requests import Response
 from requests.exceptions import RequestException
 
-from .config import OPENFIGI_API_URL, POLYGON_TICKER_SEARCH, USER_AGENT
+from .config import OPENFIGI_API_URL, POLYGON_TICKER_SEARCH, USER_AGENT, house_ingest_skip_external_asset_lookup
 from .db import get_asset_resolution, upsert_asset_resolution
 from .issuer_enrichment import enrich_issuer_metadata
 from .utils import normalize_key, normalize_whitespace
@@ -330,15 +330,18 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
 
     matched_asset: AssetMatch = _manual_review_match(asset_norm, "none")
 
-    if polygon_key:
-        polygon_match = polygon_lookup(asset_norm, polygon_key, POLYGON_LIMITER)
-        if polygon_match is not None:
-            matched_asset = polygon_match
+    if not house_ingest_skip_external_asset_lookup():
+        if polygon_key:
+            polygon_match = polygon_lookup(asset_norm, polygon_key, POLYGON_LIMITER)
+            if polygon_match is not None:
+                matched_asset = polygon_match
 
-    if matched_asset.ticker is None and openfigi_key:
-        openfigi_match = openfigi_lookup(asset_norm, openfigi_key, OPENFIGI_LIMITER)
-        if openfigi_match is not None:
-            matched_asset = openfigi_match
+        if matched_asset.ticker is None and openfigi_key:
+            openfigi_match = openfigi_lookup(asset_norm, openfigi_key, OPENFIGI_LIMITER)
+            if openfigi_match is not None:
+                matched_asset = openfigi_match
+    else:
+        matched_asset = _manual_review_match(asset_norm, "skipped_external_lookup")
 
     asset_type = infer_asset_type(matched_asset.asset_name_normalized, matched_asset.ticker)
     issuer_metadata = enrich_issuer_metadata(
