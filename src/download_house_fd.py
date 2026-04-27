@@ -6,7 +6,7 @@ import requests
 from tqdm import tqdm
 
 from .config import HOUSE_FD_BULK_ZIP_URL, HOUSE_RAW_DIR, START_YEAR, USER_AGENT
-from .utils import ensure_dirs, extract_zip
+from .utils import ensure_dirs, extract_house_fd_bulk_zip, house_fd_bulk_zip_needs_extract
 
 
 def _fd_bulk_url(year: int) -> str:
@@ -58,8 +58,24 @@ def download_house_fd_bulk(
         dest_dir = fd_bulk_extract_dir(year)
         dest_txt = dest_dir / f"{year}FD.txt"
 
-        if not overwrite and dest_txt.exists():
-            print(f"Salto {year}: presente {dest_txt}")
+        stale_vs_zip = (
+            extract
+            and dest_zip.exists()
+            and house_fd_bulk_zip_needs_extract(dest_zip, dest_dir)
+        )
+
+        if stale_vs_zip and not overwrite:
+            print(
+                f"House FD {year}: metadata su disco non coincide con {dest_zip.name}; "
+                f"ri-estraggo senza riscaricare."
+            )
+            extract_house_fd_bulk_zip(dest_zip, dest_dir)
+            print(f"Estratto in {dest_dir}")
+            completed.append(year)
+            continue
+
+        if not overwrite and dest_txt.exists() and dest_zip.exists() and not stale_vs_zip:
+            print(f"Salto {year}: presente {dest_txt} e allineato allo zip")
             continue
 
         need_download = overwrite or not dest_zip.exists()
@@ -81,7 +97,7 @@ def download_house_fd_bulk(
             print(f"Uso zip esistente per {year}: {dest_zip}")
 
         if extract:
-            extract_zip(dest_zip, dest_dir)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir)
             print(f"Estratto in {dest_dir}")
 
         completed.append(year)

@@ -38,9 +38,13 @@ from .db import (
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
 from .parse_ptr import parse_ptr_pdf_safe
 from .ticker_lookup import resolve_asset
+from .house_coverage import print_house_coverage_report
 from .utils import (
     ensure_dirs,
+    extract_house_fd_bulk_zip,
     extract_zip,
+    house_fd_bulk_zip_needs_extract,
+    is_house_fd_bulk_zip_path,
     make_content_hash,
     make_transaction_source_hash,
     normalize_whitespace,
@@ -232,6 +236,59 @@ def _apply_parsed_row_to_transaction(conn, transaction_id: int, parsed_row: dict
         )
     review_status = normalize_whitespace(resolution.get("review_status") or "")
     _set_review_reason(conn, transaction_id, review_status, asset, parsed_row.get("parse_warning"))
+
+
+def re_resolve_all_transaction_tickers(conn) -> int:
+    """Re-run resolve_asset on every transaction (e.g. after improving local ticker extraction)."""
+    rows = conn.execute("SELECT id, asset_name_raw, ticker FROM transactions").fetchall()
+    count = 0
+    for row in tqdm(rows, desc="Re-resolve tickers"):
+        tid = int(row["id"])
+        asset = normalize_whitespace(row["asset_name_raw"] or "")
+        if not asset:
+            continue
+        existing_ticker = normalize_whitespace(row["ticker"] or "")
+        resolution = resolve_asset(conn, asset)
+        issuer_id = upsert_issuer(
+            conn,
+            issuer_name=resolution.get("issuer_name") or asset,
+            ticker=resolution.get("ticker"),
+            sector=resolution.get("sector"),
+            industry=resolution.get("industry"),
+            asset_type=resolution.get("asset_type"),
+        )
+        if issuer_id is None:
+            continue
+        conn.execute(
+            """
+            UPDATE transactions
+            SET issuer_id = ?,
+                asset_name_normalized = ?,
+                asset_type = ?,
+                ticker = CASE WHEN ? <> '' THEN ? ELSE ticker END,
+                cusip_or_figi = ?,
+                confidence_score = ?,
+                review_status = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (
+                issuer_id,
+                normalize_whitespace(resolution.get("asset_name_normalized") or ""),
+                normalize_whitespace(resolution.get("asset_type") or ""),
+                normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
+                normalize_whitespace(resolution.get("ticker") or existing_ticker or ""),
+                normalize_whitespace(resolution.get("cusip_or_figi") or ""),
+                float(resolution.get("confidence_score") or 0.0),
+                normalize_whitespace(resolution.get("review_status") or "pending"),
+                tid,
+            ),
+        )
+        review_status = normalize_whitespace(resolution.get("review_status") or "")
+        _set_review_reason(conn, tid, review_status, asset, None)
+        count += 1
+    conn.commit()
+    return count
 
 
 def _transaction_logical_key(
@@ -650,7 +707,11 @@ def _extract_local_zip_files() -> None:
         if zip_path.parent == RAW_DIR and "senate" in name:
             continue
         dest_dir = HOUSE_RAW_DIR / zip_path.stem
-        extract_zip(zip_path, dest_dir)
+        if is_house_fd_bulk_zip_path(zip_path):
+            if house_fd_bulk_zip_needs_extract(zip_path, dest_dir):
+                extract_house_fd_bulk_zip(zip_path, dest_dir)
+        else:
+            extract_zip(zip_path, dest_dir)
 
 
 def ingest_house() -> None:
@@ -725,6 +786,7 @@ def ingest_house() -> None:
     ptr_paths = sorted(HOUSE_RAW_DIR.rglob("*.pdf"), key=lambda p: str(p).casefold())
     if not ptr_paths:
         print("Nessun PDF trovato in data/raw/house/. Nessun PTR House scaricabile automaticamente dai metadata disponibili.")
+        print_house_coverage_report(conn)
         conn.close()
         return
 
@@ -866,6 +928,7 @@ def ingest_house() -> None:
         insert_trades(conn, to_insert)
         mark_file_ingested(conn, str(pdf_path), sha)
 
+    print_house_coverage_report(conn)
     conn.close()
 
 

@@ -53,6 +53,22 @@ def house_ingest_force_reparse_pdfs() -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
+def house_coverage_min_year() -> int:
+    """Primo anno solare incluso in verify-house-coverage (default 2023). Env: HOUSE_COVERAGE_MIN_YEAR."""
+    raw = (os.getenv("HOUSE_COVERAGE_MIN_YEAR") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return 2023
+
+
+def house_coverage_max_filing_lag_days() -> int:
+    """Soglia giorni: se MAX(filing_date) PTR in fd_filings e piu vecchio, segnala possibile bulk non aggiornato."""
+    raw = (os.getenv("HOUSE_COVERAGE_MAX_FILING_LAG_DAYS") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return 75
+
+
 def house_ingest_skip_external_asset_lookup() -> bool:
     """
     Se true, durante l'ingest non vengono chiamati Polygon/OpenFIGI per asset non in cache

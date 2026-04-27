@@ -52,6 +52,70 @@ MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_
 POLYGON_LIMITER = RateLimiter(DEFAULT_POLYGON_MIN_INTERVAL)
 OPENFIGI_LIMITER = RateLimiter(DEFAULT_OPENFIGI_MIN_INTERVAL)
 
+# House/Senate PTR descriptions often end with "(TICKER) [ST]" or "(BRK.B) [OP]".
+_PAREN_TICKER_RE = re.compile(
+    r"\(((?:[A-Z]{1,5}\.[A-Z])|[A-Z]{1,6})\)",
+    re.IGNORECASE,
+)
+_PAREN_TICKER_DENYLIST = frozenset(
+    {
+        "NYSE",
+        "NASDAQ",
+        "AMEX",
+        "ARCA",
+        "OTC",
+        "ADR",
+        "ADS",
+        "ETF",
+        "THE",
+        "CLASS",
+        "COMMON",
+        "STOCK",
+        "SHARE",
+        "SHARES",
+    }
+)
+
+
+def _extract_ticker_from_parentheses(asset: str) -> str | None:
+    """Return a US-style ticker read from the last parenthetical in disclosure text."""
+    if not asset or "(" not in asset:
+        return None
+    last: str | None = None
+    for m in _PAREN_TICKER_RE.finditer(asset):
+        sym = m.group(1).upper()
+        if sym in _PAREN_TICKER_DENYLIST:
+            continue
+        if len(sym) > 6:
+            continue
+        last = sym
+    return last
+
+
+def _strip_trailing_disclosure_ticker(asset: str, ticker: str) -> str:
+    tail = re.compile(
+        rf"\(\s*{re.escape(ticker)}\s*\)\s*(?:\[[^\]]+\])?\s*$",
+        re.IGNORECASE,
+    )
+    stripped = tail.sub("", asset)
+    return normalize_whitespace(stripped) or normalize_whitespace(asset)
+
+
+def _try_disclosure_parenthetical_match(asset_norm: str) -> AssetMatch | None:
+    ticker = _extract_ticker_from_parentheses(asset_norm)
+    if not ticker:
+        return None
+    display_name = _strip_trailing_disclosure_ticker(asset_norm, ticker)
+    return AssetMatch(
+        asset_name_normalized=display_name,
+        issuer_name=display_name,
+        ticker=ticker,
+        cusip_or_figi=None,
+        confidence_score=0.99,
+        match_source="disclosure_paren",
+        resolution_status="exact_match",
+    )
+
 
 def _canonical_company_key(text: str | None) -> str:
     key = normalize_key(text)
@@ -304,6 +368,43 @@ def resolve_asset(conn, asset: str) -> dict[str, Any]:
             "confidence_score": empty_match.confidence_score,
             "match_source": empty_match.match_source,
             "review_status": empty_match.resolution_status,
+        }
+
+    paren_match = _try_disclosure_parenthetical_match(asset_norm)
+    if paren_match is not None:
+        asset_type = infer_asset_type(paren_match.asset_name_normalized, paren_match.ticker)
+        issuer_metadata = enrich_issuer_metadata(
+            asset_norm,
+            paren_match.ticker,
+            asset_type,
+        )
+        issuer_name = issuer_metadata.get("issuer_name") or paren_match.issuer_name or asset_norm
+        upsert_asset_resolution(
+            conn,
+            asset_name_raw=asset_norm,
+            asset_name_normalized=paren_match.asset_name_normalized,
+            issuer_name=issuer_name,
+            ticker=paren_match.ticker,
+            cusip_or_figi=paren_match.cusip_or_figi,
+            asset_type=asset_type,
+            sector=issuer_metadata.get("sector"),
+            industry=issuer_metadata.get("industry"),
+            confidence_score=paren_match.confidence_score,
+            resolution_status=paren_match.resolution_status,
+            match_source=paren_match.match_source,
+        )
+        return {
+            "asset_name_raw": asset_norm,
+            "asset_name_normalized": paren_match.asset_name_normalized,
+            "issuer_name": issuer_name,
+            "ticker": paren_match.ticker,
+            "cusip_or_figi": paren_match.cusip_or_figi,
+            "asset_type": asset_type,
+            "sector": issuer_metadata.get("sector") or "",
+            "industry": issuer_metadata.get("industry") or "",
+            "confidence_score": paren_match.confidence_score,
+            "match_source": paren_match.match_source,
+            "review_status": paren_match.resolution_status,
         }
 
     cached = get_asset_resolution(conn, asset_norm)

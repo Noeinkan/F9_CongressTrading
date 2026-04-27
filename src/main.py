@@ -19,6 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("ingest-house", help="Scarica e ingesta PTR House (2022+)")
+    sub.add_parser(
+        "verify-house-coverage",
+        help="Verifica metadata FD House su disco e freshness fd_filings (anni da HOUSE_COVERAGE_MIN_YEAR)",
+    )
     sub.add_parser("ingest-senate", help="Ingesta PTR Senate (manuale)")
     sub.add_parser("ingest-all", help="Esegue ingestione House + Senate")
 
@@ -60,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh_dashboard.add_argument("--server-port", type=int, default=8501)
     refresh_dashboard.add_argument("--server-address", default="127.0.0.1")
+
+    sub.add_parser(
+        "re-resolve-tickers",
+        help="Ricalcola ticker/issuer su tutte le transazioni SQLite (no re-parse PDF; usa testo disclosure + cache/API)",
+    )
 
     return parser
 
@@ -163,6 +172,14 @@ def main() -> None:
 
     if args.command == "ingest-house":
         ingest_house()
+    elif args.command == "verify-house-coverage":
+        from .db import get_connection, init_db
+        from .house_coverage import print_house_coverage_report
+
+        conn = get_connection()
+        init_db(conn)
+        print_house_coverage_report(conn)
+        conn.close()
     elif args.command == "ingest-senate":
         ingest_senate()
     elif args.command == "ingest-all":
@@ -178,6 +195,15 @@ def main() -> None:
         raise SystemExit(_run_dashboard(server_port=args.server_port, server_address=args.server_address))
     elif args.command == "refresh-dashboard":
         raise SystemExit(_refresh_dashboard(server_port=args.server_port, server_address=args.server_address))
+    elif args.command == "re-resolve-tickers":
+        from .db import get_connection, init_db
+        from .ingest_house import re_resolve_all_transaction_tickers
+
+        conn = get_connection()
+        init_db(conn)
+        processed = re_resolve_all_transaction_tickers(conn)
+        print(f"Processed {processed:,} transactions.")
+        conn.close()
 
 
 if __name__ == "__main__":

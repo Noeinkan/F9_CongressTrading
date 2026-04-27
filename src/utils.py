@@ -49,6 +49,60 @@ def extract_zip(zip_path: Path, out_dir: Path) -> None:
         zf.extractall(out_dir)
 
 
+_HOUSE_FD_BULK_ZIP_STEM = re.compile(r"^\d{4}FD$", re.IGNORECASE)
+
+
+def is_house_fd_bulk_zip_path(path: Path) -> bool:
+    """True per zip bulk metadata House tipo 2026FD.zip (stem AAAAFD)."""
+    return path.suffix.lower() == ".zip" and bool(_HOUSE_FD_BULK_ZIP_STEM.match(path.stem))
+
+
+def _zip_top_level_names(zip_path: Path) -> list[str]:
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        out: list[str] = []
+        for name in zf.namelist():
+            norm = name.replace("\\", "/").strip("/")
+            if not norm or "/" in norm:
+                continue
+            out.append(norm)
+        return out
+
+
+def house_fd_bulk_zip_needs_extract(zip_path: Path, dest_dir: Path) -> bool:
+    """
+    True se manca un file top-level dello zip FD o la dimensione sul disco non coincide
+    con quella attesa nel zip (evita metadata .txt/.xml obsoleti rispetto al .zip).
+    """
+    if not zip_path.exists():
+        return False
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        top = []
+        for name in zf.namelist():
+            norm = name.replace("\\", "/").strip("/")
+            if not norm or "/" in norm:
+                continue
+            top.append((norm, zf.getinfo(name).file_size))
+        if not top:
+            return True
+        for member_name, expected_size in top:
+            dest = dest_dir / member_name
+            if not dest.exists() or dest.stat().st_size != expected_size:
+                return True
+    return False
+
+
+def extract_house_fd_bulk_zip(zip_path: Path, dest_dir: Path) -> None:
+    """Estrae zip bulk FD House: rimuove i file top-level che verranno estratti, poi extractall."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for name in zf.namelist():
+            norm = name.replace("\\", "/").strip("/")
+            if not norm or "/" in norm:
+                continue
+            (dest_dir / norm).unlink(missing_ok=True)
+        zf.extractall(dest_dir)
+
+
 def now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds")
 
