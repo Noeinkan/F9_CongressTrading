@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from .config import RAW_DIR, SENATE_RAW_DIR
 from .db import (
     get_connection,
@@ -18,7 +16,7 @@ from .db import (
     upsert_member,
 )
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
-from .parse_ptr import iter_ptr_pdfs, parse_ptr_pdf_safe
+from .parse_ptr import parse_ptr_pdf_safe
 from .ticker_lookup import resolve_asset
 from .utils import (
     extract_zip,
@@ -87,17 +85,31 @@ def ingest_senate() -> None:
                 source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
             )
 
-    if not any(SENATE_RAW_DIR.rglob("*.pdf")):
+    senate_pdfs = sorted(SENATE_RAW_DIR.rglob("*.pdf"), key=lambda p: str(p).casefold())
+    if not senate_pdfs:
         print("Nessun PDF trovato in data/raw/senate/. Aggiungi i PTR manualmente.")
         return
 
-    for pdf_path in iter_ptr_pdfs(SENATE_RAW_DIR):
+    total_pdfs = len(senate_pdfs)
+    print(f"Trovati {total_pdfs} PDF PTR in {SENATE_RAW_DIR}; avvio parsing...", flush=True)
+
+    skipped = 0
+    parsed_count = 0
+    for pdf_index, pdf_path in enumerate(senate_pdfs):
         sha = sha256_file(pdf_path)
         if is_file_ingested(conn, str(pdf_path), sha):
+            skipped += 1
             continue
         header, rows = parse_ptr_pdf_safe(pdf_path)
+        parsed_count += 1
         member = header.get("member") or pdf_path.stem
         filing_date = header.get("filing_date")
+        _txn_count = len([r for r in rows if (r.get("asset") or "").strip()])
+        print(
+            f"  PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name} | "
+            f"{member} | filed {filing_date or '?'} | {_txn_count} txn",
+            flush=True,
+        )
         source_url = ""
         member_id = upsert_member(conn, full_name=normalize_whitespace(member), chamber="Senate")
         filing_id = insert_filing(
@@ -211,6 +223,11 @@ def ingest_senate() -> None:
         insert_trades(conn, to_insert)
         mark_file_ingested(conn, str(pdf_path), sha)
 
+    print(
+        f"Senate PTR completato: {parsed_count} PDF parsati, {skipped} gia ingeriti (skip), "
+        f"{total_pdfs} totali.",
+        flush=True,
+    )
     conn.close()
 
 

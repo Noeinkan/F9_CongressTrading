@@ -875,18 +875,35 @@ def ingest_house() -> None:
             flush=True,
         )
 
+    fd_lookup: dict[str, dict[str, str | None]] = {}
+    for _fdr in fd_rows:
+        _doc = _fdr.get("doc_id")
+        if _doc and _doc not in fd_lookup:
+            fd_lookup[_doc] = _fdr
+
+    skipped = 0
+    parsed_count = 0
     for pdf_index, pdf_path in enumerate(ptr_paths):
-        if pdf_index == 0 or (pdf_index + 1) % 25 == 0 or pdf_index == total_pdfs - 1:
-            print(f"PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name}", flush=True)
         sha = sha256_file(pdf_path)
         if not house_ingest_force_reparse_pdfs() and is_file_ingested(conn, str(pdf_path), sha):
+            skipped += 1
             continue
         try:
             header, rows = parse_ptr_pdf_safe(pdf_path)
         except Exception as exc:
-            print(f"Skipping unreadable House PTR PDF {pdf_path}: {exc}")
+            print(f"  ✗ PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name} — errore: {exc}", flush=True)
             mark_file_ingested(conn, str(pdf_path), sha)
             continue
+        parsed_count += 1
+        member = header.get("member") or fd_lookup.get(pdf_path.stem, {}).get("member") or pdf_path.stem
+        _fd_hint = fd_lookup.get(pdf_path.stem, {})
+        _filing_hint = header.get("filing_date") or _fd_hint.get("filing_date") or "?"
+        _txn_count = len([r for r in rows if (r.get("asset") or "").strip()])
+        print(
+            f"  PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name} | "
+            f"{member} | filed {_filing_hint} | {_txn_count} txn",
+            flush=True,
+        )
         member = header.get("member") or pdf_path.stem
         filing_date = header.get("filing_date") or _lookup_house_ptr_filing_date(conn, pdf_path.stem)
         source_url = ""
@@ -1002,6 +1019,11 @@ def ingest_house() -> None:
         insert_trades(conn, to_insert)
         mark_file_ingested(conn, str(pdf_path), sha)
 
+    print(
+        f"House PTR completato: {parsed_count} PDF parsati, {skipped} gia ingeriti (skip), "
+        f"{total_pdfs} totali.",
+        flush=True,
+    )
     print_house_coverage_report(conn)
     conn.close()
 
