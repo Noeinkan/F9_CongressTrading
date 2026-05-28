@@ -51,7 +51,7 @@ def _sidebar_full_dataset_stats_compact(data: pd.DataFrame) -> None:
 def _sidebar_filter_label(title: str, copy: str = "", *, first: bool = False) -> None:
     extra = " filter-first" if first else ""
     if copy:
-        st.sidebar.markdown(
+        st.markdown(
             f"""
             <div class="filter-section-label{extra}">{title}</div>
             <div class="filter-section-copy">{copy}</div>
@@ -59,7 +59,7 @@ def _sidebar_filter_label(title: str, copy: str = "", *, first: bool = False) ->
             unsafe_allow_html=True,
         )
     else:
-        st.sidebar.markdown(
+        st.markdown(
             f'<div class="filter-section-label{extra}">{title}</div>',
             unsafe_allow_html=True,
         )
@@ -76,7 +76,7 @@ def _sidebar_typeahead_select(
 ) -> str | None:
     """Single Streamlit combobox: st.selectbox with index=None + accept_new_options (see docs for st.selectbox)."""
     _sidebar_filter_label(title, hint, first=first)
-    return st.sidebar.selectbox(
+    return st.selectbox(
         title,
         options,
         index=None,
@@ -93,7 +93,7 @@ def _sidebar_slice_bar(filtered: pd.DataFrame) -> None:
     avg_confidence = filtered["confidence_score"].mean() if visible_records else 0.0
     unresolved = int((filtered["review_status"] != "resolved").sum()) if visible_records else 0
     title = _copy("sidebar_slice_summary_title")
-    st.sidebar.markdown(
+    st.markdown(
         f"""
         <div class="sidebar-slice-bar">
             <span><strong>{title}</strong> {visible_records:,} rows</span>
@@ -117,11 +117,11 @@ def _apply_filters_fragment(data: pd.DataFrame) -> pd.DataFrame:
 def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
     """Scope first (dates, chamber), then typeahead selects (member, ticker, issuer), facets, confidence."""
     filtered = data.copy()
-    st.sidebar.markdown(
+    st.markdown(
         f'<p class="sidebar-filters-heading">{_copy("sidebar_header")}</p>',
         unsafe_allow_html=True,
     )
-    with st.sidebar.expander(_copy("sidebar_dataset_expander"), expanded=False):
+    with st.expander(_copy("sidebar_dataset_expander"), expanded=False):
         st.markdown(
             f'<p class="sidebar-expander-caption">{_copy("sidebar_dataset_expander_caption")}</p>',
             unsafe_allow_html=True,
@@ -142,7 +142,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
             default_start, default_end = min_date, max_date
         _sidebar_filter_label("Transaction dates", first=first_label)
         first_label = False
-        date_range = st.sidebar.date_input(
+        date_range = st.date_input(
             "Transaction Date Range",
             value=(default_start, default_end),
             min_value=min_date,
@@ -160,7 +160,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
     if chambers:
         _sidebar_filter_label("Chamber", first=first_label)
         first_label = False
-        selected_chambers = st.sidebar.multiselect(
+        selected_chambers = st.multiselect(
             "Chamber",
             chambers,
             default=chambers,
@@ -248,7 +248,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         type_options = [transaction_type_filter_option(r) for r in transaction_types]
         option_to_raw = dict(zip(type_options, transaction_types))
         default_opts = type_options
-        selected_opts = st.sidebar.multiselect(
+        selected_opts = st.multiselect(
             "Transaction Type",
             type_options,
             default=default_opts,
@@ -262,7 +262,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
     asset_types = sorted(value for value in filtered["asset_type"].dropna().astype(str).unique() if value)
     if asset_types:
         _sidebar_filter_label("Asset type")
-        selected_asset_types = st.sidebar.multiselect(
+        selected_asset_types = st.multiselect(
             "Asset Type",
             asset_types,
             default=asset_types,
@@ -274,7 +274,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
     review_statuses = sorted(value for value in filtered["review_status"].dropna().astype(str).unique() if value)
     if review_statuses:
         _sidebar_filter_label("Review status")
-        selected_statuses = st.sidebar.multiselect(
+        selected_statuses = st.multiselect(
             "Review Status",
             review_statuses,
             default=review_statuses,
@@ -284,7 +284,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         filtered = filtered[filtered["review_status"].isin(selected_statuses)]
 
     _sidebar_filter_label("Minimum confidence (0–1)")
-    confidence_threshold = st.sidebar.slider(
+    confidence_threshold = st.slider(
         "Minimum Confidence",
         min_value=0.0,
         max_value=1.0,

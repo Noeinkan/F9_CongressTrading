@@ -112,7 +112,7 @@ else:
     st.altair_chart(timeline, width="stretch")
 
 st.subheader("Top tickers by trade count")
-top = breakdown.head(12) if not breakdown.empty else pd.DataFrame()
+top = breakdown.head(12).rename(columns={"trades": "transactions"}) if not breakdown.empty else pd.DataFrame()
 if not top.empty:
     st.altair_chart(
         _build_rank_chart(top, "ticker", "Trades", color=THEME["navy"], y_axis_title="Ticker"),

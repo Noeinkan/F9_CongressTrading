@@ -65,7 +65,8 @@ def setup_dashboard_session() -> bool:
         st.session_state["dashboard_review"] = review_queue
         return False
 
-    filtered = _apply_filters_fragment(transactions)
+    with st.sidebar:
+        filtered = _apply_filters_fragment(transactions)
     filtered_review = _filter_review_queue(review_queue, filtered)
     st.session_state["dashboard_ready"] = True
     st.session_state["dashboard_filtered"] = filtered

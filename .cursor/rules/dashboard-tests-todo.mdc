@@ -1,0 +1,13 @@
+---
+description: Reminder — dashboard test coverage is needed
+alwaysApply: true
+---
+
+# Dashboard tests TODO
+
+We need tests that verify the Streamlit dashboard works correctly. Areas to cover:
+
+- Data loading and filtering logic in `src/dashboard_shared/`
+- Filter widgets produce correct query results
+- Dashboard pages render without errors with realistic sample data
+- Edge cases: empty database, missing columns, no matching filters
