@@ -359,7 +359,7 @@ def re_resolve_all_transaction_tickers(conn) -> int:
                     f"DELETE FROM review_queue WHERE transaction_id IN ({placeholders})",
                     chunk,
                 )
-        if asset_i % 25 == 0:
+        if asset_i % 10 == 0:
             conn.commit()
     conn.commit()
     return count

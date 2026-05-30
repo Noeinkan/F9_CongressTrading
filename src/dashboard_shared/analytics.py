@@ -3,6 +3,26 @@ from __future__ import annotations
 import pandas as pd
 
 
+def _signed_amount_median(row: pd.Series) -> float:
+    low, high = row.get("amount_low"), row.get("amount_high")
+    vals = [float(v) for v in (low, high) if pd.notna(v) and float(v) > 0]
+    if not vals:
+        return 0.0
+    return float(pd.Series(vals).median())
+
+
+def signed_trade_notional(row: pd.Series) -> float:
+    med = _signed_amount_median(row)
+    if med == 0:
+        return 0.0
+    tt = str(row.get("transaction_type", "")).strip()
+    if tt == "P":
+        return med
+    if tt == "S" or tt.startswith("S"):
+        return -med
+    return 0.0
+
+
 def normalize_party(value: object) -> str:
     p = "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value).strip()
     if not p:
@@ -60,14 +80,15 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
                 "put": int((g["option_side"] == "Put").sum()),
                 "exchange": int((g["transaction_type"].astype(str).str.strip() == "E").sum()),
                 "trades": len(g),
-                "estimated_value": float(g["estimated_value"].sum(skipna=True)),
+                "amount_low_sum": float(g["amount_low"].sum(skipna=True)),
+                "amount_high_sum": float(g["amount_high"].sum(skipna=True)),
                 "first_trade": g["transaction_date"].min(),
                 "last_trade": g["transaction_date"].max(),
             }
         )
     if not rows:
         return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values(["trades", "estimated_value"], ascending=[False, False])
+    return pd.DataFrame(rows).sort_values(["trades", "amount_high_sum"], ascending=[False, False])
 
 
 def ticker_member_breakdown(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:
@@ -89,12 +110,13 @@ def ticker_member_breakdown(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:
                 "put": int((g["option_side"] == "Put").sum()),
                 "exchange": int((g["transaction_type"].astype(str).str.strip() == "E").sum()),
                 "trades": len(g),
-                "estimated_value": float(g["estimated_value"].sum(skipna=True)),
+                "amount_low_sum": float(g["amount_low"].sum(skipna=True)),
+                "amount_high_sum": float(g["amount_high"].sum(skipna=True)),
                 "first_trade": g["transaction_date"].min(),
                 "last_trade": g["transaction_date"].max(),
             }
         )
-    return pd.DataFrame(rows).sort_values(["trades", "estimated_value"], ascending=[False, False])
+    return pd.DataFrame(rows).sort_values(["trades", "amount_high_sum"], ascending=[False, False])
 
 
 def detect_coordinated_trades(
@@ -146,6 +168,31 @@ def detect_coordinated_trades(
     return pd.DataFrame(results).sort_values(["members", "trades"], ascending=[False, False])
 
 
+def coordinated_pattern_transactions(
+    frame: pd.DataFrame,
+    *,
+    ticker: str,
+    pattern: str,
+    window_days: int = 90,
+) -> pd.DataFrame:
+    """Return disclosure rows that match one coordinated buy/sell pattern row."""
+    sub = frame.dropna(subset=["transaction_date"]).copy()
+    sub = add_trade_categories(sub)
+    sub = sub[sub["ticker"].astype(str).str.strip() != ""]
+    if sub.empty:
+        return pd.DataFrame()
+    max_date = sub["transaction_date"].max()
+    cutoff = max_date - pd.Timedelta(days=window_days)
+    recent = sub[(sub["transaction_date"] >= cutoff) & (sub["ticker"].astype(str) == str(ticker))]
+    if pattern == "Coordinated buy":
+        out = recent[recent["is_buy"]]
+    elif pattern == "Coordinated sell":
+        out = recent[recent["is_sell"]]
+    else:
+        return pd.DataFrame()
+    return out.sort_values(["transaction_date", "member"], ascending=[True, True])
+
+
 def call_put_monthly(frame: pd.DataFrame) -> pd.DataFrame:
     sub = frame.dropna(subset=["transaction_date"]).copy()
     sub = add_trade_categories(sub)
@@ -175,25 +222,27 @@ def volume_anomalies(frame: pd.DataFrame, *, recent_days: int = 90) -> pd.DataFr
         return pd.DataFrame()
     hist_counts = hist.groupby("ticker", observed=True).size()
     recent_counts = recent.groupby("ticker", observed=True).size()
+    hist_months = max(1, (recent_cut - sub["transaction_date"].min()).days / 30.0)
+    recent_months = recent_days / 30.0
     rows: list[dict[str, object]] = []
     for ticker, recent_n in recent_counts.items():
         hist_n = int(hist_counts.get(ticker, 0))
-        hist_months = max(1, (recent_cut - sub["transaction_date"].min()).days / 30.0)
-        baseline = hist_n / hist_months if hist_n else 0.0
-        recent_rate = recent_n / (recent_days / 30.0)
-        ratio = recent_rate / baseline if baseline > 0 else float(recent_n)
-        if recent_n >= 3 and (baseline == 0 or ratio >= 2.0):
+        prior_per_month = hist_n / hist_months if hist_n else 0.0
+        recent_per_month = recent_n / recent_months
+        spike_ratio = recent_per_month / prior_per_month if prior_per_month > 0 else float(recent_n)
+        if recent_n >= 3 and (prior_per_month == 0 or spike_ratio >= 2.0):
             rows.append(
                 {
                     "ticker": ticker,
-                    "recent_trades": int(recent_n),
-                    "historical_trades": hist_n,
-                    "activity_ratio": round(ratio, 2),
+                    "recent_disclosures": int(recent_n),
+                    "recent_per_month": round(recent_per_month, 2),
+                    "prior_per_month": round(prior_per_month, 2),
+                    "spike_ratio": round(spike_ratio, 2),
                 }
             )
     if not rows:
         return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values("activity_ratio", ascending=False)
+    return pd.DataFrame(rows).sort_values("spike_ratio", ascending=False)
 
 
 def bipartisan_tickers(frame: pd.DataFrame, *, window_days: int = 90) -> pd.DataFrame:

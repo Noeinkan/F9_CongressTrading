@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+import html
 import re
 
 import pandas as pd
@@ -8,59 +8,145 @@ import streamlit as st
 
 from .components import _copy
 from .constants import (
-    DEFAULT_TRANSACTION_FILTER_START,
     _SIDEBAR_NO_ISSUER,
     _SIDEBAR_NO_TICKER,
 )
 from .data import transaction_type_filter_option
 
-def _sidebar_full_dataset_stats_compact(data: pd.DataFrame) -> None:
-    transaction_count = len(data)
-    member_count = data["member"].nunique()
-    ticker_count = data.loc[data["ticker"] != "", "ticker"].nunique()
-    valid_dates = data["transaction_date"].dropna()
-    coverage = _copy("no_dated_trades")
-    if not valid_dates.empty:
-        coverage = f"{valid_dates.min():%Y-%m-%d} → {valid_dates.max():%Y-%m-%d}"
+_QUARTER_OPTIONS = (1, 2, 3, 4)
 
-    st.markdown(
-        f"""
-        <div class="sidebar-stat-grid-compact">
-            <div class="sidebar-stat-tiny">
-                <div class="sidebar-stat-label">Txns</div>
-                <div class="sidebar-stat-value">{transaction_count:,}</div>
-            </div>
-            <div class="sidebar-stat-tiny">
-                <div class="sidebar-stat-label">Members</div>
-                <div class="sidebar-stat-value">{member_count:,}</div>
-            </div>
-            <div class="sidebar-stat-tiny">
-                <div class="sidebar-stat-label">Tickers</div>
-                <div class="sidebar-stat-value">{ticker_count:,}</div>
-            </div>
-            <div class="sidebar-stat-tiny">
-                <div class="sidebar-stat-label">Dates</div>
-                <div class="sidebar-stat-value">{coverage}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+
+def _available_years(data: pd.DataFrame) -> list[int]:
+    dates = pd.to_datetime(data.get("transaction_date"), errors="coerce").dropna()
+    if dates.empty:
+        return []
+    return sorted(int(y) for y in dates.dt.year.unique())
+
+
+def _year_range_selection(
+    years_available: list[int],
+    year_from: int,
+    year_to: int,
+) -> list[int]:
+    """Inclusive calendar-year range over available years (order-independent)."""
+    lo, hi = min(year_from, year_to), max(year_from, year_to)
+    return [y for y in years_available if lo <= y <= hi]
+
+
+def _apply_period_filter(
+    data: pd.DataFrame,
+    *,
+    selected_years: list[int] | None,
+    selected_quarters: list[int] | None,
+    all_years: list[int],
+    all_quarters: tuple[int, ...] = _QUARTER_OPTIONS,
+) -> pd.DataFrame:
+    """Keep rows whose transaction_date falls in selected calendar years and quarters."""
+    if data.empty or "transaction_date" not in data.columns:
+        return data
+
+    years_sel = list(selected_years or [])
+    quarters_sel = list(selected_quarters or [])
+    if not years_sel or not quarters_sel:
+        return data.iloc[0:0].copy()
+
+    if set(years_sel) >= set(all_years) and set(quarters_sel) >= set(all_quarters):
+        return data
+
+    dated = data.dropna(subset=["transaction_date"]).copy()
+    if dated.empty:
+        return dated
+
+    tx_dates = pd.to_datetime(dated["transaction_date"], errors="coerce")
+    mask = tx_dates.dt.year.isin(years_sel) & tx_dates.dt.quarter.isin(quarters_sel)
+    return dated.loc[mask].copy()
+
+
+def render_period_slicers_and_filter(data: pd.DataFrame) -> pd.DataFrame:
+    """Compact year-range + quarter controls pinned in the top header bar."""
+    years_available = _available_years(data)
+    if not years_available:
+        return data
+
+    caption = html.escape(_copy("period_slicer_caption"))
+    with st.container(key="period_toolbar"):
+        slicer_cols = st.columns([0.3, 0.72, 0.06, 0.72, 2.15], vertical_alignment="center")
+        with slicer_cols[0]:
+            if st.button(
+                "↺",
+                key="dashboard_slicer_reset",
+                help=f"{_copy('period_slicer_reset')}. {caption}",
+                use_container_width=True,
+            ):
+                for key in (
+                    "dashboard_slicer_year_from",
+                    "dashboard_slicer_year_to",
+                    "dashboard_slicer_quarter",
+                    "dashboard_slicer_year",
+                ):
+                    st.session_state.pop(key, None)
+                st.rerun()
+        with slicer_cols[1]:
+            year_from = st.selectbox(
+                _copy("period_slicer_year_from"),
+                years_available,
+                index=0,
+                format_func=str,
+                label_visibility="collapsed",
+                key="dashboard_slicer_year_from",
+            )
+        with slicer_cols[2]:
+            st.markdown('<span class="period-toolbar-dash">–</span>', unsafe_allow_html=True)
+        with slicer_cols[3]:
+            year_to = st.selectbox(
+                _copy("period_slicer_year_to"),
+                years_available,
+                index=len(years_available) - 1,
+                format_func=str,
+                label_visibility="collapsed",
+                key="dashboard_slicer_year_to",
+            )
+        with slicer_cols[4]:
+            selected_quarters = st.pills(
+                "Quarter",
+                list(_QUARTER_OPTIONS),
+                selection_mode="multi",
+                default=list(_QUARTER_OPTIONS),
+                format_func=lambda q: f"Q{q}",
+                key="dashboard_slicer_quarter",
+            )
+
+    years_sel = _year_range_selection(years_available, int(year_from), int(year_to))
+    quarters_sel = list(selected_quarters or [])
+    if not years_sel or not quarters_sel:
+        st.warning("Select at least one year and one quarter to show data.")
+
+    filtered = _apply_period_filter(
+        data,
+        selected_years=years_sel,
+        selected_quarters=quarters_sel,
+        all_years=years_available,
     )
+    return filtered
 
 
 def _sidebar_filter_label(title: str, copy: str = "", *, first: bool = False) -> None:
     extra = " filter-first" if first else ""
+    title_html = html.escape(title)
     if copy:
+        tip_html = html.escape(copy)
         st.markdown(
             f"""
-            <div class="filter-section-label{extra}">{title}</div>
-            <div class="filter-section-copy">{copy}</div>
+            <div class="filter-section-label{extra} filter-has-tip">
+                <span class="filter-label-text">{title_html}</span>
+                <span class="filter-tip-popup" role="tooltip">{tip_html}</span>
+            </div>
             """,
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            f'<div class="filter-section-label{extra}">{title}</div>',
+            f'<div class="filter-section-label{extra}">{title_html}</div>',
             unsafe_allow_html=True,
         )
 
@@ -121,40 +207,8 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         f'<p class="sidebar-filters-heading">{_copy("sidebar_header")}</p>',
         unsafe_allow_html=True,
     )
-    with st.expander(_copy("sidebar_dataset_expander"), expanded=False):
-        st.markdown(
-            f'<p class="sidebar-expander-caption">{_copy("sidebar_dataset_expander_caption")}</p>',
-            unsafe_allow_html=True,
-        )
-        _sidebar_full_dataset_stats_compact(data)
 
     first_label = True
-
-    valid_dates = filtered["transaction_date"].dropna()
-    if not valid_dates.empty:
-        min_date = valid_dates.min().date()
-        max_date = valid_dates.max().date()
-        today = date.today()
-        picker_max = max(max_date, today)
-        default_start = max(min_date, DEFAULT_TRANSACTION_FILTER_START)
-        default_end = min(max_date, today)
-        if default_start > default_end:
-            default_start, default_end = min_date, max_date
-        _sidebar_filter_label("Transaction dates", first=first_label)
-        first_label = False
-        date_range = st.date_input(
-            "Transaction Date Range",
-            value=(default_start, default_end),
-            min_value=min_date,
-            max_value=picker_max,
-            label_visibility="collapsed",
-            key="sidebar_transaction_date_filter",
-        )
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_date, end_date = date_range
-            filtered = filtered[
-                filtered["transaction_date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
-            ]
 
     chambers = sorted(value for value in filtered["chamber"].dropna().astype(str).unique() if value)
     if chambers:
@@ -243,7 +297,7 @@ def _apply_filters(data: pd.DataFrame) -> pd.DataFrame:
     if transaction_types:
         _sidebar_filter_label(
             "Transaction type",
-            "P = Buy, S = Sell (chips show full words plus the filing code).",
+            _copy("sidebar_transaction_type_hint"),
         )
         type_options = [transaction_type_filter_option(r) for r in transaction_types]
         option_to_raw = dict(zip(type_options, transaction_types))

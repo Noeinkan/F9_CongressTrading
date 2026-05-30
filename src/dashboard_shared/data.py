@@ -19,6 +19,7 @@ from .constants import (
     SQLITE_TRANSACTION_QUERY,
     TRANSACTION_COLUMNS,
 )
+from .formatting import format_currency_compact, format_currency_full
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     row = conn.execute(
@@ -39,7 +40,7 @@ def _polygon_daily_bar_cache_size(conn: sqlite3.Connection) -> int:
 
 def merge_polygon_pnl_cached_columns(frame: pd.DataFrame, *, as_of: date | None = None) -> pd.DataFrame:
     """Append Polygon estimate columns using only `polygon_daily_bar_cache` (no HTTP from the dashboard)."""
-    from .polygon_prices import POLYGON_PNL_EXTRA_COLUMNS, enrich_export_rows_with_polygon_pnl
+    from ..polygon_prices import POLYGON_PNL_EXTRA_COLUMNS, enrich_export_rows_with_polygon_pnl
 
     if frame.empty:
         return frame
@@ -142,29 +143,6 @@ def transaction_type_filter_option(raw: str) -> str:
     return f"{label} ({r})"
 
 
-def _signed_amount_median(row: pd.Series) -> float:
-    low, high = row.get("amount_low"), row.get("amount_high")
-    vals = [float(v) for v in (low, high) if pd.notna(v) and float(v) > 0]
-    if not vals:
-        ev = row.get("estimated_value")
-        if pd.notna(ev) and float(ev) > 0:
-            return float(ev)
-        return 0.0
-    return float(pd.Series(vals).median())
-
-
-def _signed_trade_notional(row: pd.Series) -> float:
-    med = _signed_amount_median(row)
-    if med == 0:
-        return 0.0
-    tt = str(row.get("transaction_type", "")).strip()
-    if tt == "P":
-        return med
-    if tt == "S" or tt.startswith("S"):
-        return -med
-    return 0.0
-
-
 def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     data = frame.copy()
     for column in TRANSACTION_COLUMNS:
@@ -176,7 +154,6 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     data["confidence_score"] = pd.to_numeric(data["confidence_score"], errors="coerce").fillna(0.0)
     data["amount_low"] = pd.to_numeric(data["amount_low"], errors="coerce")
     data["amount_high"] = pd.to_numeric(data["amount_high"], errors="coerce")
-    data["estimated_value"] = data[["amount_low", "amount_high"]].mean(axis=1, skipna=True)
     data["ticker"] = data["ticker"].fillna("").astype(str).str.upper()
     data["member"] = data["member"].fillna("Unknown")
     data["party"] = data["party"].fillna("")
@@ -194,7 +171,7 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     data["source_url"] = data["source_url"].map(lambda x: "" if pd.isna(x) else str(x).strip())
     data["raw_document_path"] = data["raw_document_path"].map(lambda x: "" if pd.isna(x) else str(x).strip())
     data["disclosure_url"] = data.apply(_compute_disclosure_url_row, axis=1)
-    return data[TRANSACTION_COLUMNS + ["estimated_value", "month", "disclosure_url", "transaction_type_label"]]
+    return data[TRANSACTION_COLUMNS + ["month", "disclosure_url", "transaction_type_label"]]
 
 
 def _prepare_review(frame: pd.DataFrame) -> pd.DataFrame:
@@ -293,9 +270,10 @@ def load_review_queue(transactions: pd.DataFrame) -> tuple[pd.DataFrame, str]:
 
 
 def _format_currency(value: float) -> str:
-    if pd.isna(value) or value <= 0:
-        return "n/a"
-    return f"${value:,.0f}"
+    return format_currency_full(value)
+
+
+_format_currency_short = format_currency_compact
 
 
 def _download_bytes(frame: pd.DataFrame) -> bytes:

@@ -3,10 +3,11 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from .components import _copy, _metric_card, _render_hero
-from .constants import THEME
-from .data import _format_currency, load_review_queue, load_transactions
-from .filters import _apply_filters_fragment
+from .components import _copy, _render_hero, render_kpi_row
+from .data import load_review_queue, load_transactions
+from .formatting import format_currency_compact, format_currency_full, format_percent
+from .kpi_sparklines import KpiSpec, build_slice_kpi_sparklines
+from .filters import _apply_filters_fragment, render_period_slicers_and_filter
 
 def _filter_review_queue(review_queue: pd.DataFrame, filtered_transactions: pd.DataFrame) -> pd.DataFrame:
     if review_queue.empty or filtered_transactions.empty:
@@ -65,13 +66,21 @@ def setup_dashboard_session() -> bool:
         st.session_state["dashboard_review"] = review_queue
         return False
 
+    st.session_state["dashboard_review_queue"] = review_queue
     with st.sidebar:
-        filtered = _apply_filters_fragment(transactions)
-    filtered_review = _filter_review_queue(review_queue, filtered)
+        base_filtered = _apply_filters_fragment(transactions)
+    st.session_state["dashboard_base_filtered"] = base_filtered
     st.session_state["dashboard_ready"] = True
-    st.session_state["dashboard_filtered"] = filtered
-    st.session_state["dashboard_review"] = filtered_review
     return True
+
+
+def finalize_dashboard_slice() -> None:
+    """Apply global year/quarter slicers and sync filtered datasets for all pages."""
+    base_filtered: pd.DataFrame = st.session_state.get("dashboard_base_filtered", pd.DataFrame())
+    review_queue: pd.DataFrame = st.session_state.get("dashboard_review_queue", pd.DataFrame())
+    filtered = render_period_slicers_and_filter(base_filtered)
+    st.session_state["dashboard_filtered"] = filtered
+    st.session_state["dashboard_review"] = _filter_review_queue(review_queue, filtered)
 
 
 def render_slice_hero_and_kpis() -> None:
@@ -84,7 +93,10 @@ def render_slice_hero_and_kpis() -> None:
     tracked_tickers = filtered.loc[filtered["ticker"] != "", "ticker"].nunique()
     filtered_review: pd.DataFrame = ctx["review"]  # type: ignore[assignment]
     open_reviews = int((filtered_review["status"] == "open").sum()) if not filtered_review.empty else 0
-    estimated_value = filtered["estimated_value"].sum(skipna=True)
+    from .formatting import format_disclosed_range, sum_amount_high, sum_amount_low
+
+    amount_low_total = sum_amount_low(filtered)
+    amount_high_total = sum_amount_high(filtered)
     avg_confidence = filtered["confidence_score"].mean() if total_transactions else 0.0
     active_chambers = ", ".join(sorted(filtered["chamber"].dropna().astype(str).unique())) or _copy("no_chamber_selected")
     latest_filing = filtered["filing_date"].max()
@@ -108,32 +120,42 @@ def render_slice_hero_and_kpis() -> None:
         coverage_label=coverage_label,
         latest_filing_label=latest_filing_label,
     )
-    metric_columns = st.columns(5)
-    metric_columns[0].markdown(
-        _metric_card("Transactions", f"{total_transactions:,}", "Rows currently visible after filters."),
-        unsafe_allow_html=True,
+    spark = build_slice_kpi_sparklines(filtered, filtered_review)
+    render_kpi_row(
+        [
+            KpiSpec(
+                "Transactions",
+                f"{total_transactions:,}",
+                "Rows in the active filter slice",
+                sparkline=spark.get("transactions") or None,
+            ),
+            KpiSpec(
+                "Members",
+                f"{total_members:,}",
+                "Distinct filers in the slice",
+                sparkline=spark.get("members") or None,
+            ),
+            KpiSpec(
+                "Tickers",
+                f"{tracked_tickers:,}",
+                "Resolved symbols in the slice",
+                sparkline=spark.get("tickers") or None,
+            ),
+            KpiSpec(
+                "Open reviews",
+                f"{open_reviews:,}",
+                "Queue items still needing validation",
+                sparkline=spark.get("open_reviews") or None,
+            ),
+            KpiSpec(
+                "Disclosed range",
+                format_disclosed_range(amount_low_total, amount_high_total),
+                f"{format_currency_full(amount_low_total)} low · {format_currency_full(amount_high_total)} high · {format_percent(avg_confidence)} avg confidence",
+                sparkline=spark.get("disclosed_amount_high") or None,
+                delta_percent=True,
+            ),
+        ],
     )
-    metric_columns[1].markdown(
-        _metric_card("Members", f"{total_members:,}", "Distinct filers represented in the visible slice."),
-        unsafe_allow_html=True,
-    )
-    metric_columns[2].markdown(
-        _metric_card("Tickers", f"{tracked_tickers:,}", "Resolved instruments ready for analysis."),
-        unsafe_allow_html=True,
-    )
-    metric_columns[3].markdown(
-        _metric_card("Open Reviews", f"{open_reviews:,}", "Records still flagged for manual validation."),
-        unsafe_allow_html=True,
-    )
-    metric_columns[4].markdown(
-        _metric_card(
-            "Estimated Midpoint",
-            _format_currency(estimated_value),
-            f"Average confidence {avg_confidence:.0%}.",
-            accent=True,
-        ),
-        unsafe_allow_html=True,
-    )
-    st.divider()
+    st.space(1)
 
 

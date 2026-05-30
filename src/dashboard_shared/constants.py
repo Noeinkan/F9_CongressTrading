@@ -46,6 +46,15 @@ THEME = {
     "chart_view_fill": "rgba(255, 253, 248, 0.98)",
     "chart_view_stroke": "rgba(18, 24, 34, 0.18)",
     "chart_grid_major": "rgba(18, 24, 34, 0.24)",
+    # Semantic series colors (charts + buy/sell chips)
+    "chart_series_primary": "#20344a",
+    "chart_series_secondary": "#c6922b",
+    "chart_series_accent_fill": "#d7a869",
+    "chart_buy": "#15803d",
+    "chart_sell": "#be123c",
+    "chart_sell_partial": "#c2410c",
+    "chart_exchange": "#1d4ed8",
+    "chart_unknown": "#64748b",
     "plotly_paper": "#fff8f0",
     "plotly_scene_bg": "#fffaf3",
     "plotly_axis_ink": "#0c1018",
@@ -67,8 +76,11 @@ DASHBOARD_COPY = {
         "to inspect trades, concentration, and unresolved records."
     ),
     "sidebar_header": "Filters",
-    "sidebar_dataset_expander": "Full dataset (reference)",
-    "sidebar_dataset_expander_caption": "Totals across every loaded row; filters below apply on top of this.",
+    "period_slicer_title": "Period",
+    "period_slicer_caption": "Year and quarter filters apply to every page.",
+    "period_slicer_reset": "Reset period",
+    "period_slicer_year_from": "From",
+    "period_slicer_year_to": "To",
     "sidebar_slice_summary_title": "Active slice",
     "current_slice": "Current slice",
     "no_chamber_selected": "No chamber selected",
@@ -94,12 +106,24 @@ DASHBOARD_COPY = {
     "sub_transaction_type_mix": "Transaction type mix",
     "sub_top_tickers": "Top tickers",
     "sub_latest_transactions": "Latest transactions",
+    "sub_activity_feed_caption": (
+        "Most recent PTR disclosures in the current filter — stock, transaction type, member, filing dates, "
+        "and estimated market return when Polygon price cache is available."
+    ),
     "sub_ticker_who_when": "Ticker activity: who traded and when",
-    "sub_cumulative_exposure": "Cumulative exposure (median of amount range)",
-    "cumulative_exposure_caption": (
-        "Per member and selected ticker: running sum of signed dollar amounts. **Buy (P)** adds the **median** of each "
-        "disclosure amount range (between low and high when both exist); **Sell** and **partial sell** subtract. "
-        "Same-day trades are ordered by filing date. This is a rough notional proxy, not share count."
+    "sub_cumulative_exposure": "Net disclosed dollars over time",
+    "cumulative_exposure_lede": (
+        "For the selected ticker, each line tracks one member’s **running net buy vs sell** using each disclosure’s "
+        "**dollar range** (low/high bounds; not exact share counts)."
+    ),
+    "cumulative_exposure_guide_title": "How to read this chart",
+    "cumulative_exposure_guide_lines": (
+        "**Colored line** = one member · **Step up** = buy · **Step down** = sell · **Flat** = no new trades · "
+        "**Dashed $0 line** = buys and sells balance out so far"
+    ),
+    "cumulative_exposure_guide_note": (
+        "Congress filings report dollar **ranges** (e.g. $1k–$15k), not shares. This is a rough activity proxy, "
+        "not portfolio value or current holdings."
     ),
     "ticker_chart_caption": (
         "Each row is one member of Congress; the horizontal axis is when the trade occurred. "
@@ -109,7 +133,7 @@ DASHBOARD_COPY = {
     "ticker_color_key_title": "Dot colors",
     "sub_ticker_3d": "Same ticker in 3D (rotate / zoom with mouse)",
     "ticker_3d_caption": (
-        "**X** = transaction date · **Y** = member · **Z** = log₁₀(estimated range midpoint + 1) so trade size has depth. "
+        "**X** = transaction date · **Y** = member · **Z** = log₁₀(disclosure amount high + 1) so trade size has depth. "
         "Legend at top matches dot colors (Buy / Sell / …). Drag the plot to rotate."
     ),
     "chart_caption_monthly": (
@@ -133,8 +157,8 @@ DASHBOARD_COPY = {
     "chart_caption_mix_review_reason": "**What you see:** how many review-queue rows per **reason** code.",
     "chart_caption_mix_review_status": "**What you see:** how many review-queue rows per **status** (open, …).",
     "chart_caption_cumulative": (
-        "**Legend:** colored lines = **member** (up to 16 with the most trades on this ticker). "
-        "Hover a point for type and signed dollar delta. Y-axis = cumulative signed median $."
+        "Up to **16 members** with the most trades on this ticker. **Hover a dot** for trade type, "
+        "change on that trade, and running total. Right-side labels show each member’s latest net $."
     ),
     "sidebar_pick_member_label": "Member",
     "sidebar_pick_ticker_label": "Ticker",
@@ -145,6 +169,7 @@ DASHBOARD_COPY = {
     "sidebar_ticker_filter_placeholder": "Any ticker — type or pick",
     "sidebar_issuer_filter_hint": "Type to narrow issuers; pick or type a substring. “Blank issuer” or “-” for empty names.",
     "sidebar_issuer_filter_placeholder": "Any issuer — type or pick",
+    "sidebar_transaction_type_hint": "P = Buy, S = Sell (chips show full words plus the filing code).",
     "sub_records_needing_review": "Records needing review",
     "sub_filtered_dataset": "Filtered normalized dataset",
 }

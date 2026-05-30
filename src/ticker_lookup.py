@@ -9,6 +9,7 @@ from typing import Any, Optional, Sequence
 import requests
 from rapidfuzz import fuzz
 from requests import Response
+from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 
 from .config import (
@@ -59,9 +60,28 @@ MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_
 POLYGON_LIMITER = RateLimiter(DEFAULT_POLYGON_MIN_INTERVAL)
 OPENFIGI_LIMITER = RateLimiter(DEFAULT_OPENFIGI_MIN_INTERVAL)
 
+
+def _build_session() -> requests.Session:
+    """Shared session so the thousands of lookup requests reuse keep-alive connections
+    instead of paying a fresh TCP/TLS handshake every call."""
+    session = requests.Session()
+    adapter = HTTPAdapter(pool_connections=8, pool_maxsize=8, max_retries=0)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_SESSION = _build_session()
+
 # Disclosure text often includes suffixes that hurt name search; thresholds tuned for PTR noise.
 POLYGON_FUZZY_MIN_SCORE = float(os.getenv("POLYGON_FUZZY_MIN_SCORE", "82"))
 OPENFIGI_FUZZY_MIN_SCORE = float(os.getenv("OPENFIGI_FUZZY_MIN_SCORE", "78"))
+
+# When the simplified name differs from the raw asset, Polygon is queried with both by default.
+# Set POLYGON_SEARCH_RAW_FALLBACK=0 to query only the simplified name (~half the Polygon calls).
+POLYGON_SEARCH_RAW_FALLBACK = (
+    (os.getenv("POLYGON_SEARCH_RAW_FALLBACK") or "1").strip().lower() in {"1", "true", "yes", "on"}
+)
 
 # If set to 1, OpenFIGI name mapping adds securityType2=Common Stock (narrower; can miss ADRs).
 OPENFIGI_NAME_STRICT_COMMON_STOCK = (
@@ -94,15 +114,31 @@ _PAREN_TICKER_DENYLIST = frozenset(
     }
 )
 
+# Senate eFD raw lines: "2000070841 SP NextEra Energy, Inc. (NEE) [ST]"
+# or owner-code prefix without doc ID: "JT Microsoft Corporation - Common"
+_SENATE_DOC_PREFIX_RE = re.compile(r"^\d{7,12}\s+")
+_OWNER_CODE_PREFIX_RE = re.compile(r"^(?:SP|JT|DC|CH|SC|SF)\s+", re.IGNORECASE)
+
+
+def _strip_senate_and_owner_prefix(asset: str) -> str:
+    """Remove Senate eFD doc-ID prefix and owner-code prefix (SP/JT/DC/CH/SC/SF)."""
+    s = _SENATE_DOC_PREFIX_RE.sub("", asset)
+    s = _OWNER_CODE_PREFIX_RE.sub("", s)
+    return normalize_whitespace(s) or asset
+
 
 def _simplify_for_equity_search(asset: str) -> str:
     """Strip PTR boilerplate so Polygon/OpenFIGI name search matches issuer lines."""
     s = normalize_whitespace(asset)
     if not s:
         return ""
+    s = _strip_senate_and_owner_prefix(s)
     s = re.sub(r"\s*\[[A-Z]{2,4}\]\s*$", "", s, flags=re.I)
-    s = re.sub(r"\s*-\s*Common Stock\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*\([A-Z]{1,6}\)\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-?\s*Common Stock\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*Common Shares?\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*,?\s*Common$", "", s, flags=re.I)
+    s = re.sub(r"\s*-\s*Common$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*Class\s+[A-Z]\b.*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*$", "", s)
     s = normalize_whitespace(s).strip(" ,")
@@ -157,10 +193,11 @@ def _strip_trailing_disclosure_ticker(asset: str, ticker: str) -> str:
 
 
 def _try_disclosure_parenthetical_match(asset_norm: str) -> AssetMatch | None:
-    ticker = _extract_ticker_from_parentheses(asset_norm)
+    cleaned = _strip_senate_and_owner_prefix(asset_norm)
+    ticker = _extract_ticker_from_parentheses(cleaned)
     if not ticker:
         return None
-    display_name = _strip_trailing_disclosure_ticker(asset_norm, ticker)
+    display_name = _strip_trailing_disclosure_ticker(cleaned, ticker)
     return AssetMatch(
         asset_name_normalized=display_name,
         issuer_name=display_name,
@@ -174,8 +211,9 @@ def _try_disclosure_parenthetical_match(asset_norm: str) -> AssetMatch | None:
 
 def _canonical_company_key(text: str | None) -> str:
     key = normalize_key(text)
+    key = _strip_senate_and_owner_prefix(key)
     key = re.sub(
-        r"\b(class [a-z]|cl [a-z]|common stock|common shares?|ordinary shares?|adr|ads)\b",
+        r"\b(class [a-z]|cl [a-z]|common stock|common shares?|common|ordinary shares?|adr|ads)\b",
         " ",
         key,
     )
@@ -188,9 +226,10 @@ def _canonical_company_key(text: str | None) -> str:
 
 
 def _match_score(asset: str, candidate: str) -> float:
-    asset_name = normalize_whitespace(asset).casefold()
+    cleaned_asset = _simplify_for_equity_search(asset)
+    asset_name = normalize_whitespace(cleaned_asset).casefold()
     candidate_name = normalize_whitespace(candidate).casefold()
-    asset_key = _canonical_company_key(asset)
+    asset_key = _canonical_company_key(cleaned_asset)
     candidate_key = _canonical_company_key(candidate)
     return max(
         fuzz.ratio(asset_name, candidate_name),
@@ -200,11 +239,12 @@ def _match_score(asset: str, candidate: str) -> float:
 
 
 def _is_exact_match(asset: str, candidate: str) -> bool:
-    asset_key = normalize_key(asset)
+    cleaned_asset = _simplify_for_equity_search(asset)
+    asset_key = normalize_key(cleaned_asset)
     candidate_key = normalize_key(candidate)
     if asset_key and asset_key == candidate_key:
         return True
-    canonical_asset = _canonical_company_key(asset)
+    canonical_asset = _canonical_company_key(cleaned_asset)
     canonical_candidate = _canonical_company_key(candidate)
     return bool(canonical_asset and canonical_asset == canonical_candidate)
 
@@ -254,7 +294,7 @@ def _request_with_rate_limit(
 ) -> Response | None:
     limiter.wait()
     try:
-        response = requests.request(method, url, **request_kwargs)
+        response = _SESSION.request(method, url, **request_kwargs)
     except RequestException:
         return None
 
@@ -264,7 +304,7 @@ def _request_with_rate_limit(
             limiter.backoff(retry_after)
             limiter.wait()
             try:
-                response = requests.request(method, url, **request_kwargs)
+                response = _SESSION.request(method, url, **request_kwargs)
             except RequestException:
                 return None
         else:
@@ -285,7 +325,12 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
     simplified = _simplify_for_equity_search(asset)
     if simplified and simplified.casefold() != asset.casefold():
         search_queries.append(simplified)
-    search_queries.append(asset)
+        # The raw-name retry roughly doubles Polygon calls per asset and rarely matches once the
+        # name is simplified. Set POLYGON_SEARCH_RAW_FALLBACK=0 to skip it for a faster run.
+        if POLYGON_SEARCH_RAW_FALLBACK:
+            search_queries.append(asset)
+    else:
+        search_queries.append(asset)
     seen_q: set[str] = set()
     best_match: AssetMatch | None = None
     best_score = 0.0
@@ -632,6 +677,7 @@ def bulk_resolve_unique_assets_for_reconcile(
             )
             continue
 
+        search_name = _simplify_for_equity_search(an)
         matched: AssetMatch = _manual_review_match(an, "none")
         if openfigi_key:
             cusip = _first_cusip_token(an)
@@ -641,7 +687,7 @@ def bulk_resolve_unique_assets_for_reconcile(
                     out[an] = _finalize_resolution_from_match(conn, an, c_hit, issuer_enrich_hint=an, commit=commit)
                     continue
         if polygon_key:
-            hit = polygon_lookup(an, polygon_key, POLYGON_LIMITER)
+            hit = polygon_lookup(search_name, polygon_key, POLYGON_LIMITER)
             if hit is not None:
                 matched = hit
         if matched.ticker is not None:
@@ -652,9 +698,12 @@ def bulk_resolve_unique_assets_for_reconcile(
             out[an] = _finalize_resolution_from_match(conn, an, matched, commit=commit)
 
     if need_openfigi_batch and openfigi_key:
-        batch = openfigi_lookup_batch(need_openfigi_batch, openfigi_key, OPENFIGI_LIMITER)
+        search_names = {an: _simplify_for_equity_search(an) for an in need_openfigi_batch}
+        batch = openfigi_lookup_batch(
+            [search_names[an] for an in need_openfigi_batch], openfigi_key, OPENFIGI_LIMITER
+        )
         for an in need_openfigi_batch:
-            om = batch.get(an)
+            om = batch.get(search_names[an])
             final_m = om if om is not None else _manual_review_match(an, "none")
             out[an] = _finalize_resolution_from_match(conn, an, final_m, commit=commit)
 
@@ -691,6 +740,9 @@ def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
     polygon_key = os.getenv("POLYGON_API_KEY")
     openfigi_key = os.getenv("OPENFIGI_API_KEY")
 
+    # Use cleaned name (no doc-ID/owner prefixes, no trailing boilerplate) for API queries
+    search_name = _simplify_for_equity_search(asset_norm)
+
     matched_asset: AssetMatch = _manual_review_match(asset_norm, "none")
 
     if not house_ingest_skip_external_asset_lookup():
@@ -703,12 +755,12 @@ def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
                         conn, asset_norm, cusip_match, issuer_enrich_hint=asset_norm, commit=commit
                     )
         if polygon_key:
-            polygon_match = polygon_lookup(asset_norm, polygon_key, POLYGON_LIMITER)
+            polygon_match = polygon_lookup(search_name, polygon_key, POLYGON_LIMITER)
             if polygon_match is not None:
                 matched_asset = polygon_match
 
         if matched_asset.ticker is None and openfigi_key:
-            openfigi_match = openfigi_lookup(asset_norm, openfigi_key, OPENFIGI_LIMITER)
+            openfigi_match = openfigi_lookup(search_name, openfigi_key, OPENFIGI_LIMITER)
             if openfigi_match is not None:
                 matched_asset = openfigi_match
     else:

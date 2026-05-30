@@ -7,6 +7,7 @@ from .dashboard_shared import (
     _inject_styles,
     _render_empty_state,
     _render_hero,
+    finalize_dashboard_slice,
     load_review_queue,
     load_transactions,
     setup_dashboard_session,
@@ -18,11 +19,11 @@ _PAGES_DIR = "src/dashboard_pages"
 def render_dashboard() -> None:
     st.set_page_config(
         page_title=_copy("page_title"),
-        page_icon="🏛️",
+        page_icon=":material/account_balance:",
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    _inject_styles()
+    _inject_styles(top_nav=True)
 
     transactions, transaction_source = load_transactions()
     review_queue, review_source = load_review_queue(transactions)
@@ -37,19 +38,14 @@ def render_dashboard() -> None:
         _render_empty_state()
         return
 
-    pages = {
-        "": [
-            st.Page(f"{_PAGES_DIR}/home.py", title="Home", icon="🏠", default=True),
-        ],
-        "Explore": [
-            st.Page(f"{_PAGES_DIR}/members.py", title="Members", icon="👤"),
-            st.Page(f"{_PAGES_DIR}/tickers.py", title="Tickers", icon="📈"),
-            st.Page(f"{_PAGES_DIR}/patterns.py", title="Patterns", icon="🔍"),
-        ],
-        "Data": [
-            st.Page(f"{_PAGES_DIR}/review.py", title="Review Queue", icon="📋"),
-            st.Page(f"{_PAGES_DIR}/raw_data.py", title="Raw Data", icon="🗃️"),
-        ],
-    }
-    pg = st.navigation(pages, position="sidebar")
+    pages = [
+        st.Page(f"{_PAGES_DIR}/home.py", title="Home", icon=":material/home:", default=True),
+        st.Page(f"{_PAGES_DIR}/members.py", title="Members", icon=":material/groups:"),
+        st.Page(f"{_PAGES_DIR}/tickers.py", title="Tickers", icon=":material/candlestick_chart:"),
+        st.Page(f"{_PAGES_DIR}/patterns.py", title="Patterns", icon=":material/insights:"),
+        st.Page(f"{_PAGES_DIR}/review.py", title="Review Queue", icon=":material/fact_check:"),
+        st.Page(f"{_PAGES_DIR}/raw_data.py", title="Raw Data", icon=":material/table_chart:"),
+    ]
+    pg = st.navigation(pages, position="top")
+    finalize_dashboard_slice()
     pg.run()

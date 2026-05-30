@@ -29,7 +29,6 @@ def _sample_transactions() -> pd.DataFrame:
             "asset_name_raw": "Apple Inc",
             "asset_name_normalized": "Apple Inc",
             "issuer_name": "Apple",
-            "estimated_value": 15_000.0,
             "amount_low": 10_000,
             "amount_high": 20_000,
             "amount_range_raw": "10k-20k",
@@ -49,7 +48,6 @@ def _sample_transactions() -> pd.DataFrame:
             "asset_name_raw": "Microsoft Corp",
             "asset_name_normalized": "Microsoft Corp",
             "issuer_name": "Microsoft",
-            "estimated_value": 50_000.0,
             "amount_low": 30_000,
             "amount_high": 70_000,
             "amount_range_raw": "30k-70k",
@@ -69,7 +67,6 @@ def _sample_transactions() -> pd.DataFrame:
             "asset_name_raw": "Private Fund X",
             "asset_name_normalized": "Private Fund X",
             "issuer_name": "",
-            "estimated_value": 5_000.0,
             "amount_low": 1_000,
             "amount_high": 9_000,
             "amount_range_raw": "1k-9k",
@@ -114,7 +111,6 @@ class TestNoSidebarInFilterBody:
             mod._sidebar_filter_label,
             mod._sidebar_typeahead_select,
             mod._sidebar_slice_bar,
-            mod._sidebar_full_dataset_stats_compact,
         ]
         for fn in helpers:
             source = inspect.getsource(fn)
@@ -161,6 +157,10 @@ def _mock_st():
     mock = MagicMock()
     mock.markdown = MagicMock()
     mock.expander = MagicMock(return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False)))
+    mock.button = MagicMock(return_value=False)
+    mock.divider = MagicMock()
+    mock.warning = MagicMock()
+    mock.rerun = MagicMock()
 
     def date_input_passthrough(label, value=None, **kw):
         return value
@@ -174,10 +174,15 @@ def _mock_st():
     def selectbox_passthrough(label, options, index=None, **kw):
         return None
 
+    def pills_passthrough(label, options, default=None, **kw):
+        return default if default is not None else options
+
     mock.date_input = date_input_passthrough
     mock.multiselect = multiselect_passthrough
     mock.slider = slider_passthrough
     mock.selectbox = selectbox_passthrough
+    mock.pills = pills_passthrough
+    mock.columns = lambda spec, **kw: [MagicMock() for _ in (spec if isinstance(spec, list) else range(spec))]
     return mock
 
 
@@ -229,21 +234,64 @@ class TestApplyFiltersLogic:
         assert (result["chamber"] == "House").all()
         assert len(result) == 2
 
-    def test_date_filter_narrows_range(self):
-        """Restricting dates should exclude out-of-range transactions."""
-        from datetime import date as dt_date
+
+class TestPeriodFilter:
+    def test_all_years_and_quarters_returns_full_dataset(self):
         data = _sample_transactions()
-        mock = _mock_st()
+        from src.dashboard_shared.filters import _apply_period_filter, _available_years
 
-        def date_input_narrow(label, value=None, **kw):
-            return (dt_date(2024, 7, 1), dt_date(2024, 7, 31))
+        years = _available_years(data)
+        result = _apply_period_filter(
+            data,
+            selected_years=years,
+            selected_quarters=[1, 2, 3, 4],
+            all_years=years,
+        )
+        assert len(result) == len(data)
 
-        mock.date_input = date_input_narrow
+    def test_single_quarter_narrows_rows(self):
+        data = _sample_transactions()
+        from src.dashboard_shared.filters import _apply_period_filter, _available_years
 
-        with patch("src.dashboard_shared.filters.st", mock), \
-             patch("src.dashboard_shared.filters._copy", return_value="stub"):
-            from src.dashboard_shared.filters import _apply_filters
-            result = _apply_filters(data)
-
+        years = _available_years(data)
+        result = _apply_period_filter(
+            data,
+            selected_years=years,
+            selected_quarters=[2],
+            all_years=years,
+        )
         assert len(result) == 1
-        assert result.iloc[0]["member"] == "Bob Jones"
+        assert result.iloc[0]["member"] == "Alice Smith"
+
+    def test_single_year_narrows_rows(self):
+        data = _sample_transactions()
+        from src.dashboard_shared.filters import _apply_period_filter
+
+        result = _apply_period_filter(
+            data,
+            selected_years=[2024],
+            selected_quarters=[1, 2, 3, 4],
+            all_years=[2024],
+        )
+        assert len(result) == len(data)
+
+    def test_empty_year_selection_returns_no_rows(self):
+        data = _sample_transactions()
+        from src.dashboard_shared.filters import _apply_period_filter, _available_years
+
+        years = _available_years(data)
+        result = _apply_period_filter(
+            data,
+            selected_years=[],
+            selected_quarters=[1, 2, 3, 4],
+            all_years=years,
+        )
+        assert result.empty
+
+    def test_year_range_selection_inclusive_and_order_independent(self):
+        from src.dashboard_shared.filters import _year_range_selection
+
+        years = [2019, 2020, 2021, 2022, 2024]
+        assert _year_range_selection(years, 2022, 2020) == [2020, 2021, 2022]
+        assert _year_range_selection(years, 2024, 2024) == [2024]
+        assert _year_range_selection(years, 2018, 2025) == years
