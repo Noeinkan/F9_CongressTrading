@@ -54,7 +54,7 @@ def _bar_count_labels_horizontal(
         .mark_text(dx=4, fontSize=12, fontWeight=600, align="left", baseline="middle")
         .encode(
             x=alt.X(f"{value_field}:Q"),
-            y=alt.Y(f"{label_field}:N", sort=alt.EncodingSortField(field=value_field, order="descending")),
+            y=alt.Y(f"{label_field}:N", sort="-x"),
             text=alt.Text(f"{value_field}:Q", format=",.0f"),
             color=alt.value(THEME["chart_axis_title"]),
         )
@@ -79,8 +79,14 @@ def _bar_count_labels_vertical(
     )
 
 
-def _build_time_series_chart(frame: pd.DataFrame) -> alt.Chart:
+def _build_time_series_chart(frame: pd.DataFrame) -> alt.Chart | None:
+    if frame.empty or frame["transactions"].sum() == 0:
+        return None
     chart_data = frame.copy()
+    chart_data["month"] = pd.to_datetime(chart_data["month"], errors="coerce")
+    chart_data = chart_data.dropna(subset=["month"])
+    if chart_data.empty:
+        return None
     chart_data["month_label"] = chart_data["month"].dt.strftime("%b %Y")
     chart_data["range_label"] = [
         format_disclosed_range(lo, hi)
@@ -130,7 +136,9 @@ def _build_rank_chart(
     *,
     color: str,
     y_axis_title: str | None = None,
-) -> alt.Chart:
+) -> alt.Chart | None:
+    if frame.empty:
+        return None
     chart_data = frame.copy()
     chart_data = chart_data.sort_values("transactions", ascending=False)
     has_range = "amount_low" in chart_data.columns and "amount_high" in chart_data.columns
@@ -320,7 +328,9 @@ def _build_mix_chart(
     *,
     color: str,
     x_axis_title: str | None = None,
-) -> alt.Chart:
+) -> alt.Chart | None:
+    if frame.empty:
+        return None
     chart_data = frame.copy()
     x_title = x_axis_title or label_field.replace("_", " ").title()
     bars = (
@@ -768,11 +778,15 @@ def _build_member_cumulative_notional_chart(
     ]
 
     base = alt.Chart(sub)
-    zero_line = base.encode(x=x_enc).mark_rule(
-        color="rgba(32, 52, 74, 0.38)",
-        strokeWidth=1.5,
-        strokeDash=[6, 5],
-    ).encode(y=alt.datum(0))
+    zero_line = (
+        base.transform_calculate(_zero="0")
+        .mark_rule(
+            color="rgba(32, 52, 74, 0.38)",
+            strokeWidth=1.5,
+            strokeDash=[6, 5],
+        )
+        .encode(x=x_enc, y=alt.Y("_zero:Q"))
+    )
 
     lines = base.encode(x=x_enc, y=y_enc).mark_line(
         color="rgba(40, 55, 75, 0.55)",
@@ -815,12 +829,12 @@ def _build_member_cumulative_notional_chart(
 
     layer = (
         alt.layer(zero_line, lines, points, end_labels)
-        .resolve_scale(y="independent", x="shared")
         .properties(height=panel_height)
     )
 
     chart = (
         layer.facet(row=facet_row)
+        .resolve_scale(y="independent", x="shared")
         .properties(
             title={
                 "text": f"{t}: net disclosed buy vs sell by member",
@@ -1014,9 +1028,16 @@ def build_price_overlay_figure(frame: pd.DataFrame, ticker: str):
     return fig
 
 
-def _build_option_side_area_chart(frame: pd.DataFrame) -> alt.Chart:
+def _build_option_side_area_chart(frame: pd.DataFrame) -> alt.Chart | None:
+    if frame.empty:
+        return None
+    work = frame.copy()
+    work["month"] = pd.to_datetime(work["month"], errors="coerce")
+    work = work.dropna(subset=["month"])
+    if work.empty or work["transactions"].sum() == 0:
+        return None
     chart = (
-        alt.Chart(frame)
+        alt.Chart(work)
         .mark_area(opacity=0.55)
         .encode(
             x=alt.X("month:T", axis=_axis("Month", grid=True, format_spec="%b %Y")),
@@ -1047,9 +1068,16 @@ def _build_option_side_area_chart(frame: pd.DataFrame) -> alt.Chart:
     return _altair_readability(chart)
 
 
-def _build_call_put_ratio_chart(frame: pd.DataFrame) -> alt.Chart:
+def _build_call_put_ratio_chart(frame: pd.DataFrame) -> alt.Chart | None:
+    if frame.empty:
+        return None
+    work = frame.copy()
+    work["month"] = pd.to_datetime(work["month"], errors="coerce")
+    work = work.dropna(subset=["month"])
+    if work.empty or "call_put_ratio" not in work.columns:
+        return None
     chart = (
-        alt.Chart(frame)
+        alt.Chart(work)
         .mark_line(point=True, strokeWidth=2.5, color=THEME["accent"])
         .encode(
             x=alt.X("month:T", axis=_axis("Month", grid=True, format_spec="%b %Y")),

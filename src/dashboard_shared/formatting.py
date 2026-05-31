@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pandas as pd
 import streamlit as st
 
@@ -72,6 +74,28 @@ def format_currency_compact(value: object) -> str:
     if abs_v >= 1_000:
         return f"{sign}${abs_v / 1_000:.1f}K"
     return f"{sign}${abs_v:,.0f}"
+
+
+def yahoo_finance_quote_url(ticker: str) -> str:
+    sym = str(ticker).strip().upper()
+    return f"https://finance.yahoo.com/quote/{quote(sym, safe='')}"
+
+
+def msn_money_quote_url(ticker: str) -> str:
+    """MSN quote page; ``stocksearch?q=`` returns 404 — use ``stockdetails?symbol=``."""
+    sym = str(ticker).strip().upper()
+    return f"https://www.msn.com/en-us/money/stockdetails?symbol={quote(sym, safe='')}"
+
+
+def external_quote_links_markdown(ticker: str) -> str:
+    """Markdown links to Yahoo Finance and MSN Money quote pages for a symbol."""
+    sym = str(ticker).strip().upper()
+    if not sym:
+        return ""
+    return (
+        f"[Yahoo Finance]({yahoo_finance_quote_url(sym)}) · "
+        f"[MSN Money]({msn_money_quote_url(sym)})"
+    )
 
 
 def format_disclosed_range(low: object, high: object) -> str:

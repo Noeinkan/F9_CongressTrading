@@ -128,7 +128,10 @@ with chart_card(
             )
         if net_view == "Chart":
             net_chart = _build_net_trade_amount_chart(filtered, top_n=20, agg=net_agg)
-            st.altair_chart(net_chart, width="stretch")
+            if net_chart is None:
+                st.info("No chart data available.")
+            else:
+                st.altair_chart(net_chart, width="stretch")
         else:
             render_summary_table(
                 net_agg[_net_table_cols],
@@ -157,10 +160,11 @@ monthly_activity = (
 )
 
 with chart_card(_copy("sub_monthly_activity"), caption=_copy("chart_caption_monthly")):
-    if monthly_activity.empty:
+    _ts_chart = _build_time_series_chart(monthly_activity) if not monthly_activity.empty else None
+    if _ts_chart is None:
         st.info("No valid transaction dates in the current filter.")
     else:
-        st.altair_chart(_build_time_series_chart(monthly_activity), width="stretch")
+        st.altair_chart(_ts_chart, width="stretch")
 
 # --- Top members + Top tickers (side by side, equal weight) ---
 top_members = (

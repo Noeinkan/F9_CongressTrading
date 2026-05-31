@@ -188,6 +188,8 @@ TRANSACTION_COLUMNS = [
     "asset_type",
     "issuer_name",
     "ticker",
+    "sector",
+    "industry",
     "transaction_type",
     "amount_low",
     "amount_high",
@@ -226,6 +228,41 @@ REVIEW_COLUMNS = [
 _SIDEBAR_NO_TICKER = "— No ticker —"
 _SIDEBAR_NO_ISSUER = "— Blank issuer —"
 
+MEMBERS_VIEW_COMMITTEE_RELEVANCE = "committee_relevance"
+
+COMMITTEES_JSON_PATH = DATA_DIR / "committees.json"
+
+# Committee jurisdiction → sector buckets (labels must match issuer_enrichment.SECTOR_RULES).
+COMMITTEE_SECTOR_MAP: dict[str, list[str]] = {
+    "Agriculture": ["Consumer Staples", "Materials", "Energy"],
+    "Appropriations": ["Industrials", "Healthcare", "Energy", "Financials"],
+    "Armed Services": ["Industrials", "Technology"],
+    "Budget": ["Financials", "Healthcare", "Energy"],
+    "Education and Workforce": ["Consumer Discretionary", "Healthcare"],
+    "Energy and Commerce": [
+        "Energy",
+        "Utilities",
+        "Healthcare",
+        "Communication Services",
+        "Technology",
+        "Consumer Staples",
+    ],
+    "Financial Services": ["Financials", "Real Estate"],
+    "Foreign Affairs": ["Industrials", "Energy", "Technology"],
+    "Homeland Security": ["Technology", "Industrials", "Communication Services"],
+    "Judiciary": ["Communication Services", "Technology", "Consumer Discretionary"],
+    "Natural Resources": ["Energy", "Materials", "Utilities"],
+    "Oversight and Accountability": ["Technology", "Financials", "Healthcare", "Industrials"],
+    "Science, Space, and Technology": ["Technology", "Industrials", "Communication Services"],
+    "Small Business": ["Consumer Discretionary", "Consumer Staples", "Financials"],
+    "Transportation and Infrastructure": ["Industrials", "Energy", "Materials", "Utilities"],
+    "Veterans' Affairs": ["Healthcare"],
+    "Ways and Means": ["Financials", "Healthcare", "Real Estate"],
+    "Permanent Select Committee on Intelligence": ["Technology", "Communication Services", "Industrials"],
+    "Intelligence": ["Technology", "Communication Services", "Industrials"],
+    "Select Committee on China": ["Technology", "Industrials", "Materials", "Consumer Discretionary"],
+}
+
 SQLITE_TRANSACTION_QUERY = """
 SELECT
     m.full_name AS member,
@@ -241,6 +278,8 @@ SELECT
     t.asset_type AS asset_type,
     COALESCE(i.issuer_name, '') AS issuer_name,
     t.ticker AS ticker,
+    COALESCE(i.sector, '') AS sector,
+    COALESCE(i.industry, '') AS industry,
     t.transaction_type AS transaction_type,
     t.amount_low AS amount_low,
     t.amount_high AS amount_high,

@@ -3,7 +3,6 @@ from __future__ import annotations
 import html
 import re
 from datetime import date
-from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -11,17 +10,12 @@ import streamlit as st
 from .constants import THEME
 from .data import merge_polygon_pnl_cached_columns
 from .formatting import format_disclosed_range
-from .styles import _streamlit_theme_is_dark
-
-_DATE_COLUMNS = frozenset(
-    {
-        "transaction_date",
-        "filing_date",
-        "first_trade",
-        "last_trade",
-        "date_from",
-        "date_to",
-    }
+from .tables import (
+    TableConfig,
+    build_table_html,
+    nav_link_params,
+    render_table,
+    table_shell,
 )
 
 
@@ -31,73 +25,19 @@ def _escape(text: object) -> str:
     return html.escape(str(text))
 
 
-def _table_theme_class() -> str:
-    # Match the warm dashboard shell; avoid navy-in-cream contrast unless Streamlit is fully dark.
-    if _streamlit_theme_is_dark():
-        return "dt-dark"
-    return "dt-light"
-
-
 def _render_table_html(html_out: str) -> None:
     """Render table HTML without markdown (indented tags become code blocks in st.markdown)."""
     st.html(html_out)
 
 
-def _sort_css() -> str:
-    """Inline CSS for sort indicators — must live inside the st.html context."""
-    return """<style>
-.dt-table th[data-sort-dir]{position:relative;padding-right:1.25rem;cursor:pointer;user-select:none;}
-.dt-table th[data-sort-dir]::after{content:'⇅';position:absolute;right:0.3rem;top:50%;
-  transform:translateY(-50%);font-size:0.62rem;opacity:0.35;}
-.dt-table th.dt-sort-asc::after{content:'▲';opacity:0.8;}
-.dt-table th.dt-sort-desc::after{content:'▼';opacity:0.8;}
-</style>"""
-
-
-def _sort_js() -> str:
-    """Client-side table sorting via header clicks. Injected once per table."""
-    return """<script>
-(function(){
-  function sortVal(td){
-    if(!td)return '';
-    var v=td.getAttribute('data-sort-value');
-    return(v!==null&&v!=='')?v:td.textContent.trim();
-  }
-  function cmp(a,b){
-    if(a===b)return 0;
-    // ISO-ish date strings — compare lexicographically (works for YYYY-MM-DD…)
-    if(a.length>7&&b.length>7&&a[4]==='-'&&b[4]==='-')return a<b?-1:1;
-    // Pure numbers
-    var an=Number(a),bn=Number(b);
-    if(a!==''&&b!==''&&!isNaN(an)&&!isNaN(bn))return an-bn;
-    return a.localeCompare(b);
-  }
-  var tables=document.currentScript.parentElement.querySelectorAll('.dt-table');
-  tables.forEach(function(tbl){
-    var heads=tbl.querySelectorAll('thead th');
-    heads.forEach(function(th,ci){
-      if(th.classList.contains('dt-th-return'))return;
-      th.style.cursor='pointer';th.style.userSelect='none';
-      th.setAttribute('data-sort-dir','');
-      th.addEventListener('click',function(){
-        var dir=th.getAttribute('data-sort-dir')==='asc'?'desc':'asc';
-        heads.forEach(function(h){h.setAttribute('data-sort-dir','');
-          h.classList.remove('dt-sort-asc','dt-sort-desc');});
-        th.setAttribute('data-sort-dir',dir);
-        th.classList.add(dir==='asc'?'dt-sort-asc':'dt-sort-desc');
-        var tbody=tbl.querySelector('tbody');
-        var rows=Array.from(tbody.querySelectorAll('tr'));
-        rows.sort(function(ra,rb){
-          var va=sortVal(ra.children[ci]),vb=sortVal(rb.children[ci]);
-          var r=cmp(va,vb);
-          return dir==='asc'?r:-r;
-        });
-        rows.forEach(function(r){tbody.appendChild(r);});
-      });
-    });
-  });
-})();
-</script>"""
+_SORT_COLUMNS = {
+    "Traded": "transaction_date",
+    "Filed": "filing_date",
+    "Ticker": "ticker",
+    "Stock": "issuer_name",
+    "Politician": "member",
+    "Transaction": "transaction_type",
+}
 
 
 def asset_type_feed_label(asset_type: object, asset_name: object = "") -> str:
@@ -173,20 +113,6 @@ def _format_table_date(value: object) -> str:
         return "—"
 
 
-def _format_summary_cell(column: str, value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return "—"
-    if column in _DATE_COLUMNS:
-        return _format_table_date(value)
-    if isinstance(value, float) and column not in ("spike_ratio", "recent_per_month", "prior_per_month", "call_put_ratio"):
-        if value == int(value):
-            return f"{int(value):,}"
-        return f"{value:,.2f}"
-    if isinstance(value, int):
-        return f"{value:,}"
-    return str(value)
-
-
 def _stock_title(row: pd.Series) -> str:
     for col in ("issuer_name", "asset_name_normalized", "asset_name_raw", "ticker"):
         val = row.get(col)
@@ -254,26 +180,9 @@ def _return_icon_svg() -> str:
     )
 
 
-def _table_shell(*, body: str, legend: str | None, variant: str, sortable: bool = False) -> str:
-    theme = _table_theme_class()
-    legend_html = f'<div class="dt-legend">{legend}</div>' if legend else ""
-    sort_block = (_sort_css() + _sort_js()) if sortable else ""
-    return (
-        f'<div class="dashboard-table {theme} {variant}">'
-        f"{legend_html}"
-        f'<div class="dt-scroll"><table class="dt-table">{body}</table></div>'
-        f"{sort_block}"
-        f"</div>"
-    )
-
-
 def _nav_link(text: str, page: str, param_name: str, param_value: str) -> str:
     """Wrap text in an anchor that navigates to a dashboard page with a query param."""
-    url_value = quote(param_value, safe="")
-    return (
-        f'<a class="dt-nav-link" href="/{page}?{param_name}={url_value}" '
-        f'target="_parent">{text}</a>'
-    )
+    return nav_link_params(text, page, {param_name: param_value})
 
 
 def _transaction_row_html(row: pd.Series) -> str:
@@ -295,39 +204,28 @@ def _transaction_row_html(row: pd.Series) -> str:
     ticker_raw = str(row.get("ticker") or "").strip()
     ticker_display = _escape(ticker_raw.upper()) if ticker_raw else "—"
     if ticker_raw:
-        stock_link = _nav_link(stock_title, "Tickers", "ticker", ticker_raw)
-        ticker_link = _nav_link(ticker_display, "Tickers", "ticker", ticker_raw)
+        stock_link = nav_link_params(stock_title, "Tickers", {"ticker": ticker_raw})
+        ticker_link = nav_link_params(ticker_display, "Tickers", {"ticker": ticker_raw})
     else:
         stock_link = stock_title
         ticker_link = ticker_display
-    member_link = _nav_link(member, "Members", "member", member_raw)
-
-    filing_sort = ""
-    trade_sort = ""
-    try:
-        filing_sort = pd.Timestamp(row.get("filing_date")).isoformat()
-    except Exception:
-        pass
-    try:
-        trade_sort = pd.Timestamp(row.get("transaction_date")).isoformat()
-    except Exception:
-        pass
+    member_link = nav_link_params(member, "Members", {"member": member_raw})
 
     return (
         '<tr class="dt-row">'
-        f'<td class="dt-cell dt-ticker" data-sort-value="{ticker_display}">'
+        f'<td class="dt-cell dt-ticker">'
         f'<span class="dt-primary">{ticker_link}</span></td>'
-        f'<td class="dt-cell dt-stock" data-sort-value="{stock_title}"><div class="dt-stock-wrap">{_stock_icon_svg()}'
+        f'<td class="dt-cell dt-stock"><div class="dt-stock-wrap">{_stock_icon_svg()}'
         f'<div><div class="dt-primary">{stock_link}</div>'
         f'<div class="dt-secondary">{asset_sub}</div></div></div></td>'
-        f'<td class="dt-cell dt-txn" data-sort-value="{txn_label}"><div class="dt-primary dt-txn-{txn_class}">{txn_label}</div>'
+        f'<td class="dt-cell dt-txn"><div class="dt-primary dt-txn-{txn_class}">{txn_label}</div>'
         f'<div class="dt-secondary">{amount}</div></td>'
-        f'<td class="dt-cell dt-member" data-sort-value="{member}"><div class="dt-member-wrap">'
+        f'<td class="dt-cell dt-member"><div class="dt-member-wrap">'
         f'<div class="dt-avatar" style="background:{avatar_color};">{initials}</div>'
         f'<div><div class="dt-primary">{member_link}</div>'
         f'<div class="dt-secondary">{chamber_party}</div></div></div></td>'
-        f'<td class="dt-cell dt-date" data-sort-value="{filing_sort}">{filed}</td>'
-        f'<td class="dt-cell dt-date" data-sort-value="{trade_sort}">{traded}</td>'
+        f'<td class="dt-cell dt-date">{filed}</td>'
+        f'<td class="dt-cell dt-date">{traded}</td>'
         f'<td class="dt-cell dt-return dt-return-{ret_tone}">'
         f'<span class="dt-return-wrap">{_return_icon_svg()}<span>{ret_label}</span></span>'
         f"</td></tr>"
@@ -355,7 +253,7 @@ def build_transaction_table_html(
         '<th class="dt-th-return"></th>'
         f"</tr></thead><tbody>{body_rows}</tbody>"
     )
-    return _table_shell(body=body, legend=legend, variant="dt-transactions", sortable=True)
+    return table_shell(body=body, legend=legend, variant="dt-transactions", theme="light")
 
 
 def build_summary_table_html(
@@ -363,24 +261,19 @@ def build_summary_table_html(
     *,
     columns: list[str] | None = None,
     headers: dict[str, str] | None = None,
+    link_columns: dict[str, dict[str, object]] | None = None,
+    color_columns: dict[str, str] | None = None,
+    theme: str = "light",
 ) -> str:
-    if frame.empty:
-        return ""
-    cols = columns or list(frame.columns)
-    cols = [c for c in cols if c in frame.columns]
-    if not cols:
-        return ""
-    labels = headers or {}
-    head = "".join(f"<th>{_escape(labels.get(c, c.replace('_', ' ').title()))}</th>" for c in cols)
-    body_rows: list[str] = []
-    for _, row in frame.iterrows():
-        cells = "".join(
-            f'<td class="dt-cell"><span class="dt-plain">{_escape(_format_summary_cell(c, row.get(c)))}</span></td>'
-            for c in cols
-        )
-        body_rows.append(f'<tr class="dt-row">{cells}</tr>')
-    body = f"<thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody>"
-    return _table_shell(body=body, legend=None, variant="dt-summary")
+    config = TableConfig(
+        variant="summary",
+        theme=theme,  # type: ignore[arg-type]
+        columns=columns,
+        headers=headers or {},
+        link_columns=link_columns or {},
+        color_columns=color_columns or {},  # type: ignore[arg-type]
+    )
+    return build_table_html(frame, config)
 
 
 @st.cache_data(show_spinner=False)
@@ -416,6 +309,23 @@ def prepare_transaction_table_rows(
     return _transaction_rows_with_polygon_cached(rows_json, date.today().isoformat())
 
 
+def _render_sort_controls(widget_key: str) -> tuple[str, bool]:
+    """Render sort-by pills + direction toggle. Returns (sort_column_df_name, ascending)."""
+    sort_labels = list(_SORT_COLUMNS.keys())
+    col_sort, col_dir = st.columns([5, 1], vertical_alignment="bottom")
+    with col_sort:
+        chosen = st.pills(
+            "Sort by",
+            sort_labels,
+            default="Traded",
+            key=f"{widget_key}_sort_col",
+        )
+    with col_dir:
+        asc = st.toggle("↑", value=False, key=f"{widget_key}_sort_dir", help="Toggle ascending / descending")
+    col_name = _SORT_COLUMNS.get(chosen, "transaction_date") if chosen else "transaction_date"
+    return col_name, asc
+
+
 def render_transaction_table(
     frame: pd.DataFrame,
     *,
@@ -424,16 +334,27 @@ def render_transaction_table(
     show_return_legend: bool = True,
     sort: bool = True,
     empty_message: str = "No transactions in the current filter.",
+    widget_key: str = "txn_table",
 ) -> None:
+    if frame.empty:
+        st.info(empty_message)
+        return
+
+    sort_col, sort_asc = _render_sort_controls(widget_key)
+
     rows = prepare_transaction_table_rows(
         frame,
         limit=limit,
         with_polygon=with_polygon,
-        sort=sort,
+        sort=False,
     )
     if rows.empty:
         st.info(empty_message)
         return
+
+    if sort_col in rows.columns:
+        rows = rows.sort_values(sort_col, ascending=sort_asc, na_position="last")
+
     _render_table_html(build_transaction_table_html(rows, show_return_legend=show_return_legend))
 
 
@@ -442,16 +363,23 @@ def render_summary_table(
     *,
     columns: list[str] | None = None,
     headers: dict[str, str] | None = None,
+    link_columns: dict[str, dict[str, object]] | None = None,
+    color_columns: dict[str, str] | None = None,
+    theme: str = "light",
     empty_message: str = "No rows to display.",
 ) -> None:
-    if frame.empty:
-        st.info(empty_message)
-        return
-    html_out = build_summary_table_html(frame, columns=columns, headers=headers)
-    if not html_out:
-        st.info(empty_message)
-        return
-    _render_table_html(html_out)
+    render_table(
+        frame,
+        TableConfig(
+            variant="summary",
+            theme=theme,  # type: ignore[arg-type]
+            columns=columns,
+            headers=headers or {},
+            link_columns=link_columns or {},
+            color_columns=color_columns or {},  # type: ignore[arg-type]
+            empty_message=empty_message,
+        ),
+    )
 
 
 # Backward-compatible aliases

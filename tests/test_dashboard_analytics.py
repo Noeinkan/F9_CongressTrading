@@ -6,11 +6,16 @@ from src.dashboard_shared import (
     bipartisan_tickers,
     call_put_monthly,
     classify_option_side,
+    committee_relevant_trades,
+    committee_relevance_coverage,
     coordinated_pattern_transactions,
     detect_coordinated_trades,
     member_ticker_breakdown,
+    score_committee_relevance,
+    summarize_committee_relevance,
     volume_anomalies,
 )
+from src.dashboard_shared.constants import COMMITTEE_SECTOR_MAP
 
 
 def _sample_frame() -> pd.DataFrame:
@@ -128,3 +133,54 @@ def test_volume_anomalies_spike_ratio():
     assert int(row["recent_disclosures"]) == 3
     assert row["prior_per_month"] < row["recent_per_month"]
     assert row["spike_ratio"] >= 2.0
+
+
+def test_score_committee_relevance_overlap():
+    frame = pd.DataFrame(
+        [
+            {
+                "member": "Alice",
+                "chamber": "House",
+                "party": "D",
+                "ticker": "LMT",
+                "sector": "Industrials",
+                "industry": "Aerospace",
+                "transaction_type": "P",
+                "transaction_type_label": "Buy",
+                "transaction_date": pd.Timestamp("2024-06-01"),
+                "amount_range_raw": "15k-50k",
+                "issuer_name": "Lockheed",
+                "asset_name_raw": "Lockheed Martin",
+            },
+            {
+                "member": "Alice",
+                "chamber": "House",
+                "party": "D",
+                "ticker": "XYZ",
+                "sector": "Real Estate",
+                "industry": "REIT",
+                "transaction_type": "P",
+                "transaction_type_label": "Buy",
+                "transaction_date": pd.Timestamp("2024-07-01"),
+                "amount_range_raw": "1k-15k",
+                "issuer_name": "Example REIT",
+                "asset_name_raw": "Example REIT",
+            },
+        ]
+    )
+    assignments = {"alice": ["Armed Services", "Agriculture"]}
+    scored = score_committee_relevance(frame, assignments, COMMITTEE_SECTOR_MAP)
+    assert len(scored) == 2
+    relevant = committee_relevant_trades(scored)
+    assert len(relevant) == 1
+    assert relevant.iloc[0]["ticker"] == "LMT"
+    assert "Armed Services" in relevant.iloc[0]["matching_committees"]
+
+    summary = summarize_committee_relevance(scored)
+    row = summary.loc[summary["member"] == "Alice"].iloc[0]
+    assert int(row["relevant_trades"]) == 1
+    assert row["relevance_pct"] == 50.0
+
+    cov = committee_relevance_coverage(frame, assignments)
+    assert cov["members_mapped"] == 1
+    assert cov["sector_coverage_pct"] == 100.0

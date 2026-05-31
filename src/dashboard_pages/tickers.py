@@ -35,8 +35,12 @@ from src.dashboard_shared import (
     format_count,
 
     format_currency_compact,
+    external_quote_links_markdown,
 
     get_dashboard_context,
+
+    load_issuer_info,
+    load_ticker_details,
 
     monthly_series,
 
@@ -94,12 +98,14 @@ if not tickers_available:
 qp_ticker = st.query_params.get("ticker", "").strip().upper()
 _qp_override = ""
 if qp_ticker:
-    st.query_params.pop("ticker", None)
     if qp_ticker in tickers_available:
         default_ticker = qp_ticker
+        st.session_state["dashboard_selected_ticker"] = qp_ticker
+        st.session_state["tickers_page_select"] = qp_ticker
     else:
         default_ticker = st.session_state.get("dashboard_selected_ticker")
         _qp_override = qp_ticker
+    st.query_params.pop("ticker", None)
 else:
     default_ticker = st.session_state.get("dashboard_selected_ticker")
 
@@ -150,6 +156,61 @@ if slice_df.empty:
 
     st.stop()
 
+
+issuer_info = load_issuer_info(ticker)
+company = load_ticker_details(ticker)
+_name = (company.get("name") or issuer_info.get("issuer_name") or "").strip()
+_desc = (company.get("description") or "").strip()
+_employees = company.get("total_employees")
+_market_cap = company.get("market_cap")
+_exchange = (company.get("primary_exchange") or "").strip()
+_sector = (issuer_info.get("sector") or "").strip()
+_sic = (company.get("sic_description") or issuer_info.get("industry") or "").strip()
+_industry_label = " · ".join(x for x in (_sector, _sic) if x)
+_homepage = (company.get("homepage_url") or "").strip()
+_has_company = bool(
+    _name
+    or _desc
+    or _employees is not None
+    or _market_cap is not None
+    or _exchange
+    or _industry_label
+    or _homepage
+)
+
+_quote_links = external_quote_links_markdown(ticker)
+
+if _has_company:
+    with st.container(border=True):
+        title_bits = [f"**{_name or ticker}**", f"`{ticker}`"]
+        if _exchange:
+            title_bits.append(f"· {_exchange}")
+        if _homepage:
+            title_bits.append(f"· [Website]({_homepage})")
+        st.markdown(" ".join(title_bits))
+        if _quote_links:
+            st.markdown(_quote_links)
+        stat_cols = st.columns(3)
+        with stat_cols[0]:
+            st.caption("Market cap")
+            st.markdown(
+                format_currency_compact(_market_cap) if _market_cap is not None else "—"
+            )
+        with stat_cols[1]:
+            st.caption("Employees")
+            st.markdown(format_count(_employees) if _employees is not None else "—")
+        with stat_cols[2]:
+            st.caption("Sector / industry")
+            st.markdown(_industry_label or "—")
+        _show_desc = _desc and _desc.strip().upper() != (_name or "").strip().upper() and len(_desc) >= 50
+        if _show_desc:
+            _preview = _desc if len(_desc) <= 200 else _desc[:197].rstrip() + "…"
+            st.caption(_preview)
+            if len(_desc) > 200:
+                with st.expander("Full description", expanded=False):
+                    st.write(_desc)
+elif _quote_links:
+    st.markdown(_quote_links)
 
 
 buys = int((slice_df["transaction_type"].astype(str).str.strip() == "P").sum())

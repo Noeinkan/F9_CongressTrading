@@ -9,7 +9,9 @@ import streamlit as st
 
 
 from src.dashboard_shared import (
+    COMMITTEE_SECTOR_MAP,
     KpiSpec,
+    MEMBERS_VIEW_COMMITTEE_RELEVANCE,
     THEME,
 
     _build_member_activity_timeline,
@@ -33,6 +35,10 @@ from src.dashboard_shared import (
 
     get_dashboard_context,
 
+    load_committee_assignments_live,
+
+    member_committee_relevant_transactions,
+
     member_ticker_breakdown,
 
     monthly_series,
@@ -41,6 +47,7 @@ from src.dashboard_shared import (
 
     render_kpi_row,
     render_summary_table,
+    render_transaction_table,
 
     transaction_type_display_label,
 
@@ -105,24 +112,6 @@ if "party" in leaderboard.columns:
 
 
 
-with chart_card("Leaderboard"):
-    render_summary_table(
-        add_disclosed_range_column(leaderboard, low_col="amount_low", high_col="amount_high")[
-            ["member", "trades", "tickers", "disclosed_range", "chamber", "party", "state"]
-        ],
-        headers={
-            "member": "Member",
-            "trades": "Trades",
-            "tickers": "Unique tickers",
-            "disclosed_range": "Disclosed range",
-            "chamber": "Chamber",
-            "party": "Party",
-            "state": "State",
-        },
-    )
-
-
-
 if leaderboard.empty:
 
     st.stop()
@@ -133,16 +122,45 @@ member_options = leaderboard["member"].astype(str).tolist()
 
 qp_member = st.query_params.get("member")
 if qp_member and qp_member in member_options:
-    default_member = qp_member
+    st.session_state["dashboard_selected_member"] = qp_member
+    st.session_state["members_profile_select"] = qp_member
     st.query_params.pop("member", None)
-else:
-    default_member = st.session_state.get("dashboard_selected_member")
 
+qp_view = st.query_params.get("view")
+if qp_view == MEMBERS_VIEW_COMMITTEE_RELEVANCE:
+    st.session_state["members_trade_view"] = MEMBERS_VIEW_COMMITTEE_RELEVANCE
+    st.query_params.pop("view", None)
+
+_lb_display = add_disclosed_range_column(leaderboard, low_col="amount_low", high_col="amount_high")[
+    ["member", "trades", "tickers", "disclosed_range", "chamber", "party", "state"]
+].rename(columns={
+    "member": "Member",
+    "trades": "Trades",
+    "tickers": "Unique tickers",
+    "disclosed_range": "Disclosed range",
+    "chamber": "Chamber",
+    "party": "Party",
+    "state": "State",
+}).reset_index(drop=True)
+
+with chart_card("Leaderboard", caption="Click a row to view that member's profile below."):
+    event = st.dataframe(
+        _lb_display,
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True,
+        use_container_width=True,
+    )
+    if event.selection.rows:
+        _clicked = member_options[event.selection.rows[0]]
+        if _clicked != st.session_state.get("dashboard_selected_member"):
+            st.session_state["dashboard_selected_member"] = _clicked
+            st.session_state["members_profile_select"] = _clicked
+            st.rerun()
+
+default_member = st.session_state.get("dashboard_selected_member")
 if default_member not in member_options:
-
     default_member = member_options[0]
-
-
 
 selected = st.selectbox(
 
@@ -158,7 +176,25 @@ selected = st.selectbox(
 
 st.session_state["dashboard_selected_member"] = selected
 
-
+committee_assignments = load_committee_assignments_live()
+trade_view_options = {
+    "All trades": "all",
+    "Committee relevant": MEMBERS_VIEW_COMMITTEE_RELEVANCE,
+}
+_default_trade_view = st.session_state.get("members_trade_view", "all")
+if _default_trade_view not in trade_view_options.values():
+    _default_trade_view = "all"
+_trade_view_label = next(
+    (label for label, value in trade_view_options.items() if value == _default_trade_view),
+    "All trades",
+)
+trade_view = st.pills(
+    "Transaction view",
+    list(trade_view_options.keys()),
+    default=_trade_view_label,
+    key="members_trade_view_pills",
+)
+st.session_state["members_trade_view"] = trade_view_options.get(str(trade_view), "all")
 
 profile = filtered.loc[filtered["member"].astype(str) == selected]
 
@@ -231,7 +267,56 @@ render_kpi_row(
 
 )
 
-
+if st.session_state.get("members_trade_view") == MEMBERS_VIEW_COMMITTEE_RELEVANCE:
+    with chart_card(
+        "Committee-relevant trades",
+        caption=(
+            "Disclosures where this member's committee jurisdiction overlaps the traded company's sector. "
+            "Linked from Patterns → Committee relevance."
+        ),
+    ):
+        if not committee_assignments:
+            st.info("No committee assignments in data/committees.json.")
+        else:
+            committee_tx = member_committee_relevant_transactions(
+                filtered,
+                selected,
+                committee_assignments,
+                COMMITTEE_SECTOR_MAP,
+            )
+            if committee_tx.empty:
+                st.info("No committee-relevant trades for this member in the current slice.")
+            else:
+                if "matching_committees" in committee_tx.columns:
+                    render_summary_table(
+                        committee_tx,
+                        columns=[
+                            "ticker",
+                            "sector",
+                            "matching_committees",
+                            "transaction_type_label",
+                            "transaction_date",
+                            "amount_range_raw",
+                        ],
+                        headers={
+                            "ticker": "Ticker",
+                            "sector": "Sector",
+                            "matching_committees": "Committee overlap",
+                            "transaction_type_label": "Transaction",
+                            "transaction_date": "Traded",
+                            "amount_range_raw": "Amount",
+                        },
+                        link_columns={
+                            "ticker": {"page": "Tickers", "query": {"ticker": "ticker"}},
+                        },
+                    )
+                render_transaction_table(
+                    committee_tx,
+                    limit=100,
+                    with_polygon=True,
+                    show_return_legend=True,
+                    widget_key="members_committee_txn",
+                )
 
 with chart_card(
 
@@ -320,17 +405,13 @@ with chart_card("Top tickers by trade count"):
 
     top = breakdown.head(12).rename(columns={"trades": "transactions"}) if not breakdown.empty else pd.DataFrame()
 
-    if top.empty:
+    _rank = _build_rank_chart(top, "ticker", "Trades", color=THEME["chart_series_primary"], y_axis_title="Ticker") if not top.empty else None
+
+    if _rank is None:
 
         st.info("No ticker ranking for this member.")
 
     else:
 
-        st.altair_chart(
-
-            _build_rank_chart(top, "ticker", "Trades", color=THEME["chart_series_primary"], y_axis_title="Ticker"),
-
-            width="stretch",
-
-        )
+        st.altair_chart(_rank, width="stretch")
 

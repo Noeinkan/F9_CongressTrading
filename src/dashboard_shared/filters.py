@@ -62,15 +62,36 @@ def _apply_period_filter(
     return dated.loc[mask].copy()
 
 
+_LOOKBACK_OPTIONS: list[tuple[str, int | None]] = [
+    ("All time", None),
+    ("Last 1 year", 1),
+    ("Last 2 years", 2),
+    ("Last 3 years", 3),
+    ("Last 5 years", 5),
+    ("Last 10 years", 10),
+]
+
+
+def _lookback_years(data: pd.DataFrame, n_years: int | None, years_available: list[int]) -> list[int]:
+    """Return the list of calendar years included for a given lookback window."""
+    if n_years is None:
+        return years_available
+    from datetime import date
+    current_year = date.today().year
+    cutoff_year = current_year - n_years + 1
+    return [y for y in years_available if y >= cutoff_year]
+
+
 def render_period_slicers_and_filter(data: pd.DataFrame) -> pd.DataFrame:
-    """Compact year-range + quarter controls pinned in the top header bar."""
+    """Compact lookback + quarter controls pinned in the top header bar."""
     years_available = _available_years(data)
     if not years_available:
         return data
 
+    lookback_labels = [label for label, _ in _LOOKBACK_OPTIONS]
     caption = html.escape(_copy("period_slicer_caption"))
     with st.container(key="period_toolbar"):
-        slicer_cols = st.columns([0.3, 0.72, 0.06, 0.72, 2.15], vertical_alignment="center")
+        slicer_cols = st.columns([0.3, 1.2, 2.15], vertical_alignment="center")
         with slicer_cols[0]:
             if st.button(
                 "↺",
@@ -79,34 +100,20 @@ def render_period_slicers_and_filter(data: pd.DataFrame) -> pd.DataFrame:
                 use_container_width=True,
             ):
                 for key in (
-                    "dashboard_slicer_year_from",
-                    "dashboard_slicer_year_to",
+                    "dashboard_slicer_lookback",
                     "dashboard_slicer_quarter",
-                    "dashboard_slicer_year",
                 ):
                     st.session_state.pop(key, None)
                 st.rerun()
         with slicer_cols[1]:
-            year_from = st.selectbox(
-                _copy("period_slicer_year_from"),
-                years_available,
-                index=0,
-                format_func=str,
+            lookback_choice = st.selectbox(
+                "Period",
+                lookback_labels,
+                index=1,
                 label_visibility="collapsed",
-                key="dashboard_slicer_year_from",
+                key="dashboard_slicer_lookback",
             )
         with slicer_cols[2]:
-            st.markdown('<span class="period-toolbar-dash">–</span>', unsafe_allow_html=True)
-        with slicer_cols[3]:
-            year_to = st.selectbox(
-                _copy("period_slicer_year_to"),
-                years_available,
-                index=len(years_available) - 1,
-                format_func=str,
-                label_visibility="collapsed",
-                key="dashboard_slicer_year_to",
-            )
-        with slicer_cols[4]:
             selected_quarters = st.pills(
                 "Quarter",
                 list(_QUARTER_OPTIONS),
@@ -116,10 +123,11 @@ def render_period_slicers_and_filter(data: pd.DataFrame) -> pd.DataFrame:
                 key="dashboard_slicer_quarter",
             )
 
-    years_sel = _year_range_selection(years_available, int(year_from), int(year_to))
+    lookback_n = dict(_LOOKBACK_OPTIONS).get(lookback_choice)
+    years_sel = _lookback_years(data, lookback_n, years_available)
     quarters_sel = list(selected_quarters or [])
     if not years_sel or not quarters_sel:
-        st.warning("Select at least one year and one quarter to show data.")
+        st.warning("Select at least one period and one quarter to show data.")
 
     filtered = _apply_period_filter(
         data,

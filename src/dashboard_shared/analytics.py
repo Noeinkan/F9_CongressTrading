@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from ..utils import normalize_key
+
 
 def _signed_amount_median(row: pd.Series) -> float:
     low, high = row.get("amount_low"), row.get("amount_high")
@@ -273,4 +275,181 @@ def bipartisan_tickers(frame: pd.DataFrame, *, window_days: int = 90) -> pd.Data
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows).sort_values("members", ascending=False)
+
+
+def _committee_jurisdiction_sectors(
+    committee: str,
+    committee_sector_map: dict[str, list[str]],
+) -> set[str]:
+    sectors = committee_sector_map.get(committee.strip())
+    if sectors:
+        return set(sectors)
+    key = normalize_key(committee)
+    for name, values in committee_sector_map.items():
+        if normalize_key(name) == key:
+            return set(values)
+    return set()
+
+
+def _matching_committees_for_trade(
+    sector: str,
+    committees: list[str],
+    committee_sector_map: dict[str, list[str]],
+) -> list[str]:
+    sector_value = str(sector or "").strip()
+    if not sector_value or not committees:
+        return []
+    matches: list[str] = []
+    for committee in committees:
+        if sector_value in _committee_jurisdiction_sectors(committee, committee_sector_map):
+            matches.append(committee)
+    return matches
+
+
+def score_committee_relevance(
+    frame: pd.DataFrame,
+    committee_assignments: dict[str, list[str]],
+    committee_sector_map: dict[str, list[str]],
+) -> pd.DataFrame:
+    """Score each trade for committee-sector overlap (enterprising-trade signal)."""
+    if frame.empty or not committee_assignments:
+        return pd.DataFrame()
+    sub = frame.copy()
+    if "sector" not in sub.columns:
+        sub["sector"] = ""
+    rows: list[dict[str, object]] = []
+    for _, row in sub.iterrows():
+        member = str(row.get("member") or "").strip()
+        member_key = normalize_key(member)
+        committees = committee_assignments.get(member_key, [])
+        sector = str(row.get("sector") or "").strip()
+        matching = _matching_committees_for_trade(sector, committees, committee_sector_map)
+        rows.append(
+            {
+                "member": member,
+                "chamber": row.get("chamber", ""),
+                "party": row.get("party", ""),
+                "ticker": row.get("ticker", ""),
+                "sector": sector,
+                "industry": row.get("industry", ""),
+                "committees": ", ".join(committees),
+                "matching_committees": ", ".join(matching),
+                "overlap_score": 1 if matching else 0,
+                "transaction_date": row.get("transaction_date"),
+                "transaction_type": row.get("transaction_type", ""),
+                "transaction_type_label": row.get("transaction_type_label", ""),
+                "amount_range_raw": row.get("amount_range_raw", ""),
+                "issuer_name": row.get("issuer_name", ""),
+                "asset_name_raw": row.get("asset_name_raw", ""),
+                "filing_date": row.get("filing_date"),
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    if "transaction_date" in out.columns:
+        out = out.sort_values(["overlap_score", "transaction_date"], ascending=[False, False])
+    else:
+        out = out.sort_values("overlap_score", ascending=False)
+    return out
+
+
+def summarize_committee_relevance(scored: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate committee overlap stats per member."""
+    if scored.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    for member, g in scored.groupby("member", observed=True):
+        total = len(g)
+        relevant = int((g["overlap_score"] > 0).sum())
+        rel_pct = round(100.0 * relevant / total, 1) if total else 0.0
+        rel_rows = g[g["overlap_score"] > 0]
+        top_committee = ""
+        top_sector = ""
+        if not rel_rows.empty and "matching_committees" in rel_rows.columns:
+            committee_counts: dict[str, int] = {}
+            sector_counts: dict[str, int] = {}
+            for _, r in rel_rows.iterrows():
+                for c in str(r.get("matching_committees") or "").split(","):
+                    c = c.strip()
+                    if c:
+                        committee_counts[c] = committee_counts.get(c, 0) + 1
+                s = str(r.get("sector") or "").strip()
+                if s:
+                    sector_counts[s] = sector_counts.get(s, 0) + 1
+            if committee_counts:
+                top_committee = max(committee_counts, key=committee_counts.get)
+            if sector_counts:
+                top_sector = max(sector_counts, key=sector_counts.get)
+        rows.append(
+            {
+                "member": member,
+                "chamber": g["chamber"].iloc[0] if "chamber" in g.columns else "",
+                "party": g["party"].iloc[0] if "party" in g.columns else "",
+                "total_trades": total,
+                "relevant_trades": relevant,
+                "relevance_pct": rel_pct,
+                "top_committee": top_committee,
+                "top_sector": top_sector,
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(
+        ["relevant_trades", "relevance_pct", "total_trades"],
+        ascending=[False, False, False],
+    )
+
+
+def committee_relevant_trades(scored: pd.DataFrame) -> pd.DataFrame:
+    """Return only trades with committee-sector overlap."""
+    if scored.empty:
+        return pd.DataFrame()
+    return scored.loc[scored["overlap_score"] > 0].copy()
+
+
+def member_committee_relevant_transactions(
+    frame: pd.DataFrame,
+    member: str,
+    committee_assignments: dict[str, list[str]],
+    committee_sector_map: dict[str, list[str]],
+) -> pd.DataFrame:
+    """Full transaction rows for one member's committee-relevant trades in the slice."""
+    member_name = str(member).strip()
+    if frame.empty or not member_name or not committee_assignments:
+        return pd.DataFrame()
+    member_frame = frame.loc[frame["member"].astype(str) == member_name]
+    if member_frame.empty:
+        return pd.DataFrame()
+    scored = score_committee_relevance(member_frame, committee_assignments, committee_sector_map)
+    relevant = committee_relevant_trades(scored)
+    if relevant.empty:
+        return pd.DataFrame()
+    merge_keys = ["member", "ticker", "transaction_date"]
+    overlap_cols = [c for c in ("matching_committees",) if c in relevant.columns]
+    return member_frame.merge(
+        relevant[merge_keys + overlap_cols],
+        on=merge_keys,
+        how="inner",
+        suffixes=("", "_overlap"),
+    )
+
+
+def committee_relevance_coverage(frame: pd.DataFrame, committee_assignments: dict[str, list[str]]) -> dict[str, float]:
+    """Coverage stats for the committee relevance card."""
+    if frame.empty:
+        return {"member_coverage_pct": 0.0, "sector_coverage_pct": 0.0, "members_mapped": 0}
+    members = frame["member"].astype(str).unique()
+    mapped = sum(1 for m in members if normalize_key(m) in committee_assignments)
+    member_cov = round(100.0 * mapped / len(members), 1) if len(members) else 0.0
+    if "sector" in frame.columns:
+        with_sector = frame["sector"].fillna("").astype(str).str.strip().ne("").sum()
+        sector_cov = round(100.0 * with_sector / len(frame), 1) if len(frame) else 0.0
+    else:
+        sector_cov = 0.0
+    return {
+        "member_coverage_pct": member_cov,
+        "sector_coverage_pct": sector_cov,
+        "members_mapped": mapped,
+    }
 

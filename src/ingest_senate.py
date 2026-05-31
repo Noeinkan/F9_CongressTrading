@@ -25,6 +25,7 @@ from .utils import (
     normalize_whitespace,
     parse_amount_range,
     parse_date,
+    sanitize_transaction_date,
     sha256_file,
     split_state_district,
 )
@@ -145,7 +146,9 @@ def ingest_senate() -> None:
                 conn,
                 filing_id=filing_id,
                 issuer_id=issuer_id,
-                transaction_date=parse_date(row.get("transaction_date") or ""),
+                transaction_date=sanitize_transaction_date(
+                    parse_date(row.get("transaction_date") or ""), filing_date
+                ),
                 owner_type=row.get("owner_type"),
                 asset_name_raw=asset,
                 asset_name_normalized=resolution.get("asset_name_normalized"),
@@ -211,7 +214,9 @@ def ingest_senate() -> None:
                     "member": normalize_whitespace(member),
                     "chamber": "Senate",
                     "filing_date": filing_date,
-                    "transaction_date": parse_date(row.get("transaction_date") or ""),
+                    "transaction_date": sanitize_transaction_date(
+                        parse_date(row.get("transaction_date") or ""), filing_date
+                    ),
                     "asset": asset,
                     "ticker": resolution.get("ticker"),
                     "transaction_type": normalize_whitespace(row.get("transaction_type") or ""),

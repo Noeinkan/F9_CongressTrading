@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.dashboard_shared.tables import TableConfig, build_table_html, resolve_table_theme
 from src.dashboard_shared.dashboard_tables import (
     asset_type_feed_label,
     build_summary_table_html,
@@ -40,7 +41,7 @@ def test_build_transaction_table_html_includes_columns():
     html = build_transaction_table_html(pd.DataFrame([row]))
     assert "Purchase" in html
     assert "David McCormick" in html
-    assert "May 28, 2026" in html
+    assert "28/05/2026" in html
     assert "Politician" in html
     assert "dashboard-table" in html
 
@@ -53,8 +54,8 @@ def test_build_summary_table_html():
         headers={"ticker": "Ticker", "trades": "Trades", "first_trade": "First trade"},
     )
     assert "NVDA" in html
-    assert "Jan 15, 2026" in html
-    assert "dt-summary" in html
+    assert "15/01/2026" in html
+    assert "dt-light" in html
     # Leading whitespace before tags makes st.markdown render tables as code blocks.
     assert html.startswith("<div class=\"dashboard-table")
 
@@ -76,3 +77,31 @@ def test_build_transaction_table_html_compact():
     assert html.startswith("<div class=\"dashboard-table")
     assert "<table class=\"dt-table\">" in html
     assert "Jane Doe" in html
+
+
+def test_resolve_table_theme_defaults_light():
+    assert resolve_table_theme("light") == "dt-light"
+    assert resolve_table_theme("dark") == "dt-dark"
+
+
+def test_build_table_html_color_and_link_columns():
+    frame = pd.DataFrame([{"member": "Alice", "relevant_trades": 5, "relevance_pct": 12.5}])
+    html = build_table_html(
+        frame,
+        TableConfig(
+            columns=["member", "relevant_trades", "relevance_pct"],
+            headers={"member": "Member", "relevant_trades": "Relevant", "relevance_pct": "Relevance %"},
+            link_columns={
+                "member": {"page": "Members", "query": {"member": "member"}},
+                "relevant_trades": {
+                    "page": "Members",
+                    "query": {"member": "member", "view": "committee_relevance"},
+                },
+            },
+        ),
+    )
+    assert "dt-light" in html
+    assert "dt-cell-accent" in html
+    assert "dt-cell-pct" in html
+    assert 'href="/members?member=Alice' in html
+    assert "12.5" in html

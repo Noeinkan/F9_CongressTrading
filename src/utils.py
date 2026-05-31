@@ -38,6 +38,49 @@ def parse_date(value: str | None) -> str | None:
         return None
 
 
+def sanitize_transaction_date(
+    transaction_date: str | None,
+    filing_date: str | None,
+) -> str | None:
+    """Fix year-typo where transaction_date falls well after the filing date.
+
+    PTR filers occasionally enter the wrong year (e.g. 2026 instead of 2025).
+    When the transaction date is more than 90 days after the filing date (or
+    after today when no filing date is available), subtracting one year usually
+    produces the correct date.  Small gaps (days/weeks) are left untouched
+    because those are minor data-quality issues, not year typos.
+    """
+    if not transaction_date:
+        return transaction_date
+    try:
+        txn = datetime.strptime(transaction_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return transaction_date
+
+    cutoff = None
+    if filing_date:
+        try:
+            cutoff = datetime.strptime(filing_date, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            pass
+    if cutoff is None:
+        cutoff = datetime.utcnow().date()
+
+    gap_days = (txn - cutoff).days
+    if gap_days <= 90:
+        return transaction_date
+
+    try:
+        corrected = txn.replace(year=txn.year - 1)
+    except ValueError:
+        corrected = txn.replace(year=txn.year - 1, day=28)
+
+    if corrected <= cutoff:
+        return corrected.isoformat()
+
+    return transaction_date
+
+
 def ensure_dirs(paths: Iterable[Path]) -> None:
     for path in paths:
         path.mkdir(parents=True, exist_ok=True)

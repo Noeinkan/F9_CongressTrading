@@ -823,6 +823,61 @@ def _inject_styles(*, top_nav: bool = False) -> None:
         .dashboard-table .dt-return-neutral { color: var(--muted); }
         .dashboard-table.dt-dark .dt-return-neutral { color: __HERO_INK_SOFT__; }
         .dashboard-table .dt-th-return { width: 4.5rem; }
+        /* --- Color-coded summary cells --- */
+        .dashboard-table .dt-cell-buy .dt-plain {
+            color: __CHART_BUY__;
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-sell .dt-plain {
+            color: __CHART_SELL__;
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-call .dt-plain {
+            color: __CHART_EXCHANGE__;
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-put .dt-plain {
+            color: __CHART_SELL_PARTIAL__;
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-trades .dt-plain {
+            color: var(--navy);
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-range .dt-plain {
+            color: var(--accent-deep);
+            font-weight: 600;
+        }
+        .dashboard-table .dt-cell-accent .dt-plain,
+        .dashboard-table .dt-cell-accent .dt-nav-link {
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .dashboard-table .dt-cell-pct .dt-plain {
+            color: __TEAL__;
+            font-weight: 600;
+        }
+        .dashboard-table .dt-cell-trades .dt-nav-link {
+            color: var(--navy);
+            font-weight: 700;
+            border-bottom-color: rgba(32, 52, 74, 0.35);
+        }
+        .dashboard-table .dt-cell-buy .dt-nav-link { color: __CHART_BUY__; font-weight: 700; }
+        .dashboard-table .dt-cell-sell .dt-nav-link { color: __CHART_SELL__; font-weight: 700; }
+        .dashboard-table .dt-cell-range .dt-nav-link {
+            color: var(--accent-deep);
+            font-weight: 600;
+        }
+        .dashboard-table.dt-dark .dt-cell-buy .dt-plain { color: #4ade80; }
+        .dashboard-table.dt-dark .dt-cell-sell .dt-plain { color: #fb7185; }
+        .dashboard-table.dt-dark .dt-cell-call .dt-plain { color: #60a5fa; }
+        .dashboard-table.dt-dark .dt-cell-put .dt-plain { color: #fb923c; }
+        .dashboard-table.dt-dark .dt-cell-trades .dt-plain { color: #e2e8f0; }
+        .dashboard-table.dt-dark .dt-cell-range .dt-plain { color: __GOLD__; }
+        .dashboard-table.dt-dark .dt-cell-accent .dt-plain,
+        .dashboard-table.dt-dark .dt-cell-accent .dt-nav-link { color: __GOLD__; }
+        .dashboard-table.dt-dark .dt-cell-pct .dt-plain { color: #5eead4; }
+        .dashboard-table.dt-dark .dt-cell-trades .dt-nav-link { color: #e2e8f0; }
         /* Navigation links inside tables */
         .dashboard-table .dt-nav-link {
             color: inherit;

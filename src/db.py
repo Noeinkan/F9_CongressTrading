@@ -243,6 +243,22 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticker_details_cache (
+            ticker TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            homepage_url TEXT NOT NULL DEFAULT '',
+            total_employees INTEGER,
+            market_cap REAL,
+            primary_exchange TEXT NOT NULL DEFAULT '',
+            sic_description TEXT NOT NULL DEFAULT '',
+            locale TEXT NOT NULL DEFAULT '',
+            fetched_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
     _ensure_columns(
         conn,
         "asset_resolution_cache",

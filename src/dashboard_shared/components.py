@@ -36,6 +36,14 @@ def _normalize_kpi_specs(
     return out
 
 
+def _sparkline_has_variance(values: list[float]) -> bool:
+    """Return True if the sparkline values are non-empty and not all identical."""
+    if len(values) < 2:
+        return False
+    first = values[0]
+    return any(v != first for v in values)
+
+
 def render_kpi_row(
     specs: list[KpiSpec | tuple[str, str, str]],
     *,
@@ -52,15 +60,17 @@ def render_kpi_row(
                 delta = spec.delta
                 if delta is None:
                     delta = month_over_month_delta(spec.sparkline, percent=spec.delta_percent)
-                st.metric(
-                    spec.label,
-                    spec.value,
+                kw: dict = dict(
+                    label=spec.label,
+                    value=spec.value,
                     delta=delta,
                     help=spec.detail,
                     border=True,
-                    chart_data=spec.sparkline,
-                    chart_type=spec.chart_type,
                 )
+                if _sparkline_has_variance(spec.sparkline):
+                    kw["chart_data"] = spec.sparkline
+                    kw["chart_type"] = spec.chart_type
+                st.metric(**kw)
             elif accent_index == i:
                 st.markdown(
                     _metric_card(spec.label, spec.value, spec.detail, accent=True),

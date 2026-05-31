@@ -51,6 +51,7 @@ from .utils import (
     normalize_whitespace,
     parse_amount_range,
     parse_date,
+    sanitize_transaction_date,
     sha256_file,
     split_state_district,
 )
@@ -132,11 +133,13 @@ def _set_review_reason(
         conn.commit()
 
 
-def _apply_parsed_row_to_transaction(conn, transaction_id: int, parsed_row: dict[str, str | None], *, existing_ticker: str | None = None) -> None:
+def _apply_parsed_row_to_transaction(conn, transaction_id: int, parsed_row: dict[str, str | None], *, existing_ticker: str | None = None, filing_date: str | None = None) -> None:
     asset = normalize_whitespace(parsed_row.get("asset") or "")
     amount_range = normalize_whitespace(parsed_row.get("amount_range") or "")
     amount_low, amount_high = parse_amount_range(amount_range)
-    transaction_date = parse_date(parsed_row.get("transaction_date") or "")
+    transaction_date = sanitize_transaction_date(
+        parse_date(parsed_row.get("transaction_date") or ""), filing_date
+    )
     transaction_type = normalize_whitespace(parsed_row.get("transaction_type") or "")
     owner_type = normalize_whitespace(parsed_row.get("owner_type") or "")
     source_page_value = parsed_row.get("source_page")
@@ -538,6 +541,36 @@ def _merge_duplicate_house_ptr_filings(conn) -> int:
     return merged_filings
 
 
+def _fix_future_transaction_dates(conn) -> int:
+    """Correct transaction dates that fall after their filing date (year-typo)."""
+    rows = conn.execute(
+        """
+        SELECT t.id, t.transaction_date, f.filing_date
+        FROM transactions t
+        JOIN filings f ON f.id = t.filing_id
+        WHERE COALESCE(t.transaction_date, '') <> ''
+          AND COALESCE(f.filing_date, '') <> ''
+          AND t.transaction_date > f.filing_date
+        """
+    ).fetchall()
+    fixed = 0
+    for row in rows:
+        corrected = sanitize_transaction_date(row["transaction_date"], row["filing_date"])
+        if corrected and corrected != row["transaction_date"]:
+            conn.execute(
+                "UPDATE transactions SET transaction_date = ?, updated_at = datetime('now') WHERE id = ?",
+                (corrected, row["id"]),
+            )
+            conn.execute(
+                "UPDATE trades SET transaction_date = ? WHERE transaction_date = ? AND chamber = 'House'",
+                (corrected, row["transaction_date"]),
+            )
+            fixed += 1
+    if fixed:
+        conn.commit()
+    return fixed
+
+
 def _delete_invalid_house_ptr_transactions(conn) -> int:
     invalid_ids = [
         int(row["id"])
@@ -651,7 +684,9 @@ def _repair_house_ptr_dates(conn) -> int:
                 continue
 
             asset = normalize_whitespace(parsed_row.get("asset") or "")
-            transaction_date = parse_date(parsed_row.get("transaction_date") or "")
+            transaction_date = sanitize_transaction_date(
+                parse_date(parsed_row.get("transaction_date") or ""), filing_date
+            )
             amount_range = normalize_whitespace(parsed_row.get("amount_range") or "")
             transaction_type = normalize_whitespace(parsed_row.get("transaction_type") or "")
 
@@ -660,6 +695,7 @@ def _repair_house_ptr_dates(conn) -> int:
                 existing_row["id"],
                 parsed_row,
                 existing_ticker=existing_row["ticker"],
+                filing_date=filing_date,
             )
 
             source_page_key = normalize_whitespace(parsed_row.get("source_page") or "")
@@ -801,6 +837,9 @@ def ingest_house() -> None:
     repaired_rows = _repair_house_ptr_dates(conn)
     if repaired_rows:
         print(f"Riparate {repaired_rows} transazioni PTR House con date mancanti.")
+    fixed_future_dates = _fix_future_transaction_dates(conn)
+    if fixed_future_dates:
+        print(f"Corrected {fixed_future_dates} transaction(s) with future dates (year-typo).")
     deleted_invalid_rows = _delete_invalid_house_ptr_transactions(conn)
     if deleted_invalid_rows:
         print(f"Rimosse {deleted_invalid_rows} righe PTR House non valide residue.")
@@ -941,7 +980,9 @@ def ingest_house() -> None:
                 conn,
                 filing_id=filing_id,
                 issuer_id=issuer_id,
-                transaction_date=parse_date(row.get("transaction_date") or ""),
+                transaction_date=sanitize_transaction_date(
+                    parse_date(row.get("transaction_date") or ""), filing_date
+                ),
                 owner_type=row.get("owner_type"),
                 asset_name_raw=asset,
                 asset_name_normalized=resolution.get("asset_name_normalized"),
@@ -1007,7 +1048,9 @@ def ingest_house() -> None:
                     "member": normalize_whitespace(member),
                     "chamber": "House",
                     "filing_date": filing_date,
-                    "transaction_date": parse_date(row.get("transaction_date") or ""),
+                    "transaction_date": sanitize_transaction_date(
+                        parse_date(row.get("transaction_date") or ""), filing_date
+                    ),
                     "asset": asset,
                     "ticker": resolution.get("ticker"),
                     "transaction_type": normalize_whitespace(row.get("transaction_type") or ""),
