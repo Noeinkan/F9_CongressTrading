@@ -9,6 +9,7 @@ Python tracker for U.S. House and Senate public financial disclosures: raw PDFs 
 - **Python**: 3.10+
 - **Interpreter**: prefer project venv `.venv\Scripts\python.exe` (Windows) — see README troubleshooting if imports fail.
 - **Secrets**: `POLYGON_API_KEY`; optional `OPENFIGI_API_KEY`.
+- **Dashboard (optional, VPS)**: `DASHBOARD_SERVER_ADDRESS` (default `127.0.0.1`; use `0.0.0.0` on VPS), `DASHBOARD_SERVER_PORT` (default `8501`), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD` (non-empty enables login gate before any data loads).
 - **House PTR autodownload** (defaults in `src/config.py`): `HOUSE_PTR_AUTO_DOWNLOAD`, `HOUSE_PTR_AUTO_DOWNLOAD_MIN_YEAR`, `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR`, `HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS`. Be conservative with Clerk traffic; do not bulk-hammer `disclosures-clerk.house.gov`. Senate eFD has its own terms — README.
 
 ## Entrypoint
@@ -25,7 +26,7 @@ All CLI: **`python -m src.main <command>`** from repo root.
 | `warm-polygon-price-cache` | Prefetch Polygon daily bars into `polygon_daily_bar_cache` for tickers in `transactions` (`--as-of`, `--refresh`, `--cache-only`) |
 | `export-fd-csv` | FD report CSV |
 | `export-review-csv` | Review queue CSV |
-| `dashboard` | Streamlit (`--server-port`, `--server-address`) |
+| `dashboard` | Streamlit (`--server-port`, `--server-address`; defaults from `DASHBOARD_*` env) |
 | `refresh-dashboard` | Re-ingest, re-export, restart dashboard |
 
 Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <same-subcommand>`.

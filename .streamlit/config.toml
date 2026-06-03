@@ -17,3 +17,5 @@ borderColor = "#3a4250"
 
 [server]
 headless = true
+enableXsrfProtection = true
+enableCORS = false

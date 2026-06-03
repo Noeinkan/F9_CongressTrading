@@ -119,6 +119,7 @@ from .filters import (
     _available_years,
     render_period_slicers_and_filter,
 )
+from .auth import ensure_dashboard_authenticated, verify_dashboard_credentials
 from .session import (
     finalize_dashboard_slice,
     get_dashboard_context,
@@ -213,6 +214,7 @@ __all__ = [
     "committee_relevance_coverage",
     "coordinated_pattern_transactions",
     "detect_coordinated_trades",
+    "ensure_dashboard_authenticated",
     "finalize_dashboard_slice",
     "get_connection",
     "get_dashboard_context",
@@ -237,5 +239,6 @@ __all__ = [
     "ticker_member_breakdown",
     "transaction_type_display_label",
     "transaction_type_filter_option",
+    "verify_dashboard_credentials",
     "volume_anomalies",
 ]

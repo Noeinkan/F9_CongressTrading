@@ -141,6 +141,20 @@ Avvio:
 - oppure `streamlit run streamlit_app.py`
 - in VS Code: task `Dashboard (venv)`
 
+### Dashboard remota (VPS)
+
+Per esporre la dashboard su internet (es. `http://77.42.70.26:8501/`) da un VPS Linux con repo e SQLite locali:
+
+1. Copia `.env.example` in `.env` e imposta:
+   - `DASHBOARD_SERVER_ADDRESS=0.0.0.0`
+   - `DASHBOARD_SERVER_PORT=8501`
+   - `DASHBOARD_USERNAME=...` e `DASHBOARD_PASSWORD=...` (password obbligatoria per il login)
+2. Apri la porta firewall: `sudo ufw allow 8501/tcp`
+3. Avvia con `python -m src.main dashboard` oppure systemd (`deploy/congress-dashboard.service` — vedi `deploy/README.md`)
+4. Da un altro laptop apri l’URL pubblico e accedi con username/password
+
+**Sicurezza:** su HTTP le credenziali viaggiano in chiaro; per uso pubblico prolungato conviene HTTPS (reverse proxy, es. Caddy su 443 verso `127.0.0.1:8501`). Dettagli operativi in `deploy/README.md`.
+
 ## Troubleshooting interprete VS Code
 Se vedi errori come `ModuleNotFoundError: No module named 'dateutil'`, il problema di solito non e nel repository ma nell'interprete Python usato dalla sessione corrente.
 

@@ -7,6 +7,7 @@ from .dashboard_shared import (
     _inject_styles,
     _render_empty_state,
     _render_hero,
+    ensure_dashboard_authenticated,
     finalize_dashboard_slice,
     load_review_queue,
     load_transactions,
@@ -23,6 +24,7 @@ def render_dashboard() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+    ensure_dashboard_authenticated()
     _inject_styles(top_nav=True)
 
     transactions, transaction_source = load_transactions()

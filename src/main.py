@@ -14,6 +14,8 @@ if __name__ == "__main__" and (__package__ is None or __package__ == ""):
     sys.path.append(str(_Path(__file__).resolve().parents[1]))
     __package__ = "src"
 
+from .config import dashboard_server_address, dashboard_server_port
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Congress public-disclosure tracker")
@@ -100,15 +102,15 @@ def build_parser() -> argparse.ArgumentParser:
     export_review.add_argument("--out", type=Path, default=Path("data/review_queue.csv"))
 
     dashboard = sub.add_parser("dashboard", help="Avvia la dashboard Streamlit")
-    dashboard.add_argument("--server-port", type=int, default=8501)
-    dashboard.add_argument("--server-address", default="127.0.0.1")
+    dashboard.add_argument("--server-port", type=int, default=dashboard_server_port())
+    dashboard.add_argument("--server-address", default=dashboard_server_address())
 
     refresh_dashboard = sub.add_parser(
         "refresh-dashboard",
         help="Aggiorna ingest/export e riavvia la dashboard Streamlit",
     )
-    refresh_dashboard.add_argument("--server-port", type=int, default=8501)
-    refresh_dashboard.add_argument("--server-address", default="127.0.0.1")
+    refresh_dashboard.add_argument("--server-port", type=int, default=dashboard_server_port())
+    refresh_dashboard.add_argument("--server-address", default=dashboard_server_address())
 
     rr = sub.add_parser(
         "re-resolve-tickers",
