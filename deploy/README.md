@@ -2,6 +2,22 @@
 
 Run the Streamlit dashboard on a Linux VPS so it is reachable at a stable URL such as **http://77.42.70.26:8501/** from any laptop.
 
+## Deploy latest `main` from your PC
+
+Ensure `main` is pushed to GitHub (`git push origin main`), then from the repo root:
+
+```bash
+ssh root@77.42.70.26 'REPO_DIR=/opt/F9_CongressTrading bash -s' < deploy/deploy.sh
+```
+
+If the repo lives elsewhere on the VPS, set `REPO_DIR` to that path. The script runs `git pull`, installs requirements, and restarts `congress-dashboard` if systemd is installed.
+
+One-liner without the script:
+
+```bash
+ssh root@77.42.70.26 'cd /opt/F9_CongressTrading && git pull --ff-only origin main && .venv/bin/pip install -q -r requirements.txt && sudo systemctl restart congress-dashboard'
+```
+
 ## Prerequisites
 
 - Python 3.10+ venv at repo root (`.venv`)
