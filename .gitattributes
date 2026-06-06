@@ -1,0 +1,9 @@
+# Normalize line endings so shell scripts survive a round-trip through
+# Windows checkouts. `text=auto` lets git decide per file based on content;
+# `*.sh` and `*.bash` are forced to LF so they remain executable on Linux.
+*               text=auto
+*.sh            text eol=lf
+*.bash          text eol=lf
+
+# PowerShell scripts are CRLF-native; leave them as-is.
+*.ps1           text eol=crlf
