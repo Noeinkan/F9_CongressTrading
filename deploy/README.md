@@ -12,6 +12,16 @@ ssh root@77.42.70.26 'REPO_DIR=/opt/F9_CongressTrading bash -s' < deploy/deploy.
 
 If the repo lives elsewhere on the VPS, set `REPO_DIR` to that path. The script runs `git pull`, installs requirements, and restarts `congress-dashboard` if systemd is installed.
 
+### One-shot deploy (Windows)
+
+From PowerShell at the repo root:
+
+```powershell
+.\deploy_local.ps1
+```
+
+It commits any pending changes (prompting for a message, or pass `-Message "..."`), pushes `main`, and pipes `deploy/deploy.sh` over SSH. Override the target with `-VpsUser`, `-VpsHost`, `-VpsRepoDir`.
+
 One-liner without the script:
 
 ```bash
