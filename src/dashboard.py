@@ -22,7 +22,7 @@ def render_dashboard() -> None:
         page_title=_copy("page_title"),
         page_icon=":material/account_balance:",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     ensure_dashboard_authenticated()
     _inject_styles(top_nav=True)

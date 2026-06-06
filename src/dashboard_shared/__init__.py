@@ -113,8 +113,6 @@ from .charts import (
     build_price_overlay_figure,
 )
 from .filters import (
-    _apply_filters,
-    _apply_filters_fragment,
     _apply_period_filter,
     _available_years,
     render_period_slicers_and_filter,
@@ -141,8 +139,6 @@ __all__ = [
     "THEME",
     "TRANSACTION_COLUMNS",
     "_altair_readability",
-    "_apply_filters",
-    "_apply_filters_fragment",
     "_apply_period_filter",
     "_available_years",
     "_aggregate_net_trade_amount",

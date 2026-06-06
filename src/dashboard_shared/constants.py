@@ -7,7 +7,7 @@ from ..config import DATA_DIR
 NORMALIZED_EXPORT_PATH = DATA_DIR / "congress_trades.csv"
 REVIEW_EXPORT_PATH = DATA_DIR / "review_queue.csv"
 
-# Default transaction date range in the sidebar (clamped to available data).
+# Default transaction date range (clamped to available data).
 DEFAULT_TRANSACTION_FILTER_START = date(2023, 1, 1)
 
 THEME = {
@@ -75,13 +75,11 @@ DASHBOARD_COPY = {
         "Analyst workspace for House and Senate disclosures. Load the ingestion pipeline first, then use this page "
         "to inspect trades, concentration, and unresolved records."
     ),
-    "sidebar_header": "Filters",
     "period_slicer_title": "Period",
     "period_slicer_caption": "Year and quarter filters apply to every page.",
     "period_slicer_reset": "Reset period",
     "period_slicer_year_from": "From",
     "period_slicer_year_to": "To",
-    "sidebar_slice_summary_title": "Active slice",
     "current_slice": "Current slice",
     "no_chamber_selected": "No chamber selected",
     "no_dated_trades": "No dated trades",
@@ -160,16 +158,6 @@ DASHBOARD_COPY = {
         "Up to **16 members** with the most trades on this ticker. **Hover a dot** for trade type, "
         "change on that trade, and running total. Right-side labels show each member’s latest net $."
     ),
-    "sidebar_pick_member_label": "Member",
-    "sidebar_pick_ticker_label": "Ticker",
-    "sidebar_pick_issuer_label": "Issuer",
-    "sidebar_member_filter_hint": "Open the menu and type to narrow; pick a name or type a substring (Streamlit combobox). Clear with ✕ for everyone.",
-    "sidebar_member_filter_placeholder": "Everyone — type or pick",
-    "sidebar_ticker_filter_hint": "Type to narrow symbols; pick one or type a substring. “No ticker” or “-” filters unresolved tickers.",
-    "sidebar_ticker_filter_placeholder": "Any ticker — type or pick",
-    "sidebar_issuer_filter_hint": "Type to narrow issuers; pick or type a substring. “Blank issuer” or “-” for empty names.",
-    "sidebar_issuer_filter_placeholder": "Any issuer — type or pick",
-    "sidebar_transaction_type_hint": "P = Buy, S = Sell (chips show full words plus the filing code).",
     "sub_records_needing_review": "Records needing review",
     "sub_filtered_dataset": "Filtered normalized dataset",
 }
@@ -223,10 +211,6 @@ REVIEW_COLUMNS = [
     "source_page",
     "source_row",
 ]
-
-# Sidebar typeahead: option labels for blank ticker / issuer (must match filter logic below).
-_SIDEBAR_NO_TICKER = "— No ticker —"
-_SIDEBAR_NO_ISSUER = "— Blank issuer —"
 
 MEMBERS_VIEW_COMMITTEE_RELEVANCE = "committee_relevance"
 

@@ -7,7 +7,7 @@ from .components import _copy, _render_hero, render_kpi_row
 from .data import load_review_queue, load_transactions
 from .formatting import format_currency_compact, format_currency_full, format_percent
 from .kpi_sparklines import KpiSpec, build_slice_kpi_sparklines
-from .filters import _apply_filters_fragment, render_period_slicers_and_filter
+from .filters import render_period_slicers_and_filter
 
 def _filter_review_queue(review_queue: pd.DataFrame, filtered_transactions: pd.DataFrame) -> pd.DataFrame:
     if review_queue.empty or filtered_transactions.empty:
@@ -53,7 +53,7 @@ def get_dashboard_context() -> dict[str, object]:
 
 
 def setup_dashboard_session() -> bool:
-    """Load data, apply sidebar filters, populate session state. Returns False if empty dataset."""
+    """Load data, populate session state. Returns False if empty dataset."""
     transactions, transaction_source = load_transactions()
     review_queue, review_source = load_review_queue(transactions)
     st.session_state["dashboard_transactions"] = transactions
@@ -67,18 +67,15 @@ def setup_dashboard_session() -> bool:
         return False
 
     st.session_state["dashboard_review_queue"] = review_queue
-    with st.sidebar:
-        base_filtered = _apply_filters_fragment(transactions)
-    st.session_state["dashboard_base_filtered"] = base_filtered
     st.session_state["dashboard_ready"] = True
     return True
 
 
 def finalize_dashboard_slice() -> None:
-    """Apply global year/quarter slicers and sync filtered datasets for all pages."""
-    base_filtered: pd.DataFrame = st.session_state.get("dashboard_base_filtered", pd.DataFrame())
+    """Apply the top-bar period slicer and sync filtered datasets for all pages."""
+    transactions: pd.DataFrame = st.session_state.get("dashboard_transactions", pd.DataFrame())
     review_queue: pd.DataFrame = st.session_state.get("dashboard_review_queue", pd.DataFrame())
-    filtered = render_period_slicers_and_filter(base_filtered)
+    filtered = render_period_slicers_and_filter(transactions)
     st.session_state["dashboard_filtered"] = filtered
     st.session_state["dashboard_review"] = _filter_review_queue(review_queue, filtered)
 
