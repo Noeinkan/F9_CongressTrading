@@ -7,11 +7,13 @@ import streamlit as st
 
 from .components import _copy
 
-_QUARTER_OPTIONS = (1, 2, 3, 4)
+_QUARTER_OPTIONS: tuple[int, ...] = (1, 2, 3, 4)
 
 
 def _available_years(data: pd.DataFrame) -> list[int]:
-    dates = pd.to_datetime(data.get("transaction_date"), errors="coerce").dropna()
+    if "transaction_date" not in data.columns:
+        return []
+    dates = pd.to_datetime(data["transaction_date"], errors="coerce").dropna()
     if dates.empty:
         return []
     return sorted(int(y) for y in dates.dt.year.unique())
