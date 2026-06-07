@@ -1,5 +1,7 @@
 # Agent instructions — Congress Trading
 
+> **Active migration:** the Streamlit dashboard is being replaced by a FastAPI JSON API (`src/api/`) + React frontend. See **CLAUDE.md** for migration state/rules and **PROJECT_INDEX.md** for the file map. This file remains authoritative for the Python data layer and the (still-live) Streamlit dashboard.
+
 ## Project
 
 Python tracker for U.S. House and Senate public financial disclosures: raw PDFs under `data/raw/`, normalized data in SQLite under `data/db/`, optional CSV exports, and a multi-page Streamlit dashboard. Full setup, legal notes, and CSV schema: **README.md**.
