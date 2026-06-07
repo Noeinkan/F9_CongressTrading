@@ -7,14 +7,16 @@ from .dashboard_shared import (
     _inject_styles,
     _render_empty_state,
     _render_hero,
+    dispatch_to_page,
     ensure_dashboard_authenticated,
     finalize_dashboard_slice,
+    get_dashboard_context,
     load_review_queue,
     load_transactions,
+    read_active_page_from_query,
+    render_top_bar,
     setup_dashboard_session,
 )
-
-_PAGES_DIR = "src/dashboard_pages"
 
 
 def render_dashboard() -> None:
@@ -22,10 +24,10 @@ def render_dashboard() -> None:
         page_title=_copy("page_title"),
         page_icon=":material/account_balance:",
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
     ensure_dashboard_authenticated()
-    _inject_styles(top_nav=True)
+    _inject_styles(top_bar=True)
 
     transactions, transaction_source = load_transactions()
     review_queue, review_source = load_review_queue(transactions)
@@ -40,14 +42,7 @@ def render_dashboard() -> None:
         _render_empty_state()
         return
 
-    pages = [
-        st.Page(f"{_PAGES_DIR}/home.py", title="Home", icon=":material/home:", default=True),
-        st.Page(f"{_PAGES_DIR}/members.py", title="Members", icon=":material/groups:"),
-        st.Page(f"{_PAGES_DIR}/tickers.py", title="Tickers", icon=":material/candlestick_chart:"),
-        st.Page(f"{_PAGES_DIR}/patterns.py", title="Patterns", icon=":material/insights:"),
-        st.Page(f"{_PAGES_DIR}/review.py", title="Review Queue", icon=":material/fact_check:"),
-        st.Page(f"{_PAGES_DIR}/raw_data.py", title="Raw Data", icon=":material/table_chart:"),
-    ]
-    pg = st.navigation(pages, position="top")
     finalize_dashboard_slice()
-    pg.run()
+    active_page = read_active_page_from_query()
+    render_top_bar(active_page=active_page)
+    dispatch_to_page(active_page, get_dashboard_context())

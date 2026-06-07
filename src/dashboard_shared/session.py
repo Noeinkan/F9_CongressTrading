@@ -7,7 +7,7 @@ from .components import _copy, _render_hero, render_kpi_row
 from .data import load_review_queue, load_transactions
 from .formatting import format_currency_compact, format_currency_full, format_percent
 from .kpi_sparklines import KpiSpec, build_slice_kpi_sparklines
-from .filters import render_period_slicers_and_filter
+from .top_bar import render_sidebar_period_slicer
 
 def _filter_review_queue(review_queue: pd.DataFrame, filtered_transactions: pd.DataFrame) -> pd.DataFrame:
     if review_queue.empty or filtered_transactions.empty:
@@ -75,7 +75,7 @@ def finalize_dashboard_slice() -> None:
     """Apply the top-bar period slicer and sync filtered datasets for all pages."""
     transactions: pd.DataFrame = st.session_state.get("dashboard_transactions", pd.DataFrame())
     review_queue: pd.DataFrame = st.session_state.get("dashboard_review_queue", pd.DataFrame())
-    filtered = render_period_slicers_and_filter(transactions)
+    filtered = render_sidebar_period_slicer(transactions)
     st.session_state["dashboard_filtered"] = filtered
     st.session_state["dashboard_review"] = _filter_review_queue(review_queue, filtered)
 

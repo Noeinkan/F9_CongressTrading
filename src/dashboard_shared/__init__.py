@@ -117,6 +117,18 @@ from .filters import (
     _available_years,
     render_period_slicers_and_filter,
 )
+from .top_bar import (
+    DEFAULT_PAGE,
+    NAV_ITEMS,
+    PAGE_KEYS,
+    build_top_bar_html,
+    dispatch_to_page,
+    get_page_renderers,
+    read_active_page_from_query,
+    render_sidebar_period_slicer,
+    render_top_bar,
+    resolve_active_page,
+)
 from .auth import ensure_dashboard_authenticated, verify_dashboard_credentials
 from .session import (
     finalize_dashboard_slice,
@@ -128,10 +140,20 @@ from .session import (
 __all__ = [
     "COMMITTEES_JSON_PATH",
     "COMMITTEE_SECTOR_MAP",
+    "build_top_bar_html",
+    "dispatch_to_page",
+    "get_page_renderers",
+    "read_active_page_from_query",
+    "render_sidebar_period_slicer",
+    "render_top_bar",
+    "resolve_active_page",
     "DASHBOARD_COPY",
+    "DEFAULT_PAGE",
     "DEFAULT_TRANSACTION_FILTER_START",
     "MEMBERS_VIEW_COMMITTEE_RELEVANCE",
+    "NAV_ITEMS",
     "NORMALIZED_EXPORT_PATH",
+    "PAGE_KEYS",
     "REVIEW_COLUMNS",
     "REVIEW_EXPORT_PATH",
     "SQLITE_REVIEW_QUERY",

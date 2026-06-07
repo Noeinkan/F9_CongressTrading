@@ -19,3 +19,6 @@ borderColor = "#3a4250"
 headless = true
 enableXsrfProtection = true
 enableCORS = false
+
+[client]
+toolbarMode = "minimal"

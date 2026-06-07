@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import html
-
 import pandas as pd
-import streamlit as st
 
 from .components import _copy
 
@@ -79,58 +76,8 @@ def _lookback_years(data: pd.DataFrame, n_years: int | None, years_available: li
 
 
 def render_period_slicers_and_filter(data: pd.DataFrame) -> pd.DataFrame:
-    """Compact lookback + quarter controls pinned in the top header bar."""
-    years_available = _available_years(data)
-    if not years_available:
-        return data
+    """Apply period lookback + quarter filters (sidebar UI)."""
+    from .top_bar import render_sidebar_period_slicer
 
-    lookback_labels = [label for label, _ in _LOOKBACK_OPTIONS]
-    caption = html.escape(_copy("period_slicer_caption"))
-    with st.container(key="period_toolbar"):
-        slicer_cols = st.columns([0.3, 1.2, 2.15], vertical_alignment="center")
-        with slicer_cols[0]:
-            if st.button(
-                "↺",
-                key="dashboard_slicer_reset",
-                help=f"{_copy('period_slicer_reset')}. {caption}",
-                use_container_width=True,
-            ):
-                for key in (
-                    "dashboard_slicer_lookback",
-                    "dashboard_slicer_quarter",
-                ):
-                    st.session_state.pop(key, None)
-                st.rerun()
-        with slicer_cols[1]:
-            lookback_choice = st.selectbox(
-                "Period",
-                lookback_labels,
-                index=1,
-                label_visibility="collapsed",
-                key="dashboard_slicer_lookback",
-            )
-        with slicer_cols[2]:
-            selected_quarters = st.pills(
-                "Quarter",
-                list(_QUARTER_OPTIONS),
-                selection_mode="multi",
-                default=list(_QUARTER_OPTIONS),
-                format_func=lambda q: f"Q{q}",
-                label_visibility="collapsed",
-                key="dashboard_slicer_quarter",
-            )
-
-    lookback_n = dict(_LOOKBACK_OPTIONS).get(lookback_choice)
-    years_sel = _lookback_years(data, lookback_n, years_available)
-    quarters_sel = list(selected_quarters or [])
-    if not years_sel or not quarters_sel:
-        st.warning("Select at least one period and one quarter to show data.")
-
-    filtered = _apply_period_filter(
-        data,
-        selected_years=years_sel,
-        selected_quarters=quarters_sel,
-        all_years=years_available,
-    )
-    return filtered
+    return render_sidebar_period_slicer(data)
 

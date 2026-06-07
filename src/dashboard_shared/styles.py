@@ -119,162 +119,91 @@ def _altair_readability(chart: alt.Chart) -> alt.Chart:
         .configure_header(labelFontSize=13, titleFontSize=14, titleFontWeight="bold")
     )
 
-def _inject_styles(*, top_nav: bool = False) -> None:
+def _inject_styles(*, top_bar: bool = False) -> None:
     """Scope custom CSS to dashboard HTML components only — do not override Streamlit widgets."""
-    top_nav_css = ""
-    if top_nav:
-        top_nav_css = """
-        /* --- Fixed top navigation bar --- */
+    top_bar_css = ""
+    if top_bar:
+        top_bar_css = """
+        /* --- Hide Streamlit default header (Deploy, menu, cream bar) --- */
         header[data-testid="stHeader"],
         .stAppHeader {
-            background: __SIDEBAR_BG__ !important;
-            border-bottom: 1px solid var(--sidebar-border) !important;
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+        }
+        .stAppDeployButton,
+        [data-testid="stToolbar"],
+        [data-testid="stToolbarActions"] {
+            display: none !important;
+        }
+        /* --- Custom dashboard top bar (main column, sticky) --- */
+        .st-key-dashboard_top_bar {
             position: sticky !important;
             top: 0 !important;
             z-index: 999 !important;
+            background: __SIDEBAR_BG__ !important;
+            border-bottom: 1px solid var(--sidebar-border);
+            margin: -1rem -1rem 1rem -1rem !important;
+            padding: 0.55rem 1rem !important;
         }
-        .stAppHeader [data-testid="stToolbar"],
-        .stAppHeader [data-testid="stToolbarActions"] {
-            background: transparent !important;
+        .st-key-dashboard_top_bar [data-testid="stMarkdownContainer"] {
+            width: 100%;
         }
-        .stAppHeader span,
-        .stAppHeader a,
-        .stAppHeader p,
-        .stAppHeader button,
-        .stAppHeader label {
-            color: var(--sidebar-ink) !important;
+        .st-key-dashboard_top_bar [data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+            gap: 0.25rem !important;
         }
-        .stAppHeader svg,
-        .stAppHeader [data-testid="stIconMaterial"] {
-            color: var(--sidebar-muted) !important;
-            fill: currentColor !important;
+        .st-key-dashboard_top_bar .dtb-brand {
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--sidebar-ink);
+            font-size: 1.05rem;
+            white-space: nowrap;
+            line-height: 1.2;
         }
-        .stAppHeader a[aria-current="page"] {
-            background: rgba(255, 255, 255, 0.12) !important;
+        .st-key-dashboard_top_bar .dtb-nav-active {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.35rem 0.55rem;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            white-space: nowrap;
+            color: var(--sidebar-ink);
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .st-key-dashboard_top_bar .stButton > button {
+            width: 100%;
+            min-height: 2rem;
+            padding: 0.35rem 0.55rem !important;
             border-radius: 8px !important;
+            font-size: 0.88rem !important;
+            font-weight: 600 !important;
+            color: var(--sidebar-muted) !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            white-space: nowrap !important;
+        }
+        .st-key-dashboard_top_bar .stButton > button:hover {
+            color: var(--sidebar-ink) !important;
+            background: rgba(255, 255, 255, 0.06) !important;
         }
         [data-testid="stSidebar"] [data-testid="stSidebarNav"] {
             display: none !important;
         }
-        /* --- Period filters pinned inside the top header bar --- */
-        .st-key-period_toolbar {
-            position: fixed !important;
-            top: 0;
-            right: 14rem;
-            left: auto;
-            z-index: 1000;
-            height: 3.25rem;
-            width: min(38rem, calc(100vw - 30rem));
-            display: flex !important;
-            flex-direction: column;
-            justify-content: center;
-            background: transparent !important;
-            border: none !important;
-            margin: 0 !important;
-            padding: 0 0.35rem !important;
-            overflow: visible !important;
-        }
-        /* Collapse the empty slot the toolbar leaves behind in the page flow */
-        [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .st-key-period_toolbar),
-        [data-testid="stVerticalBlock"]:has(> .st-key-period_toolbar) {
-            gap: 0 !important;
-        }
-        .st-key-period_toolbar > div {
-            width: 100%;
-        }
-        .stAppHeader [data-testid="stHeaderNavigation"] {
-            max-width: calc(100% - 44rem);
-        }
-        .st-key-period_toolbar [data-testid="stHorizontalBlock"] {
-            align-items: center !important;
-            gap: 0.28rem !important;
-            flex-wrap: nowrap !important;
-        }
-        .st-key-period_toolbar [data-testid="stWidgetLabel"] p,
-        .st-key-period_toolbar label {
-            color: var(--sidebar-ink) !important;
-            font-size: 0.68rem !important;
-        }
-        .st-key-period_toolbar [data-baseweb="select"] > div,
-        .st-key-period_toolbar .stButton > button {
-            background: var(--sidebar-field) !important;
-            border: 1px solid var(--sidebar-border) !important;
-            border-radius: 8px !important;
+        [data-testid="stSidebar"] [data-testid="stPills"] button {
             min-height: 1.85rem !important;
-            max-height: 1.85rem !important;
-            color: var(--sidebar-ink) !important;
-        }
-        .st-key-period_toolbar [data-baseweb="select"] span,
-        .st-key-period_toolbar [data-baseweb="select"] div[role="combobox"],
-        .st-key-period_toolbar [data-baseweb="select"] input,
-        .st-key-period_toolbar [data-baseweb="select"] option,
-        .st-key-period_toolbar [data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
-        .st-key-period_toolbar .stSelectbox p,
-        .st-key-period_toolbar .stSelectbox span,
-        .st-key-period_toolbar .stSelectbox div[data-baseweb="select"] * {
-            color: var(--sidebar-ink) !important;
-            -webkit-text-fill-color: var(--sidebar-ink) !important;
-            font-size: 0.72rem !important;
-        }
-        .st-key-period_toolbar [data-baseweb="select"] svg {
-            fill: var(--sidebar-muted) !important;
-            color: var(--sidebar-muted) !important;
-        }
-        .st-key-period_toolbar [data-testid="stWidgetLabel"] {
-            display: none !important;
-        }
-        .st-key-period_toolbar .stButton > button {
-            background: transparent !important;
-            border: 1px solid var(--sidebar-border) !important;
-            color: var(--sidebar-muted) !important;
-            font-size: 0.95rem !important;
-            line-height: 1 !important;
-            padding: 0.15rem 0.4rem !important;
-            min-width: 1.85rem !important;
-            max-width: 1.85rem !important;
-            box-shadow: none !important;
-        }
-        .st-key-period_toolbar .stButton > button:hover {
-            background: rgba(255, 255, 255, 0.10) !important;
-            color: var(--sidebar-ink) !important;
-        }
-        .period-toolbar-dash {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 1.85rem;
-            color: var(--sidebar-muted);
-            font-size: 0.78rem;
-            user-select: none;
-        }
-        .st-key-period_toolbar [data-testid="stPills"] {
-            min-width: 0;
-        }
-        .st-key-period_toolbar [data-testid="stPills"] button {
-            min-height: 1.75rem !important;
-            max-height: 1.75rem !important;
-            padding: 0.12rem 0.42rem !important;
-            font-size: 0.68rem !important;
+            font-size: 0.78rem !important;
             border-radius: 999px !important;
         }
-        @media (max-width: 1180px) {
-            .st-key-period_toolbar {
-                right: 12rem;
-                width: calc(100vw - 26rem);
-            }
-        }
-        @media (max-width: 920px) {
-            .st-key-period_toolbar {
-                position: sticky !important;
-                top: 3.25rem;
-                right: auto;
-                left: auto;
-                width: calc(100% + 2rem);
-                height: auto;
-                margin: -0.85rem -1rem 0.5rem -1rem !important;
-                padding: 0.35rem 1rem !important;
-                background: __SIDEBAR_BG__ !important;
-                border-bottom: 1px solid var(--sidebar-border) !important;
+        @media (max-width: 720px) {
+            .st-key-dashboard_top_bar .dashboard-top-bar-inner {
+                flex-direction: column;
+                align-items: flex-start;
             }
         }
         """
@@ -917,7 +846,7 @@ def _inject_styles(*, top_nav: bool = False) -> None:
         </style>
     """
     css = (
-        css.replace("__TOP_NAV_CSS__", top_nav_css)
+        css.replace("__TOP_NAV_CSS__", top_bar_css)
         .replace("__INK__", THEME["ink"])
         .replace("__INK_SOFT__", THEME["ink_soft"])
         .replace("__MUTED__", THEME["muted"])

@@ -57,9 +57,17 @@ try {
         throw "Missing $scriptPath"
     }
 
-    $remoteCmd = "REPO_DIR=$VpsRepoDir bash -s"
+    # Copy the script over scp rather than piping it via ssh stdin.
+    # Windows OpenSSH's ssh.exe is known to inject \r into piped text,
+    # which trips up bash on the server ("$'\r': command not found").
+    $remoteScript = "/tmp/F9_deploy.sh"
+    Write-Host "Copying deploy.sh to ${VpsUser}@${VpsHost}:$remoteScript..." -ForegroundColor Cyan
+    scp $scriptPath "${VpsUser}@${VpsHost}:$remoteScript"
+    if ($LASTEXITCODE -ne 0) { throw "scp failed." }
+
+    $remoteCmd = "REPO_DIR=$VpsRepoDir bash $remoteScript; rc=`$?; rm -f $remoteScript; exit `$rc"
     Write-Host "Deploying to $VpsUser@$VpsHost ($VpsRepoDir)..." -ForegroundColor Cyan
-    Get-Content $scriptPath -Raw | ssh "$VpsUser@$VpsHost" $remoteCmd
+    ssh "$VpsUser@$VpsHost" $remoteCmd
     if ($LASTEXITCODE -ne 0) { throw "Remote deploy failed." }
 
     Write-Host "Deploy complete." -ForegroundColor Green
