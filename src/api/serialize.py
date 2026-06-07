@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -32,7 +32,7 @@ def clean(value: Any) -> Any:
         pass
     if hasattr(value, "item"):  # numpy scalar
         try:
-            return value.item()
+            return cast(Any, value).item()
         except (ValueError, AttributeError):
             pass
     return value
