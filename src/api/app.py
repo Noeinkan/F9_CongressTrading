@@ -13,7 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..config import dashboard_auth_required
 from . import settings
-from .routers import home, raw
+from .routers import home, raw, review
 from .security import current_user, login_session, logout_session, require_auth
 
 
@@ -80,6 +80,7 @@ def create_app() -> FastAPI:
 
     app.include_router(home.router)
     app.include_router(raw.router)
+    app.include_router(review.router)
     return app
 
 
