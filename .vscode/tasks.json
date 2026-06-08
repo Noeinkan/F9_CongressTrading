@@ -13,35 +13,27 @@
 			"group": "build"
 		},
 		{
-			"label": "Dashboard (venv)",
+			"label": "API Server (venv)",
 			"type": "shell",
 			"command": ".\\.venv\\Scripts\\python.exe",
 			"args": [
 				"-m",
-				"streamlit",
-				"run",
-				"streamlit_app.py",
-				"--server.headless",
-				"true",
-				"--server.port",
-				"8501"
+				"src.api"
 			],
 			"isBackground": true,
 			"group": "build"
 		},
 		{
-			"label": "Refresh Dashboard (venv)",
+			"label": "Frontend Dev",
 			"type": "shell",
-			"command": ".\\.venv\\Scripts\\python.exe",
+			"command": "npm",
 			"args": [
-				"-m",
-				"src.main",
-				"refresh-dashboard",
-				"--server-address",
-				"127.0.0.1",
-				"--server-port",
-				"8501"
+				"run",
+				"dev"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
 			"isBackground": true,
 			"group": "build"
 		}

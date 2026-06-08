@@ -6,11 +6,21 @@ are returned as raw aggregates; the frontend renders them.
 """
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
+from .._home_analytics import (
+    aggregate_net_trade_amount,
+    net_trade_records,
+    ticker_3d_rows,
+    ticker_cumulative_rows,
+    ticker_timeline_rows,
+    tickers_available,
+)
 from .._sparklines import build_slice_kpi_sparklines, month_over_month_delta
 from .._format import (
     format_currency_full,
@@ -35,6 +45,17 @@ _LATEST_COLUMNS = [
     "amount_range_raw",
     "filing_date",
     "disclosure_url",
+]
+
+_NET_TRADE_CSV_COLS = [
+    "ticker",
+    "first_trade",
+    "last_trade",
+    "direction",
+    "net_label",
+    "buy_label",
+    "sell_label",
+    "trades",
 ]
 
 
@@ -190,6 +211,26 @@ def _top(filtered: pd.DataFrame, key: str) -> list[dict[str, Any]]:
     return records(agg, [key, "transactions", "amount_low", "amount_high", "disclosed_range"])
 
 
+def _net_trade_payload(filtered: pd.DataFrame) -> list[dict[str, Any]]:
+    agg = aggregate_net_trade_amount(filtered, top_n=20)
+    return net_trade_records(agg)
+
+
+def _empty_summary(s: Slice) -> dict[str, Any]:
+    return {
+        "ready": False,
+        "hero": _hero(s),
+        "kpis": [],
+        "latest_transactions": [],
+        "breakdown": {"by_chamber": [], "by_type": []},
+        "monthly_activity": [],
+        "top_members": [],
+        "top_tickers": [],
+        "net_trade_amounts": [],
+        "tickers_available": [],
+    }
+
+
 @router.get("/summary")
 def home_summary(
     s: Slice = Depends(get_slice),
@@ -197,16 +238,7 @@ def home_summary(
 ) -> dict[str, Any]:
     """All data needed to render the Home page for the current period slice."""
     if not s.ready:
-        return {
-            "ready": False,
-            "hero": _hero(s),
-            "kpis": [],
-            "latest_transactions": [],
-            "breakdown": {"by_chamber": [], "by_type": []},
-            "monthly_activity": [],
-            "top_members": [],
-            "top_tickers": [],
-        }
+        return _empty_summary(s)
 
     hero = _hero(s)
     latest = s.filtered.head(30)
@@ -221,4 +253,56 @@ def home_summary(
         "monthly_activity": _monthly_activity(s.filtered),
         "top_members": _top(s.filtered, "member"),
         "top_tickers": _top(s.filtered, "ticker"),
+        "net_trade_amounts": _net_trade_payload(s.filtered),
+        "tickers_available": tickers_available(s.filtered),
+    }
+
+
+@router.get("/net_trade.csv")
+def net_trade_csv(
+    s: Slice = Depends(get_slice),
+    _user: str = Depends(require_auth),
+) -> StreamingResponse:
+    """Per-ticker net signed notional as CSV (matches Streamlit download)."""
+    agg = aggregate_net_trade_amount(s.filtered, top_n=20) if s.ready else None
+    if agg is None or agg.empty:
+        buffer = io.BytesIO(b"ticker,first_trade,last_trade,direction,net_label,buy_label,sell_label,trades\n")
+    else:
+        export_cols = [c for c in _NET_TRADE_CSV_COLS if c in agg.columns]
+        export = agg[export_cols].copy()
+        for col in ("first_trade", "last_trade"):
+            if col in export.columns:
+                export[col] = pd.to_datetime(export[col], errors="coerce").dt.strftime("%Y-%m-%d")
+        buffer = io.BytesIO()
+        export.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="net_trade_by_ticker.csv"'},
+    )
+
+
+@router.get("/ticker_drilldown")
+def ticker_drilldown(
+    ticker: str = Query(..., min_length=1, description="Ticker symbol (case-insensitive)."),
+    s: Slice = Depends(get_slice),
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Per-ticker drill-down rows for timeline, 3D scatter, and cumulative exposure."""
+    if not s.ready:
+        return {
+            "ready": False,
+            "ticker": ticker.strip().upper(),
+            "ticker_timeline": [],
+            "ticker_3d": [],
+            "ticker_cumulative": [],
+        }
+    t = ticker.strip().upper()
+    return {
+        "ready": True,
+        "ticker": t,
+        "ticker_timeline": ticker_timeline_rows(s.filtered, t),
+        "ticker_3d": ticker_3d_rows(s.filtered, t),
+        "ticker_cumulative": ticker_cumulative_rows(s.filtered, t),
     }

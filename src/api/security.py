@@ -1,9 +1,4 @@
-"""Authentication: re-implements the dashboard credential gate as a signed
-httpOnly session cookie (via Starlette's SessionMiddleware).
-
-The credential check is a Streamlit-free port of
-``dashboard_shared.auth.verify_dashboard_credentials``.
-"""
+"""Authentication: signed httpOnly session cookie (Starlette SessionMiddleware)."""
 from __future__ import annotations
 
 import hmac
@@ -11,21 +6,21 @@ import hmac
 from fastapi import Request
 from fastapi.exceptions import HTTPException
 
-from ..config import dashboard_auth_required, dashboard_password, dashboard_username
+from ..config import app_auth_required, app_password, app_username
 
 _SESSION_USER_KEY = "user"
 
 
 def verify_credentials(username: str, password: str) -> bool:
-    """Constant-time check against DASHBOARD_USERNAME / DASHBOARD_PASSWORD."""
-    expected_password = dashboard_password()
+    """Constant-time check against APP_USERNAME / APP_PASSWORD."""
+    expected_password = app_password()
     if not expected_password.strip():
         return True
 
     if not hmac.compare_digest(password.encode("utf-8"), expected_password.encode("utf-8")):
         return False
 
-    expected_username = dashboard_username()
+    expected_username = app_username()
     if not expected_username:
         return True
 
@@ -42,7 +37,7 @@ def logout_session(request: Request) -> None:
 
 def current_user(request: Request) -> str | None:
     """The signed-in username, or None. When auth is disabled, returns 'anonymous'."""
-    if not dashboard_auth_required():
+    if not app_auth_required():
         return "anonymous"
     return request.session.get(_SESSION_USER_KEY)
 

@@ -1,11 +1,4 @@
-"""Pure currency / percentage formatting helpers (no Streamlit).
-
-These are byte-for-byte copies of the pure functions in
-``src.dashboard_shared.formatting``. That module cannot be imported here
-because it builds ``st.column_config`` objects at import time, which would
-pull Streamlit into the API layer. At cutover, the Streamlit column-config
-block is deleted and this file becomes the single source.
-"""
+"""Currency and percentage formatting helpers for API responses."""
 from __future__ import annotations
 
 import pandas as pd
@@ -55,6 +48,22 @@ def format_currency_compact(value: object) -> str:
     return f"{sign}${abs_v:,.0f}"
 
 
+def format_cumulative_net_label(value: object) -> str:
+    """Running net total for cumulative exposure charts ($0 net, -$4.2K net)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "— net"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "— net"
+    if abs(v) < 0.5:
+        return "$0 net"
+    compact = format_currency_compact(v)
+    if compact == "—":
+        return "$0 net"
+    return f"{compact} net"
+
+
 def format_disclosed_range(low: object, high: object) -> str:
     """Human-readable disclosure bucket, e.g. $1.0K – $15.0K."""
     lo = format_currency_compact(low)
@@ -74,3 +83,21 @@ def sum_amount_low(frame: pd.DataFrame) -> float:
 
 def sum_amount_high(frame: pd.DataFrame) -> float:
     return float(pd.to_numeric(frame.get("amount_high"), errors="coerce").sum(skipna=True))
+
+
+def add_disclosed_range_column(
+    frame: pd.DataFrame,
+    *,
+    low_col: str = "amount_low_sum",
+    high_col: str = "amount_high_sum",
+) -> pd.DataFrame:
+    """Attach a formatted ``disclosed_range`` string column. Pure port of the
+    helper in ``dashboard_shared.formatting`` (Streamlit column configs not
+    included — that lives in the dashboard, not here)."""
+    out = frame.copy()
+    low = pd.to_numeric(out.get(low_col), errors="coerce")
+    high = pd.to_numeric(out.get(high_col), errors="coerce")
+    out["disclosed_range"] = [
+        format_disclosed_range(l, h) for l, h in zip(low, high, strict=True)
+    ]
+    return out

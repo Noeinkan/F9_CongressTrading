@@ -1,0 +1,14 @@
+[Unit]
+Description=Congress Trading web frontend (Caddy)
+After=network.target congress-api.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile.d/congress.caddy
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -11,9 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from ..config import dashboard_auth_required
+from ..config import DB_PATH, app_auth_required
+from ..db import get_connection, init_db
 from . import settings
-from .routers import home, raw, review
+from .repository import polygon_daily_bar_cache_size
+from .routers import home, members, patterns, raw, review, tickers
 from .security import current_user, login_session, logout_session, require_auth
 
 
@@ -48,7 +50,21 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health", tags=["meta"])
     def health() -> dict[str, object]:
-        return {"status": "ok", "auth_required": dashboard_auth_required()}
+        cache_rows = 0
+        try:
+            conn = get_connection(DB_PATH)
+            try:
+                init_db(conn)
+                cache_rows = polygon_daily_bar_cache_size(conn)
+            finally:
+                conn.close()
+        except OSError:
+            cache_rows = 0
+        return {
+            "status": "ok",
+            "auth_required": app_auth_required(),
+            "polygon_cache_rows": cache_rows,
+        }
 
     @app.post("/api/login", tags=["auth"])
     def login(payload: LoginRequest, request: Request) -> dict[str, object]:
@@ -58,7 +74,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=401, detail="Invalid username or password.")
         username = payload.username.strip() or "dashboard"
         login_session(request, username)
-        return {"user": username, "auth_required": dashboard_auth_required()}
+        return {"user": username, "auth_required": app_auth_required()}
 
     @app.post("/api/logout", tags=["auth"])
     def logout(request: Request) -> dict[str, bool]:
@@ -67,20 +83,23 @@ def create_app() -> FastAPI:
 
     @app.get("/api/me", tags=["auth"])
     def me(request: Request, user: str = Depends(require_auth)) -> dict[str, object]:
-        return {"user": user, "auth_required": dashboard_auth_required()}
+        return {"user": user, "auth_required": app_auth_required()}
 
     @app.get("/api/session", tags=["auth"])
     def session_status(request: Request) -> dict[str, object]:
         """Non-401 probe the frontend can call on load to decide login state."""
         return {
             "authenticated": current_user(request) is not None,
-            "auth_required": dashboard_auth_required(),
+            "auth_required": app_auth_required(),
             "user": current_user(request),
         }
 
     app.include_router(home.router)
     app.include_router(raw.router)
     app.include_router(review.router)
+    app.include_router(patterns.router)
+    app.include_router(members.router)
+    app.include_router(tickers.router)
     return app
 
 

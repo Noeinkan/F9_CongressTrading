@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import platform
-import subprocess
 import sys
 
 if __name__ == "__main__" and (__package__ is None or __package__ == ""):
@@ -13,9 +11,6 @@ if __name__ == "__main__" and (__package__ is None or __package__ == ""):
 
     sys.path.append(str(_Path(__file__).resolve().parents[1]))
     __package__ = "src"
-
-from .config import dashboard_server_address, dashboard_server_port
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Congress public-disclosure tracker")
@@ -101,17 +96,6 @@ def build_parser() -> argparse.ArgumentParser:
     export_review = sub.add_parser("export-review-csv", help="Esporta CSV delle transazioni da revisionare")
     export_review.add_argument("--out", type=Path, default=Path("data/review_queue.csv"))
 
-    dashboard = sub.add_parser("dashboard", help="Avvia la dashboard Streamlit")
-    dashboard.add_argument("--server-port", type=int, default=dashboard_server_port())
-    dashboard.add_argument("--server-address", default=dashboard_server_address())
-
-    refresh_dashboard = sub.add_parser(
-        "refresh-dashboard",
-        help="Aggiorna ingest/export e riavvia la dashboard Streamlit",
-    )
-    refresh_dashboard.add_argument("--server-port", type=int, default=dashboard_server_port())
-    refresh_dashboard.add_argument("--server-address", default=dashboard_server_address())
-
     rr = sub.add_parser(
         "re-resolve-tickers",
         help="Ricalcola ticker/issuer su tutte le transazioni SQLite (no re-parse PDF; usa testo disclosure + cache/API)",
@@ -123,82 +107,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
-
-def _run_dashboard(*, server_port: int, server_address: str) -> int:
-    app_path = Path(__file__).resolve().parents[1] / "streamlit_app.py"
-    command = [
-        sys.executable,
-        "-m",
-        "streamlit",
-        "run",
-        str(app_path),
-        "--server.port",
-        str(server_port),
-        "--server.address",
-        server_address,
-    ]
-    return subprocess.call(command)
-
-
-def _find_pids_listening_on_port(port: int) -> list[int]:
-    system = platform.system().lower()
-    if system == "windows":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        pids: list[int] = []
-        target = f":{port}"
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if len(parts) < 5:
-                continue
-            if parts[0].upper() != "TCP":
-                continue
-            local_address = parts[1]
-            state = parts[3].upper()
-            pid_text = parts[4]
-            if not local_address.endswith(target):
-                continue
-            if state != "LISTENING":
-                continue
-            if pid_text.isdigit():
-                pids.append(int(pid_text))
-        return sorted(set(pids))
-
-    result = subprocess.run(
-        ["lsof", "-ti", f"tcp:{port}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return sorted({int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()})
-
-
-def _stop_processes_on_port(port: int) -> None:
-    pids = _find_pids_listening_on_port(port)
-    for pid in pids:
-        if platform.system().lower() == "windows":
-            subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False)
-        else:
-            subprocess.run(["kill", "-9", str(pid)], check=False)
-
-
-def _refresh_dashboard(*, server_port: int, server_address: str) -> int:
-    from .export_csv import export_csv, export_fd_csv, export_review_csv
-    from .ingest_house import ingest_house
-    from .ingest_senate import ingest_senate
-
-    ingest_house()
-    ingest_senate()
-    export_csv(Path("data/congress_trades.csv"))
-    export_fd_csv(Path("data/fd_filings.csv"))
-    export_review_csv(Path("data/review_queue.csv"))
-    _stop_processes_on_port(server_port)
-    return _run_dashboard(server_port=server_port, server_address=server_address)
 
 
 def main() -> None:
@@ -257,10 +165,6 @@ def main() -> None:
         export_fd_csv(args.out)
     elif args.command == "export-review-csv":
         export_review_csv(args.out)
-    elif args.command == "dashboard":
-        raise SystemExit(_run_dashboard(server_port=args.server_port, server_address=args.server_address))
-    elif args.command == "refresh-dashboard":
-        raise SystemExit(_refresh_dashboard(server_port=args.server_port, server_address=args.server_address))
     elif args.command == "warm-polygon-price-cache":
         from datetime import date as date_cls
 

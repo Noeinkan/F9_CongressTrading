@@ -1,0 +1,28 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #f7f2e8 0%, #f2eadf 48%, #ede3d3 100%);
+  color: #1a1f2e;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Let wide Phase 4 grids (Raw Data, Tickers) scroll horizontally
+   without forcing the entire Mantine AppShell.Main wrapper to grow. */
+.mantine-AppShell-main {
+  min-width: 0;
+}

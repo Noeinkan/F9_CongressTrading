@@ -1,6 +1,5 @@
 """Run the API with: ``python -m src.api`` (uvicorn).
 
-Reuses the dashboard's bind env vars where sensible:
 - ``API_SERVER_ADDRESS`` (default 127.0.0.1)
 - ``API_SERVER_PORT``    (default 8000)
 - ``API_RELOAD=1``       to enable autoreload during development

@@ -79,30 +79,17 @@ def house_ingest_skip_external_asset_lookup() -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
-def dashboard_server_address() -> str:
-    """Bind address for Streamlit. VPS: 0.0.0.0; local dev default: 127.0.0.1."""
-    raw = (os.getenv("DASHBOARD_SERVER_ADDRESS") or "127.0.0.1").strip()
-    return raw or "127.0.0.1"
+def app_username() -> str:
+    return (os.getenv("APP_USERNAME") or "").strip()
 
 
-def dashboard_server_port() -> int:
-    raw = (os.getenv("DASHBOARD_SERVER_PORT") or "8501").strip()
-    if raw.isdigit():
-        return int(raw)
-    return 8501
+def app_password() -> str:
+    return os.getenv("APP_PASSWORD") or ""
 
 
-def dashboard_username() -> str:
-    return (os.getenv("DASHBOARD_USERNAME") or "").strip()
-
-
-def dashboard_password() -> str:
-    return os.getenv("DASHBOARD_PASSWORD") or ""
-
-
-def dashboard_auth_required() -> bool:
-    """True when DASHBOARD_PASSWORD is set (login gate enabled)."""
-    return bool(dashboard_password().strip())
+def app_auth_required() -> bool:
+    """True when APP_PASSWORD is set (login gate enabled)."""
+    return bool(app_password().strip())
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

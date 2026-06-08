@@ -14,6 +14,11 @@ __pycache__/
 .env
 .env.local
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
 # OS
 Thumbs.db
 .DS_Store

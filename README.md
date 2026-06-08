@@ -53,18 +53,17 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 
 ## Setup rapido Windows
 - Esegui `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 ingest-all` per installare le dipendenze nel venv del progetto e lanciare l’ingestione.
-- Se vuoi un comando diverso, sostituisci `ingest-all` con ad esempio `dashboard`, `export-csv`, `ingest-house` o `ingest-senate`.
-- In VS Code puoi usare direttamente i task workspace `Ingest All (venv)` e `Dashboard (venv)` per eseguire sempre il progetto con `.venv\Scripts\python.exe`.
+- Se vuoi un comando diverso, sostituisci `ingest-all` con ad esempio `export-csv`, `ingest-house` o `ingest-senate`.
+- In VS Code puoi usare i task workspace `Ingest All (venv)`, `API Server (venv)` e `Frontend Dev` per eseguire sempre il progetto con `.venv\Scripts\python.exe`.
 
 ## Comandi principali
 - Bulk FD House (metadata annuali `.zip` dal Clerk, poi estrazione in `data/raw/house/<anno>FD/`): `python -m src.main download-house-fd` (default: anni da `START_YEAR` in `src/config.py` fino all’anno corrente). Opzioni: `--years 2020 2021`, `--overwrite`, `--zip-only` (solo zip; l’estrazione avviene al prossimo `ingest-house`).
 - Ingest House 2022+: `python -m src.main ingest-house`
 - Ingest Senate 2022+: `python -m src.main ingest-senate`
 - Esegui tutto: `python -m src.main ingest-all`
-- Refresh completo + riavvio dashboard: `python -m src.main refresh-dashboard`
 - Export CSV: `python -m src.main export-csv --out data/congress_trades.csv`
 - Export review queue: `python -m src.main export-review-csv --out data/review_queue.csv`
-- Dashboard: `python -m src.main dashboard`
+- API: `python -m src.api` (frontend: `cd frontend && npm run dev`)
 
 ## Stato attuale
 Il repository ora mantiene due livelli di storage:
@@ -117,43 +116,34 @@ Colonne principali dell'export normalizzato:
 - alcuni PDF House con layout o note molto anomale possono ancora richiedere affinamenti puntuali del parser
 - la risoluzione degli asset distingue ora exact match, fuzzy match e manual review, ma resta limitata dalla qualita dei nomi dichiarati nei PDF
 - i fuzzy match vengono esportati con ticker e tenuti in review queue; i manual review restano senza ticker finche non vengono corretti a valle
-- non esiste ancora un sistema di alert; la dashboard Streamlit e il primo layer di analisi sopra il backend normalizzato
+- non esiste ancora un sistema di alert; la dashboard React e il primo layer di analisi sopra il backend normalizzato
 
-## Dashboard Streamlit
-La prima dashboard legge prima dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`) e, se non trova righe, prova i CSV esportati.
+## Dashboard (React + FastAPI)
+La dashboard legge dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`) e, se non trova righe, prova i CSV esportati.
 
-Per un refresh completo da terminale con ingestione, rigenerazione export e riavvio automatico della dashboard sulla porta `8501`:
-- `python -m src.main refresh-dashboard`
-- oppure su Windows con bootstrap del venv: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 refresh-dashboard`
-
-In VS Code e disponibile anche il task `Refresh Dashboard (venv)`.
-
-Vista iniziale inclusa:
+Vista inclusa:
 - KPI su volume transazioni, membri attivi, ticker risolti e review aperte
 - timeline mensile dell'attivita
 - ranking di membri e ticker
-- filtri per camera, tipo transazione, tipo asset, review status, data e testo libero
+- filtri per lookback e trimestre
 - pannello review queue per casi irrisolti o derivati dal `review_status`
 - tabella raw con download CSV del subset filtrato
 
-Avvio:
-- `python -m src.main dashboard`
-- oppure `streamlit run streamlit_app.py`
-- in VS Code: task `Dashboard (venv)`
+Avvio locale:
+- API: `python -m src.api` (porta 8000)
+- Frontend: `cd frontend && npm install && npm run dev` (porta 5173, proxy `/api/*`)
+- in VS Code: task `API Server (venv)` + `Frontend Dev`
 
 ### Dashboard remota (VPS)
 
-Per esporre la dashboard su internet (es. `http://77.42.70.26:8501/`) da un VPS Linux con repo e SQLite locali:
+Per esporre l'app su internet (es. `http://77.42.70.26/`) da un VPS Linux con repo e SQLite locali:
 
-1. Copia `.env.example` in `.env` e imposta:
-   - `DASHBOARD_SERVER_ADDRESS=0.0.0.0`
-   - `DASHBOARD_SERVER_PORT=8501`
-   - `DASHBOARD_USERNAME=...` e `DASHBOARD_PASSWORD=...` (password obbligatoria per il login)
-2. Apri la porta firewall: `sudo ufw allow 8501/tcp`
-3. Avvia con `python -m src.main dashboard` oppure systemd (`deploy/congress-dashboard.service` — vedi `deploy/README.md`)
+1. Copia `.env.example` in `.env` e imposta `APP_USERNAME`, `APP_PASSWORD`, `API_SERVER_ADDRESS=127.0.0.1`, `API_SERVER_PORT=8000`
+2. Apri le porte firewall: `sudo ufw allow 80/tcp` (e `443/tcp` per HTTPS)
+3. Installa Caddy + systemd (`deploy/congress-api.service`, `deploy/congress-web.service` — vedi `deploy/README.md`)
 4. Da un altro laptop apri l’URL pubblico e accedi con username/password
 
-**Sicurezza:** su HTTP le credenziali viaggiano in chiaro; per uso pubblico prolungato conviene HTTPS (reverse proxy, es. Caddy su 443 verso `127.0.0.1:8501`). Dettagli operativi in `deploy/README.md`.
+**Sicurezza:** su HTTP le credenziali viaggiano in chiaro; per uso pubblico prolungato conviene HTTPS (Caddy con dominio). Dettagli operativi in `deploy/README.md`.
 
 ## Troubleshooting interprete VS Code
 Se vedi errori come `ModuleNotFoundError: No module named 'dateutil'`, il problema di solito non e nel repository ma nell'interprete Python usato dalla sessione corrente.
@@ -161,11 +151,11 @@ Se vedi errori come `ModuleNotFoundError: No module named 'dateutil'`, il proble
 Checklist rapida:
 1. seleziona l'interprete del workspace: `.venv\Scripts\python.exe`
 2. chiudi i terminali gia aperti e aprine uno nuovo dopo il cambio interprete
-3. usa i task `Ingest All (venv)` o `Dashboard (venv)` invece di lanciare `python` generico
+3. usa i task `Ingest All (venv)` o `API Server (venv)` invece di lanciare `python` generico
 
 Nota: in questo workspace `.vscode/settings.json` punta gia al venv locale, ma un terminale aperto prima del cambio puo continuare a usare un Python globale.
 
 Se il database e vuoto:
 1. `python -m src.main ingest-all`
 2. `python -m src.main export-csv --out data/congress_trades.csv`
-3. `python -m src.main dashboard`
+3. `python -m src.api` e `cd frontend && npm run dev`

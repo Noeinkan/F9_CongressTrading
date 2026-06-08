@@ -2,10 +2,8 @@
 # Nightly data ingest + CSV export for the Congress Trading dashboard.
 # Triggered by /etc/cron.d/f9-congress-trading.
 #
-# Why not `python -m src.main refresh-dashboard`?
-#   refresh-dashboard kills the listening process and respawns it. That fights
-#   with the systemd unit (Restart=on-failure). This script just updates the
-#   data + CSVs that the dashboard reads; systemd keeps managing the process.
+# This script just updates the data + CSVs that the API reads; the congress-api
+# systemd unit keeps managing the process independently.
 #
 # Why flock?
 #   Cheap insurance against overlap if a run stalls past the next night's fire.

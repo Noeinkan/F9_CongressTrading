@@ -1,0 +1,16 @@
+[Unit]
+Description=Congress Trading FastAPI service
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/F9_CongressTrading
+EnvironmentFile=/opt/F9_CongressTrading/.env
+ExecStart=/opt/F9_CongressTrading/.venv/bin/python -m src.api
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

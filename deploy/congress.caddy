@@ -1,0 +1,16 @@
+# Install to /etc/caddy/Caddyfile.d/congress.caddy on the VPS.
+# Serves the React build and proxies /api/* to the FastAPI service.
+
+:80 {
+	root * /opt/F9_CongressTrading/frontend/dist
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

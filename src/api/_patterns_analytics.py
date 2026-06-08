@@ -1,13 +1,4 @@
-"""Streamlit-free pattern-detection and breakdown analytics for the API layer.
-
-Ports the pure pandas helpers from ``src.dashboard_shared.analytics`` (and the
-committee-assignment loader from ``dashboard_shared.data``). Those modules
-cannot be imported here because ``dashboard_shared.__init__`` eagerly pulls in
-Streamlit-coupled code.
-
-Keep these in sync with the dashboard originals until cutover, after which this
-becomes the single source.
-"""
+"""Pattern-detection and breakdown analytics for the API layer."""
 from __future__ import annotations
 
 import json
@@ -16,6 +7,7 @@ import pandas as pd
 
 from ..utils import normalize_key
 from ._constants import COMMITTEES_JSON_PATH
+from .repository import transaction_type_display_label
 
 
 def _signed_amount_median(row: pd.Series) -> float:
@@ -74,6 +66,36 @@ def add_trade_categories(frame: pd.DataFrame) -> pd.DataFrame:
     out["is_sell"] = tt.str.startswith("S")
     out["party_label"] = out["party"].map(normalize_party) if "party" in out.columns else "Unknown"
     return out
+
+
+def member_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
+    """Per-member leaderboard rows for the active slice.
+
+    One row per distinct filer with: trade count, distinct resolved ticker
+    count, summed amount range, chamber/party/state. Sorted by trade count
+    then amount_high (desc). Empty when ``frame`` is empty.
+    """
+    if frame.empty:
+        return pd.DataFrame()
+    leaderboard = (
+        frame.groupby("member", as_index=False)
+        .agg(
+            trades=("member", "size"),
+            tickers=(
+                "ticker",
+                lambda s: s.astype(str).str.strip().replace("", pd.NA).nunique(),
+            ),
+            amount_low=("amount_low", lambda s: float(pd.to_numeric(s, errors="coerce").sum(skipna=True))),
+            amount_high=("amount_high", lambda s: float(pd.to_numeric(s, errors="coerce").sum(skipna=True))),
+            chamber=("chamber", "first"),
+            party=("party", "first"),
+            state=("state", "first"),
+        )
+        .sort_values(["trades", "amount_high"], ascending=[False, False])
+    )
+    if "party" in leaderboard.columns:
+        leaderboard["party"] = leaderboard["party"].map(normalize_party)
+    return leaderboard
 
 
 def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
@@ -512,3 +534,78 @@ def load_committee_assignments_live() -> dict[str, list[str]]:
             out[norm] = cleaned
     _committees_cache_data = out
     return out
+
+
+def member_activity_timeline(
+    frame: pd.DataFrame,
+    member: str,
+    *,
+    top_n: int = 25,
+) -> dict[str, object]:
+    """Scatter rows for one member's activity-over-time chart (y = ticker).
+
+    Mirrors ``dashboard_shared.charts._build_member_activity_timeline``.
+    """
+    sub = frame.loc[frame["member"].astype(str) == str(member)].copy()
+    sub = sub.dropna(subset=["transaction_date"])
+    sub = sub[sub["ticker"].astype(str).str.strip() != ""]
+    if sub.empty:
+        return {
+            "member": member,
+            "truncated": False,
+            "truncate_note": "",
+            "tickers": [],
+            "rows": [],
+        }
+
+    truncate_note = ""
+    truncated = False
+    ticker_counts = sub.groupby("ticker", observed=True).size().sort_values(ascending=False)
+    total_tickers = len(ticker_counts)
+    if total_tickers > top_n:
+        keep = ticker_counts.head(top_n).index.tolist()
+        sub = sub.loc[sub["ticker"].isin(keep)]
+        truncated = True
+        truncate_note = (
+            f"Showing the {top_n} most-traded tickers ({total_tickers} total in this slice). "
+            "See By ticker above for the full breakdown."
+        )
+
+    ticker_order = (
+        sub.groupby("ticker", observed=True)["transaction_date"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+
+    sub = sub.copy()
+    sub["transaction_type_label"] = sub["transaction_type"].map(transaction_type_display_label)
+    cols = [
+        "ticker",
+        "transaction_date",
+        "transaction_type",
+        "transaction_type_label",
+        "amount_range_raw",
+        "issuer_name",
+    ]
+    present = [c for c in cols if c in sub.columns]
+    out = sub[present].sort_values(["transaction_date", "ticker"], ascending=[True, True])
+
+    rows: list[dict[str, object]] = []
+    for _, row in out.iterrows():
+        rec: dict[str, object] = {}
+        for col in present:
+            val = row[col]
+            if col == "transaction_date" and pd.notna(val):
+                rec[col] = pd.Timestamp(val).strftime("%Y-%m-%d")
+            else:
+                rec[col] = val if not (isinstance(val, float) and pd.isna(val)) else None
+        rows.append(rec)
+
+    return {
+        "member": member,
+        "truncated": truncated,
+        "truncate_note": truncate_note,
+        "tickers": [str(t) for t in ticker_order],
+        "rows": rows,
+    }

@@ -16,9 +16,9 @@ from src.api.app import create_app
 
 @pytest.fixture
 def auth_env(monkeypatch):
-    monkeypatch.setenv("DASHBOARD_USERNAME", "analyst")
-    monkeypatch.setenv("DASHBOARD_PASSWORD", "secret123")
-    monkeypatch.setenv("DASHBOARD_SESSION_SECRET", "test-secret")
+    monkeypatch.setenv("APP_USERNAME", "analyst")
+    monkeypatch.setenv("APP_PASSWORD", "secret123")
+    monkeypatch.setenv("APP_SESSION_SECRET", "test-secret")
 
 
 @pytest.fixture

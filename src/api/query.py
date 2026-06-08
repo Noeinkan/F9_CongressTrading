@@ -23,8 +23,8 @@ class PeriodParams:
 def period_params(
     lookback: int | None = Query(
         None,
-        ge=1,
-        description="Lookback window in years (omit for all time).",
+        ge=0,
+        description="Lookback window in years (0 or omit for all time).",
     ),
     quarters: str | None = Query(
         None,
@@ -35,7 +35,9 @@ def period_params(
     if quarters:
         parsed = [int(x) for x in quarters.split(",") if x.strip().isdigit() and 1 <= int(x) <= 4]
         parsed = parsed or None
-    return PeriodParams(lookback=lookback, quarters=parsed)
+    # Frontend sends lookback=0 for "All time"; treat 0 like omit (None).
+    normalized_lookback = None if lookback in (None, 0) else lookback
+    return PeriodParams(lookback=normalized_lookback, quarters=parsed)
 
 
 @dataclass

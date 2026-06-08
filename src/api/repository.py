@@ -1,14 +1,8 @@
-"""Streamlit-free data access for the API layer.
+"""Data access for the API layer.
 
-Ports the pure data-loading + preparation logic that the Streamlit dashboard
-keeps in ``src.dashboard_shared.data`` (which is unusable here because it is
-decorated with ``st.cache_data``). Caching is replaced with a small
-in-process memo keyed on the same source-file mtimes the dashboard used, so
-repeated requests do not re-read SQLite.
-
-When the Streamlit dashboard is deleted at cutover, this module becomes the
-single source of truth for loading normalized transactions and the review
-queue.
+Loads and prepares normalized transactions and the review queue from SQLite.
+Uses an in-process memo keyed on source-file mtimes so repeated requests do
+not re-read the database.
 """
 from __future__ import annotations
 

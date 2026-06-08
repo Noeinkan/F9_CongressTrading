@@ -1,13 +1,4 @@
-"""Streamlit-free data constants for the API layer.
-
-Copies of the *data* constants from ``src.dashboard_shared.constants`` (column
-lists, SQL queries, paths, committee→sector map). The dashboard package cannot
-be imported here because its ``__init__`` eagerly pulls in Streamlit-coupled
-modules. The UI constants (THEME, DASHBOARD_COPY) are intentionally omitted.
-
-Keep these in sync with ``dashboard_shared/constants.py`` until the Streamlit
-dashboard is removed at cutover, after which this becomes the single source.
-"""
+"""Data constants for the API layer (column lists, SQL queries, paths, sector map)."""
 from __future__ import annotations
 
 from ..config import DATA_DIR

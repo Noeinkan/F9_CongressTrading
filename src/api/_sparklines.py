@@ -1,9 +1,4 @@
-"""Streamlit-free KPI sparkline aggregation.
-
-Copy of the pure functions in ``src.dashboard_shared.kpi_sparklines`` (the
-dashboard package cannot be imported here — see ``_constants`` for why).
-``KpiSpec`` is omitted; the API returns plain dicts.
-"""
+"""KPI sparkline aggregation for API responses."""
 from __future__ import annotations
 
 from typing import Literal

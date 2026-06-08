@@ -21,9 +21,8 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `issuer_enrichment.py` | Issuer metadata enrichment |
 | `polygon_prices.py` | Polygon.io daily bar fetching + cache |
 | `export_csv.py` | CSV export logic |
-| `dashboard.py` | Streamlit app entry (registers pages) — *removed at cutover* |
 
-## `src/api/` — FastAPI service (migration target)
+## `src/api/` — FastAPI service
 
 | File | Responsibility |
 |------|---------------|
@@ -32,46 +31,38 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `settings.py` | Session cookie + CORS settings (secret, name, https-only, max-age, origins) |
 | `security.py` | `verify_credentials`, `login_session`, `logout_session`, `current_user`, `require_auth` |
 | `query.py` | `PeriodParams`, `period_params` dep, `Slice`, `get_slice` dep (request-scoped data slice) |
-| `repository.py` | Data loading/caching + prep ported from `dashboard_shared/data.py` (load_transactions, load_review_queue, load_dataset, period/lookback filters) |
+| `repository.py` | Data loading/caching + prep (load_transactions, load_review_queue, load_dataset, period/lookback filters) |
+| `filtering.py` | Server-side sort/filter for Raw |
 | `serialize.py` | DataFrame/value → JSON-safe records (`iso_date`, `clean`, `records`) |
-| `_constants.py` | Pure copy of dashboard constants (column names, etc.) |
-| `_format.py` | Pure copy: percent/currency/range formatting, amount sums |
-| `_sparklines.py` | Pure copy: monthly series, KPI sparklines, MoM delta |
-| `routers/home.py` | `/api/home/summary` — hero, KPIs, breakdown, monthly activity, top members/tickers |
+| `_constants.py` | Column names, SQL queries, paths, sector map |
+| `_format.py` | Percent/currency/range formatting, amount sums |
+| `_sparklines.py` | Monthly series, KPI sparklines, MoM delta |
+| `_home_analytics.py` | Home page analytics |
+| `_patterns_analytics.py` | Pattern detection, breakdowns, committee relevance |
+| `_tickers_analytics.py` | Ticker leaderboard, profile, price overlay |
+| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers) |
 
-> `_constants.py`, `_format.py`, `_sparklines.py`, `repository.py` are **self-contained copies** of `dashboard_shared` pieces to avoid Streamlit imports. Keep in sync until cutover.
+## `frontend/` — React dashboard
 
-## `src/dashboard_pages/` — Streamlit pages (one per page, thin)
-
-`home.py`, `members.py`, `tickers.py`, `patterns.py`, `review.py`, `raw_data.py`
-
-## `src/dashboard_shared/` — Streamlit dashboard utilities
-
-| File | Purpose |
-|------|---------|
-| `data.py` | Data loading, `@st.cache_data`, DB queries |
-| `filters.py` | Sidebar filter widgets |
-| `analytics.py` | Derived metrics, aggregations, pattern detection |
-| `charts.py` | Plotly chart builders |
-| `components.py` | Reusable UI components |
-| `constants.py` | Column names, paths, SQL |
-| `styles.py` | CSS/styling helpers |
-| `session.py` | Session state management |
-| `formatting.py` | Number/currency/date formatting |
-| `dashboard_tables.py` | Table rendering helpers |
-| `tables.py` | Table helpers |
-| `kpi_sparklines.py` | KPI sparkline components |
-| `top_bar.py` | Top bar UI |
-| `auth.py` | Login gate |
+| Path | Responsibility |
+|------|---------------|
+| `package.json` | npm scripts (`dev`, `build`, `test`, `typecheck`, `lint`) |
+| `vite.config.ts` | Vite dev server, `/api` proxy → `127.0.0.1:8000`, Vitest |
+| `src/main.tsx` | MantineProvider + QueryClientProvider + RouterProvider |
+| `src/App.tsx` | React Router config (login + 6 pages) |
+| `src/api/` | `client.ts` (fetch + credentials), `types.ts`, TanStack Query hooks per resource |
+| `src/charts/` | Pure ECharts option builders |
+| `src/components/` | AppShell, SidebarLayout, TopBar, ChartCard, FilterContext, etc. |
+| `src/routes/` | One file per dashboard page |
+| `__tests__/` | Vitest unit tests |
 
 ## Tests (`tests/`)
 
 `pytest` from repo root. `conftest.py` = fixtures (in-memory DB, sample DataFrames).
-Coverage: api_home, dashboard_filters, dashboard_analytics, dashboard_formatting,
-dashboard_kpi_sparklines, dashboard_activity_feed, dashboard_auth, dashboard_top_bar, re_resolve_tickers.
+Coverage: `test_api_*.py`, `test_re_resolve_tickers.py`.
 
 ## Other
 
-`deploy/` — VPS systemd service, deploy script, logrotate, env-merge helper.
+`deploy/` — VPS systemd services (congress-api, congress-web), Caddy config, deploy script, logrotate, env-merge helper.
 `scripts/` — `nightly_ingest.sh`, `smoke_apis.py`, `count_empty_tickers.py`.
 `bootstrap.ps1` / `deploy_local.ps1` — Windows entrypoints.
