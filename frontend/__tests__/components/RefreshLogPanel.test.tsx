@@ -41,7 +41,7 @@ describe("RefreshLogPanel", () => {
     const originalCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
       if (tagName === "a") {
-        return { click, download: "", href: "" } as HTMLAnchorElement;
+        return { click, download: "", href: "" } as unknown as HTMLAnchorElement;
       }
       return originalCreateElement(tagName);
     });
@@ -68,7 +68,7 @@ describe("RefreshLogPanel", () => {
       createObjectURL: vi.fn(() => "blob:empty"),
       revokeObjectURL: vi.fn(),
     });
-    const anchor = { click, download: "", href: "" } as HTMLAnchorElement;
+    const anchor = { click, download: "", href: "" } as unknown as HTMLAnchorElement;
     vi.spyOn(document, "createElement").mockReturnValue(anchor);
 
     downloadRefreshLog([], null);
