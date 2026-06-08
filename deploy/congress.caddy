@@ -1,7 +1,11 @@
 # Install to /etc/caddy/Caddyfile.d/congress.caddy on the VPS.
 # Serves the React build and proxies /api/* to the FastAPI service.
+#
+# Listen address is driven by the CONGRESS_WEB_ADDR env var (set in
+# congress-web.service). Default :80, override to e.g. :8080 if :80 is
+# already taken by another service on the host.
 
-:80 {
+{$CONGRESS_WEB_ADDR::80} {
 	root * /opt/F9_CongressTrading/frontend/dist
 	encode gzip
 

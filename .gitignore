@@ -22,3 +22,7 @@ frontend/coverage/
 # OS
 Thumbs.db
 .DS_Store
+
+# Throwaway deploy/diag scripts (prefix `_`); keep bootstrap_services.sh
+deploy/_*.sh
+deploy/_*.ps1

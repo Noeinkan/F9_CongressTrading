@@ -6,7 +6,11 @@ After=network.target congress-api.service
 Type=simple
 User=deploy
 Group=deploy
-ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile.d/congress.caddy
+# CONGRESS_WEB_ADDR selects the listen address in congress.caddy (default :80).
+# Override here if port 80 is already bound by another service on the host.
+# Example: 8080 -> Caddy listens on 0.0.0.0:8080.
+Environment=CONGRESS_WEB_ADDR=:8080
+ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile.d/congress.caddy --adapter caddyfile
 Restart=on-failure
 RestartSec=5
 

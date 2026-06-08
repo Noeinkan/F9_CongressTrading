@@ -58,9 +58,21 @@ When `APP_PASSWORD` is set, the login page appears before any transaction data l
 ```bash
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
+# If you run the dashboard on a non-standard port (see "Listen address" below):
+sudo ufw allow 8080/tcp
 sudo ufw enable
 sudo ufw status
 ```
+
+## Listen address
+
+`deploy/congress.caddy` listens on `{$CONGRESS_WEB_ADDR::80}`. The systemd
+unit sets `Environment=CONGRESS_WEB_ADDR=:8080` out of the box so it works
+even when another service (e.g. an existing nginx in a Docker container)
+already owns port 80. To switch the dashboard to the canonical :80, edit
+`deploy/congress-web.service`, change `CONGRESS_WEB_ADDR=:8080` to
+`CONGRESS_WEB_ADDR=:80`, and run `sudo systemctl daemon-reload &&
+sudo systemctl restart congress-web`.
 
 ## Manual start (development-style)
 
@@ -76,6 +88,19 @@ cd frontend && npm ci && npm run build && npm run preview  # or use Caddy in pro
 Verify from another machine: open `http://<vps-public-ip>/` (Caddy on port 80).
 
 ## systemd
+
+### One-shot setup (fresh VPS)
+
+If Caddy is not yet installed and the systemd units have never been set up, run the bootstrap script from the repo root on the VPS (as root or via `sudo`):
+
+```bash
+cd /opt/F9_CongressTrading
+sudo bash deploy/bootstrap_services.sh
+```
+
+It installs Caddy from the official apt repo, creates a `deploy` user, drops the Caddy snippet and systemd units in place, and starts `congress-api` + `congress-web`. It is idempotent — re-running on a configured box is a no-op.
+
+### Manual setup
 
 1. Edit `deploy/congress-api.service` and `deploy/congress-web.service`: set `User`, `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` paths to match your install (defaults assume `/opt/F9_CongressTrading`).
 2. Install the Caddy config:
