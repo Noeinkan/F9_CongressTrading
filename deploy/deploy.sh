@@ -14,7 +14,12 @@ if [[ ! -d .git ]]; then
 fi
 
 git fetch origin
-git pull --ff-only origin main
+# --autostash stashes any local modifications (e.g. from a hook or stray edit),
+# pulls, then pops the stash. If the pop conflicts, the stash is preserved and
+# the operator can resolve it. This avoids the "Your local changes would be
+# overwritten by merge" abort on a fast-forward pull.
+git pull --ff-only --autostash origin main
+git stash list || true
 
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv
