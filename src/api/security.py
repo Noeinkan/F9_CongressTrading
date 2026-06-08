@@ -48,3 +48,8 @@ def require_auth(request: Request) -> str:
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user
+
+
+def require_admin(request: Request) -> str:
+    """Admin namespace: same gate as require_auth (login when APP_PASSWORD is set)."""
+    return require_auth(request)

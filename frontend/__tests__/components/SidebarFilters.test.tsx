@@ -1,11 +1,22 @@
 import { MantineProvider } from "@mantine/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FilterProvider, useFilters } from "@/components/FilterContext";
 import { SidebarFilters } from "@/components/SidebarFilters";
+
+const useRefreshStatus = vi.fn();
+const useStartRefresh = vi.fn();
+const useCancelRefresh = vi.fn();
+
+vi.mock("@/api/refresh", () => ({
+  useRefreshStatus: (...args: unknown[]) => useRefreshStatus(...args),
+  useStartRefresh: (...args: unknown[]) => useStartRefresh(...args),
+  useCancelRefresh: (...args: unknown[]) => useCancelRefresh(...args),
+}));
 
 function Probe() {
   const { lookback, quarters } = useFilters();
@@ -18,22 +29,36 @@ function Probe() {
 }
 
 function renderSidebar(initial?: { lookback?: number; quarters?: ("1" | "2" | "3" | "4")[] }) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MantineProvider>
-      <MemoryRouter>
-        <FilterProvider
-          initialLookback={initial?.lookback}
-          initialQuarters={initial?.quarters}
-        >
-          <SidebarFilters />
-          <Probe />
-        </FilterProvider>
-      </MemoryRouter>
-    </MantineProvider>,
+    <QueryClientProvider client={queryClient}>
+      <MantineProvider>
+        <MemoryRouter>
+          <FilterProvider
+            initialLookback={initial?.lookback}
+            initialQuarters={initial?.quarters}
+          >
+            <SidebarFilters />
+            <Probe />
+          </FilterProvider>
+        </MemoryRouter>
+      </MantineProvider>
+    </QueryClientProvider>,
   );
 }
 
 describe("SidebarFilters", () => {
+  beforeEach(() => {
+    const mutate = vi.fn();
+    useRefreshStatus.mockReturnValue({
+      data: { status: "idle", progress: 0, current_step: "" },
+    });
+    useStartRefresh.mockReturnValue({ mutate, isPending: false });
+    useCancelRefresh.mockReturnValue({ mutate: vi.fn(), isPending: false });
+  });
+
   it("renders the sidebar shell", () => {
     renderSidebar();
     expect(screen.getByTestId("sidebar-filters")).toBeInTheDocument();
@@ -73,5 +98,35 @@ describe("SidebarFilters", () => {
     renderSidebar({ quarters: ["1"] });
     await user.click(screen.getByTestId("sidebar-quarter-1"));
     expect(screen.getByTestId("probe-quarters")).toHaveTextContent("1");
+  });
+
+  it("renders refresh data admin control", () => {
+    renderSidebar();
+    expect(screen.getByTestId("sidebar-admin")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refresh data");
+  });
+
+  it("clicking refresh triggers start mutation", async () => {
+    const user = userEvent.setup();
+    const mutate = vi.fn();
+    useStartRefresh.mockReturnValue({ mutate, isPending: false });
+    renderSidebar();
+    await user.click(screen.getByTestId("sidebar-refresh"));
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows progress and cancel while refresh is running", () => {
+    useRefreshStatus.mockReturnValue({
+      data: {
+        status: "running",
+        progress: 42,
+        current_step: "ingest-house",
+      },
+    });
+    renderSidebar();
+    expect(screen.getByTestId("sidebar-refresh-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh-cancel")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refreshing… 42%");
+    expect(screen.getByText("ingest-house")).toBeInTheDocument();
   });
 });

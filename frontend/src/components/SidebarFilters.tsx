@@ -1,4 +1,7 @@
-import { Button, Divider, Select, Stack, Text } from "@mantine/core";
+import { Button, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { Link, useLocation } from "react-router-dom";
+
+import { useCancelRefresh, useRefreshStatus, useStartRefresh } from "@/api/refresh";
 
 import {
   LOOKBACK_OPTIONS,
@@ -7,9 +10,6 @@ import {
   type QuarterValue,
 } from "./FilterContext";
 import { NAV_ITEMS, isActive } from "./TopBar";
-import { Link } from "react-router-dom";
-import { Group } from "@mantine/core";
-import { useLocation } from "react-router-dom";
 
 const QUARTER_LABELS: Record<QuarterValue, string> = {
   "1": "Q1",
@@ -22,6 +22,68 @@ const QUARTER_DATA = QUARTER_VALUES.map((value) => ({
   value,
   label: QUARTER_LABELS[value],
 }));
+
+function SidebarRefreshControls() {
+  const refreshStatus = useRefreshStatus();
+  const startRefresh = useStartRefresh();
+  const cancelRefresh = useCancelRefresh();
+
+  const status = refreshStatus.data?.status ?? "idle";
+  const isRunning = status === "running";
+  const progress = refreshStatus.data?.progress ?? 0;
+  const currentStep = refreshStatus.data?.current_step ?? "";
+
+  const primaryLabel = isRunning
+    ? `Restart (${progress}%${currentStep ? ` — ${currentStep}` : ""})`
+    : status === "succeeded"
+      ? "Refresh data"
+      : status === "failed" || status === "cancelled"
+        ? "Retry refresh"
+        : "Refresh data";
+
+  return (
+    <Tooltip
+      label="Download and re-ingest House + Senate disclosure data (ingest-all)"
+      multiline
+      w={220}
+    >
+      <Stack gap="xs" data-testid="sidebar-admin">
+        <Button
+          color="navy"
+          variant={isRunning ? "light" : "filled"}
+          size="compact-sm"
+          loading={startRefresh.isPending}
+          disabled={cancelRefresh.isPending}
+          onClick={() => startRefresh.mutate()}
+          data-testid="sidebar-refresh"
+        >
+          {isRunning ? `Refreshing… ${progress}%` : primaryLabel}
+        </Button>
+        {isRunning ? (
+          <>
+            <Progress value={progress} size="sm" color="navy" data-testid="sidebar-refresh-progress" />
+            {currentStep ? (
+              <Text size="xs" c="dimmed">
+                {currentStep}
+              </Text>
+            ) : null}
+            <Button
+              variant="subtle"
+              color="red"
+              size="compact-xs"
+              loading={cancelRefresh.isPending}
+              disabled={startRefresh.isPending}
+              onClick={() => cancelRefresh.mutate()}
+              data-testid="sidebar-refresh-cancel"
+            >
+              Cancel
+            </Button>
+          </>
+        ) : null}
+      </Stack>
+    </Tooltip>
+  );
+}
 
 export function SidebarFilters() {
   const { lookback, quarters, setLookback, toggleQuarter, reset } = useFilters();
@@ -111,6 +173,15 @@ export function SidebarFilters() {
             </Text>
           );
         })}
+      </Stack>
+
+      <Divider />
+
+      <Stack gap={4}>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+          Admin
+        </Text>
+        <SidebarRefreshControls />
       </Stack>
     </Stack>
   );
