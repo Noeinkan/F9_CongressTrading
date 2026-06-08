@@ -14,9 +14,9 @@ export const COPY = {
   },
   members: {
     kicker: "Members",
-    title: "Politician profiles & leaderboard",
-    copy: "Leaderboard, per-member KPIs, by-ticker breakdown, and activity over time for the active period slice.",
-    leaderboard: "Leaderboard",
+    title: "Politician profiles",
+    copy: "Pick a member to see per-member KPIs, by-ticker breakdown, committee-overlap trades, and activity over time for the active period slice. The full leaderboard lives on the Home page.",
+    browse: "Browse members",
     profile: "Member profile",
     allTrades: "All trades",
     committeeRelevant: "Committee relevant",

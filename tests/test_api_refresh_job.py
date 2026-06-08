@@ -129,7 +129,7 @@ def test_refresh_start_and_status(client, monkeypatch):
     assert start.status_code == 200
     data = start.json()
     assert data["status"] in {"running", "succeeded"}
-    for key in ("started_at", "finished_at", "current_step", "progress", "log_tail", "result"):
+    for key in ("started_at", "finished_at", "current_step", "progress", "log_tail", "log_lines", "result"):
         assert key in data
 
     status = client.get("/api/admin/refresh-data/status")

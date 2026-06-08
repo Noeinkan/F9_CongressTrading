@@ -119,6 +119,7 @@ def test_members_tickers_shape_for_real_member(client):
         row = data["rows"][0]
         for key in (
             "ticker",
+            "issuer_name",
             "buy",
             "sell",
             "call",

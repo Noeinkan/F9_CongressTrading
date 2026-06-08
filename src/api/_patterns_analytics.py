@@ -103,14 +103,22 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
     if sub.empty:
         return pd.DataFrame()
     sub = add_trade_categories(sub)
+    issuer_col = "issuer_name" if "issuer_name" in sub.columns else None
     rows: list[dict[str, object]] = []
     for ticker, g in sub.groupby("ticker", observed=True):
         t = str(ticker).strip()
         if not t:
             continue
+        issuer = ""
+        if issuer_col:
+            non_empty = g[issuer_col].dropna().astype(str).str.strip()
+            non_empty = non_empty[non_empty != ""]
+            if not non_empty.empty:
+                issuer = non_empty.iloc[0]
         rows.append(
             {
                 "ticker": t,
+                "issuer_name": issuer,
                 "buy": int(g["is_buy"].sum()),
                 "sell": int(g["is_sell"].sum()),
                 "call": int((g["option_side"] == "Call").sum()),

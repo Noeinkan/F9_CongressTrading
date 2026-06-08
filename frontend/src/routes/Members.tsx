@@ -1,6 +1,8 @@
 import {
   Alert,
   Anchor,
+  Badge,
+  Group,
   SegmentedControl,
   Select,
   SimpleGrid,
@@ -26,7 +28,7 @@ import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
-import { formatDate, formatDisclosedRange } from "@/utils/format";
+import { formatDate } from "@/utils/format";
 
 const COMMITTEE_VIEW = "committee_relevance";
 
@@ -110,43 +112,34 @@ export function Members() {
             copy={COPY.members.copy}
           />
 
-          <ChartCard title={COPY.members.leaderboard} testId="members-leaderboard">
-            <Table.ScrollContainer minWidth={800}>
-              <Table striped highlightOnHover data-testid="members-leaderboard-table">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Member</Table.Th>
-                    <Table.Th>Trades</Table.Th>
-                    <Table.Th>Tickers</Table.Th>
-                    <Table.Th>Disclosed range</Table.Th>
-                    <Table.Th>Chamber</Table.Th>
-                    <Table.Th>Party</Table.Th>
-                    <Table.Th>State</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {data.leaderboard.map((row) => (
-                    <Table.Tr
+          <ChartCard
+            title={COPY.members.browse}
+            caption="Quick scan of the most active filers in the active slice. The full leaderboard lives on the Home page."
+            testId="members-browse"
+          >
+            {data.leaderboard.length === 0 ? (
+              <Text c="dimmed">No members in the current slice.</Text>
+            ) : (
+              <Group gap="xs" data-testid="members-browse-chips" wrap="wrap">
+                {data.leaderboard.slice(0, 12).map((row) => {
+                  const active = selectedMember === row.member;
+                  return (
+                    <Badge
                       key={row.member}
+                      color={active ? "teal" : "gray"}
+                      variant={active ? "filled" : "light"}
+                      size="lg"
                       style={{ cursor: "pointer" }}
                       onClick={() => setMember(row.member)}
-                      data-testid="members-leaderboard-row"
+                      data-testid="members-browse-chip"
+                      title={`${row.trades} trades · ${row.tickers} tickers · ${row.party} · ${row.state}`}
                     >
-                      <Table.Td fw={selectedMember === row.member ? 700 : 400}>{row.member}</Table.Td>
-                      <Table.Td>{row.trades}</Table.Td>
-                      <Table.Td>{row.tickers}</Table.Td>
-                      <Table.Td>
-                        {row.disclosed_range ??
-                          formatDisclosedRange(row.amount_low, row.amount_high)}
-                      </Table.Td>
-                      <Table.Td>{row.chamber}</Table.Td>
-                      <Table.Td>{row.party}</Table.Td>
-                      <Table.Td>{row.state}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
+                      {row.member} · {row.trades}
+                    </Badge>
+                  );
+                })}
+              </Group>
+            )}
           </ChartCard>
 
           <Select
@@ -257,6 +250,7 @@ export function Members() {
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>Ticker</Table.Th>
+                        <Table.Th>Issuer</Table.Th>
                         <Table.Th>Buys</Table.Th>
                         <Table.Th>Sells</Table.Th>
                         <Table.Th>Calls</Table.Th>
@@ -279,6 +273,7 @@ export function Members() {
                               {row.ticker}
                             </Anchor>
                           </Table.Td>
+                          <Table.Td c="dimmed">{row.issuer_name || "—"}</Table.Td>
                           <Table.Td>{row.buy}</Table.Td>
                           <Table.Td>{row.sell}</Table.Td>
                           <Table.Td>{row.call}</Table.Td>

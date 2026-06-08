@@ -16,6 +16,7 @@ export type RefreshStatusResponse = {
   current_step: string;
   progress: number;
   log_tail: string[];
+  log_lines: string[];
   result: Record<string, unknown>;
 };
 
@@ -26,7 +27,7 @@ export function useRefreshStatus() {
     queryKey: refreshStatusQueryKey,
     queryFn: () => apiFetch<RefreshStatusResponse>("/api/admin/refresh-data/status"),
     refetchInterval: (query) =>
-      query.state.data?.status === "running" ? 2000 : false,
+      query.state.data?.status === "running" ? 1000 : false,
   });
 }
 

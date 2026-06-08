@@ -61,10 +61,19 @@ def test_login_then_home_summary_shape(client):
         "monthly_activity",
         "top_members",
         "top_tickers",
+        "members_leaderboard",
         "net_trade_amounts",
         "tickers_available",
     ):
         assert key in data, f"missing {key}"
+
+    # Leaderboard rows mirror /api/members/summary so the two endpoints
+    # stay consistent. Optional keys (disclosed_range) are accepted too.
+    assert isinstance(data["members_leaderboard"], list)
+    if data["members_leaderboard"]:
+        row = data["members_leaderboard"][0]
+        for key in ("member", "trades", "tickers", "chamber", "party", "state"):
+            assert key in row, f"missing leaderboard row key: {key}"
 
     hero = data["hero"]
     for key in ("transaction_source", "total_transactions", "disclosed_range"):
@@ -129,3 +138,15 @@ def test_home_net_trade_amounts_row_shape(client):
         row = data["net_trade_amounts"][0]
         for key in ("ticker", "direction", "net_amount", "trades"):
             assert key in row, f"missing net_trade row key: {key}"
+
+
+def test_home_members_leaderboard_row_shape(client):
+    client.post("/api/login", json={"username": "analyst", "password": "secret123"})
+    r = client.get("/api/home/summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data["members_leaderboard"], list)
+    if data["members_leaderboard"]:
+        row = data["members_leaderboard"][0]
+        for key in ("member", "trades", "tickers", "chamber", "party", "state"):
+            assert key in row, f"missing leaderboard row key: {key}"

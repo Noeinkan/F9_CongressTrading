@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -86,12 +86,20 @@ describe("Members route", () => {
     });
   });
 
-  it("renders leaderboard", async () => {
+  it("renders mini-leaderboard chips with a clickable member", async () => {
+    const user = userEvent.setup();
     renderMembers();
     await waitFor(() => {
       expect(screen.getByTestId("members-page")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("members-leaderboard-table")).toBeInTheDocument();
+    const chips = screen.getByTestId("members-browse-chips");
+    expect(chips).toBeInTheDocument();
+    const alice = within(chips).getByTestId("members-browse-chip");
+    expect(alice).toHaveTextContent("Alice");
+    await user.click(alice);
+    await waitFor(() => {
+      expect(screen.getByTestId("members-profile")).toBeInTheDocument();
+    });
   });
 
   it("shows profile when member query is set", async () => {

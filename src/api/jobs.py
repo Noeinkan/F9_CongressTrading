@@ -160,6 +160,7 @@ class JobManager:
             "current_step": state.current_step,
             "progress": state.progress,
             "log_tail": list(state.log_lines)[-_LOG_TAIL_SIZE:],
+            "log_lines": list(state.log_lines),
             "result": dict(state.result),
         }
 

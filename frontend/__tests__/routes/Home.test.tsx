@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -75,6 +75,18 @@ const sampleData = {
   monthly_activity: [{ month: "2024-06", transactions: 10, amount_low: 100, amount_high: 500 }],
   top_members: [{ member: "Alice", transactions: 20, amount_low: 100, amount_high: 500, disclosed_range: "$100 – $500" }],
   top_tickers: [{ ticker: "AAPL", transactions: 15, amount_low: 100, amount_high: 500, disclosed_range: "$100 – $500" }],
+  members_leaderboard: [
+    {
+      member: "Alice",
+      trades: 20,
+      tickers: 5,
+      amount_low: 100,
+      amount_high: 500,
+      chamber: "House",
+      party: "Democrat",
+      state: "CA",
+    },
+  ],
   net_trade_amounts: [
     {
       ticker: "AAPL",
@@ -131,6 +143,17 @@ describe("Home route", () => {
     });
     expect(screen.getByTestId("home-hero")).toBeInTheDocument();
     expect(screen.getByTestId("kpi-tile-transactions")).toBeInTheDocument();
+  });
+
+  it("renders the members leaderboard with a clickable link to the profile", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-leaderboard-table")).toBeInTheDocument();
+    });
+    const row = screen.getByTestId("home-leaderboard-row");
+    const link = within(row).getByRole("link", { name: "Alice" });
+    expect(link).toHaveAttribute("href", "/members?member=Alice");
   });
 
   it("does not call drilldown hook until ticker is available", () => {

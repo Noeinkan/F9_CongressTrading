@@ -52,6 +52,7 @@ _LEADERBOARD_COLUMNS = [
 
 _PROFILE_DRILL_COLUMNS = [
     "ticker",
+    "issuer_name",
     "buy",
     "sell",
     "call",

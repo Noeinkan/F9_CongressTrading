@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { useCancelRefresh, useRefreshStatus, useStartRefresh } from "@/api/refresh";
+import { RefreshLogPanel } from "@/components/RefreshLogPanel";
 
 import {
   LOOKBACK_OPTIONS,
@@ -53,6 +54,12 @@ function SidebarRefreshControls() {
     typeof refreshStatus.data?.result?.error === "string"
       ? refreshStatus.data.result.error
       : null;
+  const logLines =
+    refreshStatus.data?.log_lines ??
+    refreshStatus.data?.log_tail ??
+    [];
+  const showLogPanel =
+    isRunning || (status !== "idle" && (logLines.length > 0 || Boolean(refreshStatus.data?.started_at)));
 
   useEffect(() => {
     if (status === "succeeded") {
@@ -104,6 +111,13 @@ function SidebarRefreshControls() {
               Cancel
             </Button>
           </>
+        ) : null}
+        {showLogPanel ? (
+          <RefreshLogPanel
+            lines={logLines}
+            startedAt={refreshStatus.data?.started_at ?? null}
+            isLive={isRunning}
+          />
         ) : null}
         {!isRunning && status === "succeeded" ? (
           <Text size="xs" c="teal" data-testid="sidebar-refresh-success">

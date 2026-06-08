@@ -124,6 +124,9 @@ def test_member_ticker_breakdown():
     assert len(out) == 2
     aapl = out.loc[out["ticker"] == "AAPL"].iloc[0]
     assert int(aapl["buy"]) == 1
+    assert "issuer_name" in out.columns
+    aapl_name = aapl["issuer_name"]
+    assert aapl_name == "" or isinstance(aapl_name, str)
 
 
 def test_ticker_member_breakdown():

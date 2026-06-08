@@ -21,6 +21,7 @@ from .._home_analytics import (
     ticker_timeline_rows,
     tickers_available,
 )
+from .._patterns_analytics import member_leaderboard
 from .._sparklines import build_slice_kpi_sparklines, month_over_month_delta
 from .._format import (
     format_currency_full,
@@ -202,7 +203,7 @@ def _top(filtered: pd.DataFrame, key: str) -> list[dict[str, Any]]:
             amount_high=("amount_high", "sum"),
         )
         .sort_values(["transactions", "amount_high"], ascending=[False, False])
-        .head(10)
+        .head(5)
     )
     agg["disclosed_range"] = [
         format_disclosed_range(lo, hi)
@@ -216,6 +217,47 @@ def _net_trade_payload(filtered: pd.DataFrame) -> list[dict[str, Any]]:
     return net_trade_records(agg)
 
 
+_MEMBERS_LEADERBOARD_COLUMNS = [
+    "member",
+    "trades",
+    "tickers",
+    "amount_low",
+    "amount_high",
+    "chamber",
+    "party",
+    "state",
+]
+
+
+def _members_leaderboard(filtered: pd.DataFrame) -> list[dict[str, Any]]:
+    """Full per-member leaderboard (sorted by trade count, then amount_high).
+
+    The Members page used to host this; it now lives on the Home page as the
+    cross-cutting overview of filer activity. Mirrors the columns exposed by
+    ``/api/members/summary`` so the two endpoints stay consistent.
+    """
+    if filtered.empty:
+        return []
+    board = member_leaderboard(filtered)
+    if board.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, r in board.iterrows():
+        rows.append(
+            {
+                "member": str(r.get("member", "")),
+                "trades": int(r.get("trades", 0)),
+                "tickers": int(r.get("tickers", 0)),
+                "amount_low": float(r.get("amount_low", 0.0) or 0.0),
+                "amount_high": float(r.get("amount_high", 0.0) or 0.0),
+                "chamber": str(r.get("chamber", "") or ""),
+                "party": str(r.get("party", "") or ""),
+                "state": str(r.get("state", "") or ""),
+            }
+        )
+    return rows
+
+
 def _empty_summary(s: Slice) -> dict[str, Any]:
     return {
         "ready": False,
@@ -226,6 +268,7 @@ def _empty_summary(s: Slice) -> dict[str, Any]:
         "monthly_activity": [],
         "top_members": [],
         "top_tickers": [],
+        "members_leaderboard": [],
         "net_trade_amounts": [],
         "tickers_available": [],
     }
@@ -253,6 +296,7 @@ def home_summary(
         "monthly_activity": _monthly_activity(s.filtered),
         "top_members": _top(s.filtered, "member"),
         "top_tickers": _top(s.filtered, "ticker"),
+        "members_leaderboard": _members_leaderboard(s.filtered),
         "net_trade_amounts": _net_trade_payload(s.filtered),
         "tickers_available": tickers_available(s.filtered),
     }

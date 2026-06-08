@@ -29,7 +29,7 @@ import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
 import { Ticker3D } from "@/components/Ticker3D";
 import { TickerTimeline } from "@/components/TickerTimeline";
-import { formatDate } from "@/utils/format";
+import { formatDate, formatDisclosedRange } from "@/utils/format";
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -268,6 +268,61 @@ export function Home() {
               />
             </ChartCard>
           </SimpleGrid>
+
+          <ChartCard
+            title="Members leaderboard"
+            caption="Full per-filer ranking for the active period slice. Click a row to open the profile on the Members page."
+            testId="home-leaderboard"
+          >
+            {data.members_leaderboard.length === 0 ? (
+              <Text c="dimmed">No members in the current slice.</Text>
+            ) : (
+              <Table.ScrollContainer minWidth={800}>
+                <Table striped highlightOnHover data-testid="home-leaderboard-table">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Member</Table.Th>
+                      <Table.Th>Trades</Table.Th>
+                      <Table.Th>Tickers</Table.Th>
+                      <Table.Th>Disclosed range</Table.Th>
+                      <Table.Th>Chamber</Table.Th>
+                      <Table.Th>Party</Table.Th>
+                      <Table.Th>State</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {data.members_leaderboard.map((row) => (
+                      <Table.Tr
+                        key={row.member}
+                        style={{ cursor: "pointer" }}
+                        data-testid="home-leaderboard-row"
+                      >
+                        <Table.Td>
+                          <Text
+                            component={Link}
+                            to={`/members?member=${encodeURIComponent(row.member)}`}
+                            size="sm"
+                            fw={500}
+                          >
+                            {row.member}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>{row.trades}</Table.Td>
+                        <Table.Td>{row.tickers}</Table.Td>
+                        <Table.Td>
+                          {row.disclosed_range ??
+                            formatDisclosedRange(row.amount_low, row.amount_high)}
+                        </Table.Td>
+                        <Table.Td>{row.chamber}</Table.Td>
+                        <Table.Td>{row.party}</Table.Td>
+                        <Table.Td>{row.state}</Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            )}
+          </ChartCard>
 
           <ChartCard title="Ticker drill-down" testId="home-drilldown">
             {data.tickers_available.length === 0 ? (

@@ -148,6 +148,7 @@ export type HomeSummaryResponse = {
   }[];
   top_members: HomeRankRow[];
   top_tickers: HomeRankRow[];
+  members_leaderboard: MembersLeaderboardRow[];
   net_trade_amounts: NetTradeRow[];
   tickers_available: string[];
 };
@@ -360,6 +361,7 @@ export type MemberKpis = {
 
 export type MemberTickerRow = {
   ticker: string;
+  issuer_name?: string;
   buy: number;
   sell: number;
   call: number;

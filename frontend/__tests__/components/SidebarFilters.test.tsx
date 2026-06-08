@@ -121,6 +121,7 @@ describe("SidebarFilters", () => {
         status: "running",
         progress: 42,
         current_step: "ingest-house",
+        log_lines: ["Scarico 2024 da https://example.com", "Trovati 120 PDF PTR"],
       },
     });
     useStartRefresh.mockReturnValue({ mutate: vi.fn(), isPending: false });
@@ -129,6 +130,8 @@ describe("SidebarFilters", () => {
     expect(screen.getByTestId("sidebar-refresh-cancel")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refreshing… 42%");
     expect(screen.getByText("ingest-house")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh-log")).toBeInTheDocument();
+    expect(screen.getByText("Scarico 2024 da https://example.com")).toBeInTheDocument();
   });
 
   it("shows success message after refresh completes", () => {
