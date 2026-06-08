@@ -123,10 +123,25 @@ describe("SidebarFilters", () => {
         current_step: "ingest-house",
       },
     });
+    useStartRefresh.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderSidebar();
     expect(screen.getByTestId("sidebar-refresh-progress")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh-cancel")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refreshing… 42%");
     expect(screen.getByText("ingest-house")).toBeInTheDocument();
+  });
+
+  it("shows success message after refresh completes", () => {
+    useRefreshStatus.mockReturnValue({
+      data: {
+        status: "succeeded",
+        progress: 100,
+        current_step: "done",
+        result: { scope: "ingest-all" },
+      },
+    });
+    useStartRefresh.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderSidebar();
+    expect(screen.getByTestId("sidebar-refresh-success")).toHaveTextContent("Refresh completed");
   });
 });

@@ -38,8 +38,12 @@ export function useStartRefresh() {
         method: "POST",
         body: { restart: true },
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      queryClient.setQueryData(refreshStatusQueryKey, data);
       void queryClient.invalidateQueries({ queryKey: refreshStatusQueryKey });
+      if (data.status === "succeeded") {
+        void queryClient.invalidateQueries();
+      }
     },
   });
 }

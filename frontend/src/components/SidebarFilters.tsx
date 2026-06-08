@@ -1,6 +1,9 @@
 import { Button, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+import { ApiError } from "@/api/client";
 import { useCancelRefresh, useRefreshStatus, useStartRefresh } from "@/api/refresh";
 
 import {
@@ -23,27 +26,49 @@ const QUARTER_DATA = QUARTER_VALUES.map((value) => ({
   label: QUARTER_LABELS[value],
 }));
 
+function refreshErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const detail = error.body;
+    if (typeof detail === "object" && detail !== null && "detail" in detail) {
+      const message = (detail as { detail?: unknown }).detail;
+      if (typeof message === "string") return message;
+    }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return "Refresh request failed";
+}
+
 function SidebarRefreshControls() {
+  const queryClient = useQueryClient();
   const refreshStatus = useRefreshStatus();
   const startRefresh = useStartRefresh();
   const cancelRefresh = useCancelRefresh();
 
   const status = refreshStatus.data?.status ?? "idle";
-  const isRunning = status === "running";
+  const isRunning = status === "running" || startRefresh.isPending;
   const progress = refreshStatus.data?.progress ?? 0;
   const currentStep = refreshStatus.data?.current_step ?? "";
+  const failedMessage =
+    typeof refreshStatus.data?.result?.error === "string"
+      ? refreshStatus.data.result.error
+      : null;
+
+  useEffect(() => {
+    if (status === "succeeded") {
+      void queryClient.invalidateQueries();
+    }
+  }, [status, queryClient]);
 
   const primaryLabel = isRunning
     ? `Restart (${progress}%${currentStep ? ` — ${currentStep}` : ""})`
-    : status === "succeeded"
-      ? "Refresh data"
-      : status === "failed" || status === "cancelled"
-        ? "Retry refresh"
-        : "Refresh data";
+    : status === "failed" || status === "cancelled"
+      ? "Retry refresh"
+      : "Refresh data";
 
   return (
     <Tooltip
-      label="Download and re-ingest House + Senate disclosure data (ingest-all)"
+      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures"
       multiline
       w={220}
     >
@@ -52,7 +77,7 @@ function SidebarRefreshControls() {
           color="navy"
           variant={isRunning ? "light" : "filled"}
           size="compact-sm"
-          loading={startRefresh.isPending}
+          loading={isRunning}
           disabled={cancelRefresh.isPending}
           onClick={() => startRefresh.mutate()}
           data-testid="sidebar-refresh"
@@ -79,6 +104,26 @@ function SidebarRefreshControls() {
               Cancel
             </Button>
           </>
+        ) : null}
+        {!isRunning && status === "succeeded" ? (
+          <Text size="xs" c="teal" data-testid="sidebar-refresh-success">
+            Refresh completed
+          </Text>
+        ) : null}
+        {!isRunning && status === "failed" ? (
+          <Text size="xs" c="red" data-testid="sidebar-refresh-error">
+            {failedMessage ?? "Refresh failed — check server logs"}
+          </Text>
+        ) : null}
+        {!isRunning && status === "cancelled" ? (
+          <Text size="xs" c="dimmed" data-testid="sidebar-refresh-cancelled">
+            Refresh cancelled
+          </Text>
+        ) : null}
+        {startRefresh.isError ? (
+          <Text size="xs" c="red" data-testid="sidebar-refresh-start-error">
+            {refreshErrorMessage(startRefresh.error)}
+          </Text>
         ) : null}
       </Stack>
     </Tooltip>

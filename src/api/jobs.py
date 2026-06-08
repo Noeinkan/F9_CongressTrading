@@ -64,20 +64,33 @@ def _check_cancel(cancel_event: threading.Event) -> None:
 
 
 def run_ingest_all(state: JobState, cancel_event: threading.Event) -> None:
-    """Run House then Senate ingest; honors cancel between coarse steps."""
+    """Download House FD metadata, then run House + Senate ingest."""
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
     sys.stdout = tee
     try:
+        from datetime import datetime
+
+        from ..config import START_YEAR
+        from ..download_house_fd import download_house_fd_bulk
+
+        state.current_step = "download-house-fd"
+        state.progress = 5
+        _check_cancel(cancel_event)
+
+        years = list(range(START_YEAR, datetime.now().year + 1))
+        completed_years = download_house_fd_bulk(years, overwrite=False, extract=True)
+        state.result = {"download_years": completed_years}
+
+        state.progress = 15
         state.current_step = "ingest-house"
-        state.progress = 10
         _check_cancel(cancel_event)
 
         from ..ingest_house import ingest_house
 
         ingest_house()
 
-        state.progress = 60
+        state.progress = 65
         state.current_step = "ingest-senate"
         _check_cancel(cancel_event)
 
@@ -87,7 +100,7 @@ def run_ingest_all(state: JobState, cancel_event: threading.Event) -> None:
 
         state.progress = 100
         state.current_step = "done"
-        state.result = {"scope": "ingest-all"}
+        state.result = {"scope": "ingest-all", "download_years": completed_years}
     finally:
         sys.stdout = original_stdout
         tee.flush()
