@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
+import time as _time
 from datetime import date, datetime, timedelta, time
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urljoin
@@ -9,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from .config import POLYGON_AGGS_DAY, USER_AGENT
 from .ticker_lookup import POLYGON_LIMITER, _request_with_rate_limit
+from .utils import is_non_equity_asset
 
 _ET = ZoneInfo("America/New_York")
 
@@ -228,25 +231,44 @@ def warm_polygon_price_cache_for_db(
     api_key: str | None = None,
     force_refetch: bool = False,
     cache_only: bool = False,
+    progress_every: int = 25,
+    progress_cb=None,
 ) -> int:
     """
     Prefetch Polygon daily bars for every distinct ticker with a parseable transaction_date
     in `transactions`. Returns count of tickers requested (network or cache-only).
+
+    ``progress_every``: stampa una riga di avanzamento ogni N ticker (0 = silenzioso,
+    tranne il riepilogo finale). ``progress_cb`` (opzionale) è invocato con
+    ``(i, total, ticker, n_bars, cache_hit)`` ad ogni ticker, utile per wrapper CLI
+    o test. Le stampe vanno a ``stderr`` per non sporcare ``stdout`` (che è
+    riservato al riepilogo finale ``N ticker distinti``).
     """
     key = api_key or os.getenv("POLYGON_API_KEY", "").strip()
     if not key and not cache_only:
         raise RuntimeError("POLYGON_API_KEY mancante")
     rows = conn.execute(
         """
-        SELECT DISTINCT UPPER(TRIM(ticker)) AS ticker, MIN(t.transaction_date) AS mn, MAX(t.transaction_date) AS mx
+        SELECT UPPER(TRIM(ticker)) AS ticker,
+               MIN(t.transaction_date) AS mn,
+               MAX(t.transaction_date) AS mx,
+               (SELECT asset_name_raw FROM transactions tt
+                  WHERE UPPER(TRIM(tt.ticker)) = UPPER(TRIM(t.ticker))
+                  ORDER BY tt.transaction_date DESC LIMIT 1) AS asset_name_raw
         FROM transactions t
         WHERE TRIM(ticker) <> ''
           AND LENGTH(TRIM(t.transaction_date)) >= 10
         GROUP BY UPPER(TRIM(ticker))
+        ORDER BY UPPER(TRIM(ticker))
         """
     ).fetchall()
+    total = len(rows)
     n = 0
-    for row in rows:
+    cache_hits = 0
+    api_calls = 0
+    non_equity_skipped = 0
+    started = _time.monotonic()
+    for i, row in enumerate(rows, start=1):
         tk = str(row["ticker"] or "").strip()
         if not tk:
             continue
@@ -257,7 +279,67 @@ def warm_polygon_price_cache_for_db(
             continue
         lo = min(d_min, as_of)
         hi = max(d_max, as_of)
-        ensure_bars_for_ticker(conn, tk, lo, hi, key or "", force_refetch=force_refetch, cache_only=cache_only)
+        # Skip assets that have no continuous market price (Treasury notes,
+        # municipal / corporate bonds, bond funds, …). Polygon will return
+        # empty for them anyway — this saves ~25-40 API calls on the
+        # current dataset and keeps the progress bar honest.
+        if is_non_equity_asset(tk, str(row["asset_name_raw"] or "")):
+            non_equity_skipped += 1
+            if progress_every and (i % progress_every == 0 or i == total):
+                elapsed = _time.monotonic() - started
+                rate = i / elapsed if elapsed > 0 else 0.0
+                eta = (total - i) / rate if rate > 0 else float("inf")
+                print(
+                    f"[{i:>4d}/{total}] {tk:<8s}  SKIP (non-equity)  "
+                    f"elapsed={elapsed:5.1f}s  rate={rate:4.1f}/s  eta={eta:5.0f}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            n += 1
+            continue
+        # Snapshot cache size before/after to know whether we hit cache or
+        # actually called the API — Polygon has a per-minute rate limit so the
+        # free tier can be exhausted silently otherwise.
+        before = _cache_range_for_ticker(conn, tk)
+        ensure_bars_for_ticker(
+            conn,
+            tk,
+            lo,
+            hi,
+            key or "",
+            force_refetch=force_refetch,
+            cache_only=cache_only,
+        )
+        after = _cache_range_for_ticker(conn, tk)
+        bars_now = (
+            conn.execute(
+                "SELECT COUNT(*) AS c FROM polygon_daily_bar_cache WHERE ticker = ?",
+                (tk,),
+            ).fetchone()["c"]
+            if after[0] is not None
+            else 0
+        )
+        cache_hit = bool(before[0] and before[1] and not force_refetch)
+        if cache_hit:
+            cache_hits += 1
+        else:
+            api_calls += 1
+        if progress_cb is not None:
+            try:
+                progress_cb(i, total, tk, bars_now, cache_hit)
+            except Exception:  # noqa: BLE001
+                pass
+        if progress_every and (i % progress_every == 0 or i == total):
+            elapsed = _time.monotonic() - started
+            rate = i / elapsed if elapsed > 0 else 0.0
+            eta = (total - i) / rate if rate > 0 else float("inf")
+            print(
+                f"[{i:>4d}/{total}] {tk:<8s}  bars={bars_now:>4d}  "
+                f"cache_hit={int(cache_hit)}  "
+                f"elapsed={elapsed:5.1f}s  rate={rate:4.1f}/s  eta={eta:5.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
         n += 1
     return n
 

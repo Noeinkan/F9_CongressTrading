@@ -1,4 +1,5 @@
 import { Alert } from "@mantine/core";
+import "echarts-gl";
 import ReactECharts from "echarts-for-react";
 import { useMemo } from "react";
 

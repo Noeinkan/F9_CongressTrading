@@ -24,6 +24,7 @@ from .._tickers_analytics import (
     polygon_price_overlay,
     ticker_cumulative_exposure_payload,
     ticker_leaderboard,
+    ticker_leaderboard_cached,
     ticker_member_timeline_payload,
     ticker_profile,
 )
@@ -50,6 +51,9 @@ _LEADERBOARD_COLUMNS = [
     "disclosed_range",
     "first_trade",
     "last_trade",
+    "return_pct",
+    "return_trade_count",
+    "is_non_equity",
 ]
 
 
@@ -86,6 +90,13 @@ _PROFILE_TX_COLUMNS = [
     "issuer_name",
     "asset_name_raw",
     "disclosure_url",
+    "price_trade",
+    "price_session",
+    "price_asof",
+    "price_asof_session",
+    "return_pct",
+    "est_pnl_usd",
+    "is_non_equity",
 ]
 
 
@@ -105,6 +116,7 @@ SORTABLE_COLUMNS: frozenset[str] = frozenset(
         "amount_high",
         "first_trade",
         "last_trade",
+        "return_pct",
     }
 )
 
@@ -152,7 +164,9 @@ def tickers_list(
             "source": s.transaction_source,
         }
 
-    board = ticker_leaderboard(s.filtered)
+    board = ticker_leaderboard_cached(
+        s.filtered, lookback=s.lookback, quarters=s.quarters
+    )
     if board.empty:
         return {
             "ready": True,

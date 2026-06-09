@@ -3,7 +3,7 @@
 Reproduces the analytics surface of ``src/dashboard_pages/members.py`` as
 plain JSON. The pure pandas helpers live in :mod:`src.api._patterns_analytics`
 (shared with the patterns router — the members page consumes the same
-``member_ticker_breakdown`` / ``member_committee_relevant_transactions`` /
+``member_transactions`` / ``member_committee_relevant_transactions`` /
 ``member_leaderboard`` functions). This router is a thin shell that calls them
 and serializes the result.
 """
@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .._constants import COMMITTEE_SECTOR_MAP
 from .._format import (
-    add_disclosed_range_column,
     format_disclosed_range,
     sum_amount_high,
     sum_amount_low,
@@ -27,13 +26,13 @@ from .._patterns_analytics import (
     member_activity_timeline,
     member_committee_relevant_transactions,
     member_leaderboard,
-    member_ticker_breakdown,
+    member_transactions,
     score_committee_relevance,
 )
 from .._sparklines import monthly_series
 from ..query import Slice, get_slice
 from ..security import require_auth
-from ..serialize import iso_date, records
+from ..serialize import records
 
 router = APIRouter(prefix="/api/members", tags=["members"])
 
@@ -53,17 +52,21 @@ _LEADERBOARD_COLUMNS = [
 _PROFILE_DRILL_COLUMNS = [
     "ticker",
     "issuer_name",
-    "buy",
-    "sell",
-    "call",
-    "put",
-    "exchange",
-    "trades",
-    "amount_low_sum",
-    "amount_high_sum",
-    "disclosed_range",
-    "first_trade",
-    "last_trade",
+    "transaction_type",
+    "transaction_type_label",
+    "transaction_date",
+    "filing_date",
+    "amount_low",
+    "amount_high",
+    "amount_range_raw",
+    "disclosure_url",
+    "price_trade",
+    "price_session",
+    "price_asof",
+    "price_asof_session",
+    "return_pct",
+    "est_pnl_usd",
+    "is_non_equity",
 ]
 
 
@@ -167,27 +170,18 @@ def member_tickers(
     s: Slice = Depends(get_slice),
     _user: str = Depends(require_auth),
 ) -> dict[str, Any]:
-    """Per-ticker buy/sell/call/put counts for one member in the active slice."""
+    """Per-transaction rows for one member in the active slice (1 row = 1 trade)."""
     if not s.ready:
         return {"member": member, "kpis": {}, "rows": []}
     _validate_member(s.filtered, member)
-    breakdown = member_ticker_breakdown(s.filtered, member)
-    if breakdown.empty:
-        return {
-            "member": member,
-            "kpis": _per_member_kpis(s.filtered, member),
-            "rows": [],
-        }
-    rows = add_disclosed_range_column(
-        breakdown, low_col="amount_low_sum", high_col="amount_high_sum"
-    )
+    transactions = member_transactions(s.filtered, member)
     return {
         "member": member,
         "kpis": _per_member_kpis(s.filtered, member),
         "rows": records(
-            rows,
+            transactions,
             _PROFILE_DRILL_COLUMNS,
-            date_columns=("first_trade", "last_trade"),
+            date_columns=("transaction_date", "filing_date"),
         ),
     }
 

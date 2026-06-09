@@ -14,6 +14,7 @@ from src.api._patterns_analytics import (
     coordinated_pattern_transactions,
     detect_coordinated_trades,
     member_ticker_breakdown,
+    member_transactions,
     score_committee_relevance,
     summarize_committee_relevance,
     ticker_member_breakdown,
@@ -127,6 +128,34 @@ def test_member_ticker_breakdown():
     assert "issuer_name" in out.columns
     aapl_name = aapl["issuer_name"]
     assert aapl_name == "" or isinstance(aapl_name, str)
+
+
+def test_member_transactions_one_row_per_trade():
+    frame = _sample_frame()
+    out = member_transactions(frame, "Alice")
+    # Alice has 2 trades in the sample frame (AAPL + MSFT) → 1 row per trade.
+    assert len(out) == 2
+    for key in (
+        "ticker",
+        "issuer_name",
+        "transaction_type",
+        "transaction_type_label",
+        "transaction_date",
+        "amount_range_raw",
+    ):
+        assert key in out.columns, f"missing member_transactions column: {key}"
+    # Newest trade first.
+    assert out["transaction_date"].iloc[0] >= out["transaction_date"].iloc[1]
+    # Raw "P" maps to the standard "Buy" label (options side is separate).
+    msft = out.loc[out["ticker"] == "MSFT"].iloc[0]
+    assert msft["transaction_type"] == "P"
+    assert msft["transaction_type_label"] == "Buy"
+
+
+def test_member_transactions_unknown_member():
+    frame = _sample_frame()
+    out = member_transactions(frame, "Nobody")
+    assert out.empty
 
 
 def test_ticker_member_breakdown():

@@ -22,7 +22,7 @@ Do not paste both blocks into one terminal — the API blocks that shell until y
 so `npm run dev` would never start.
 
 ```powershell
-# Terminal 1 — FastAPI (default http://127.0.0.1:8000)
+# Terminal 1 — FastAPI (default http://127.0.0.1:9001)
 .venv\Scripts\python.exe -m src.api
 
 # Terminal 2 — Vite (http://localhost:5173, proxies /api/* to the API)
@@ -31,7 +31,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite dev proxy forwards `/api/*` to `http://127.0.0.1:8000` so session cookies stay same-origin. All `fetch` calls use `credentials: "include"`.
+Open [http://localhost:5173](http://localhost:5173). The Vite dev proxy forwards `/api/*` to `http://127.0.0.1:9001` so session cookies stay same-origin. All `fetch` calls use `credentials: "include"`.
 
 ### Auth
 

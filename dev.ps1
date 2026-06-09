@@ -23,7 +23,7 @@ Set-Location -Path $PSScriptRoot
 $repoRoot    = (Get-Location).Path
 $venvPy      = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $frontendDir = Join-Path $repoRoot "frontend"
-$apiPort     = if ($env:API_SERVER_PORT) { $env:API_SERVER_PORT } else { "8000" }
+$apiPort     = if ($env:API_SERVER_PORT) { $env:API_SERVER_PORT } else { "9001" }
 $webPort     = "5173"
 
 function Write-Section($msg) {

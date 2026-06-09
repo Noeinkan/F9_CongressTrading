@@ -48,6 +48,8 @@ class Slice:
     transaction_source: str
     review_source: str
     ready: bool
+    lookback: int | None = None  # period filter as requested by the client
+    quarters: list[int] | None = None
 
 
 def get_slice(period: PeriodParams = Depends(period_params)) -> Slice:
@@ -66,4 +68,6 @@ def get_slice(period: PeriodParams = Depends(period_params)) -> Slice:
         transaction_source=str(ctx["transaction_source"]),
         review_source=str(ctx["review_source"]),
         ready=bool(ctx["ready"]),
+        lookback=period.lookback,
+        quarters=list(period.quarters) if period.quarters else None,
     )

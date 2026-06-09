@@ -4,7 +4,7 @@ Run the FastAPI + React app on a Linux VPS so it is reachable at a stable URL su
 
 Architecture:
 
-- **congress-api** — uvicorn on `127.0.0.1:8000` (`python -m src.api`)
+- **congress-api** — uvicorn on `127.0.0.1:9001` (`python -m src.api`)
 - **congress-web** — Caddy on port 80 serves `frontend/dist/` and reverse-proxies `/api/*` to the API
 
 ## Deploy latest `main` from your PC
@@ -48,7 +48,7 @@ APP_USERNAME=admin
 APP_PASSWORD=<long-random-secret>
 APP_SESSION_SECRET=<optional-explicit-secret>
 API_SERVER_ADDRESS=127.0.0.1
-API_SERVER_PORT=8000
+API_SERVER_PORT=9001
 ```
 
 When `APP_PASSWORD` is set, the login page appears before any transaction data loads.
@@ -79,7 +79,7 @@ sudo systemctl restart congress-web`.
 ```bash
 cd /opt/F9_CongressTrading
 source .venv/bin/activate
-python -m src.api   # API on :8000
+python -m src.api   # API on :9001
 
 # separate terminal:
 cd frontend && npm ci && npm run build && npm run preview  # or use Caddy in prod
@@ -143,7 +143,7 @@ yourdomain.com {
     root * /opt/F9_CongressTrading/frontend/dist
     encode gzip
     handle /api/* {
-        reverse_proxy 127.0.0.1:8000
+        reverse_proxy 127.0.0.1:9001
     }
     handle {
         try_files {path} /index.html

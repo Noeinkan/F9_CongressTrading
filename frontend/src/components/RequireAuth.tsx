@@ -40,7 +40,7 @@ export function RequireAuth() {
           <Alert color="red" title="Session probe timed out">
             The dashboard could not reach <code>/api/session</code> within{" "}
             {SESSION_PROBE_TIMEOUT_MS / 1000}s. Make sure the FastAPI server is
-            running on port 8000.
+            running on port 9001.
           </Alert>
           <Button onClick={() => session.refetch()}>Try again</Button>
         </Stack>

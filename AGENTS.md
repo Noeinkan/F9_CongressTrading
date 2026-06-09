@@ -26,7 +26,7 @@ Python tracker for U.S. House and Senate public financial disclosures: raw PDFs 
 
 - **App auth (optional, VPS)**: `APP_USERNAME`, `APP_PASSWORD` (non-empty enables login gate), `APP_SESSION_SECRET`, `APP_SESSION_COOKIE`, `APP_SESSION_HTTPS_ONLY`, `APP_SESSION_MAX_AGE`, `APP_CORS_ORIGINS`.
 
-- **API server**: `API_SERVER_ADDRESS` (default `127.0.0.1`), `API_SERVER_PORT` (default `8000`), `API_RELOAD=1` for dev autoreload.
+- **API server**: `API_SERVER_ADDRESS` (default `127.0.0.1`), `API_SERVER_PORT` (default `9001`), `API_RELOAD=1` for dev autoreload.
 
 - **House PTR autodownload** (defaults in `src/config.py`): `HOUSE_PTR_AUTO_DOWNLOAD`, `HOUSE_PTR_AUTO_DOWNLOAD_MIN_YEAR`, `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR`, `HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS`. Be conservative with Clerk traffic; do not bulk-hammer `disclosures-clerk.house.gov`. Senate eFD has its own terms — README.
 

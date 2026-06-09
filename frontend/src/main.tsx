@@ -19,7 +19,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <MantineProvider theme={theme}>
         <FilterProvider>
           <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
+            <RouterProvider router={router} future={{ v7_startTransition: true }} />
           </QueryClientProvider>
         </FilterProvider>
       </MantineProvider>

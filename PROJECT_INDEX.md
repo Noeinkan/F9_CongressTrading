@@ -26,7 +26,7 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 
 | File | Responsibility |
 |------|---------------|
-| `__main__.py` | `python -m src.api` runner (uvicorn; `API_SERVER_PORT` default 8000) |
+| `__main__.py` | `python -m src.api` runner (uvicorn; `API_SERVER_PORT` default 9001) |
 | `app.py` | `create_app()`, middleware (CORS, session), router registration, `/api/login` |
 | `settings.py` | Session cookie + CORS settings (secret, name, https-only, max-age, origins) |
 | `security.py` | `verify_credentials`, `login_session`, `logout_session`, `current_user`, `require_auth` |
@@ -47,7 +47,7 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | Path | Responsibility |
 |------|---------------|
 | `package.json` | npm scripts (`dev`, `build`, `test`, `typecheck`, `lint`) |
-| `vite.config.ts` | Vite dev server, `/api` proxy → `127.0.0.1:8000`, Vitest |
+| `vite.config.ts` | Vite dev server, `/api` proxy → `127.0.0.1:9001` (reads `API_SERVER_PORT`), Vitest |
 | `src/main.tsx` | MantineProvider + QueryClientProvider + RouterProvider |
 | `src/App.tsx` | React Router config (login + 6 pages) |
 | `src/api/` | `client.ts` (fetch + credentials), `types.ts`, TanStack Query hooks per resource |

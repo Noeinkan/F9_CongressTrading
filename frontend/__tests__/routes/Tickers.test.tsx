@@ -102,4 +102,45 @@ describe("Tickers route", () => {
       "/members?member=Alice",
     );
   });
+
+  it("renders 'n/a' for non-equity trades in the Trade history table", async () => {
+    useTickerProfile.mockReturnValueOnce({
+      data: {
+        ready: true,
+        ticker: "UTWO",
+        issuer: { issuer_name: "US Treasury Note 2/15/2033", ticker: "UTWO", sector: "", industry: "", asset_type: "" },
+        kpis: { trades: 1, members: 1, buy: 1, sell: 0, disclosed_range: "$1K – $15K" },
+        disclosed_range: "$1K – $15K",
+        members: [],
+        transactions: [
+          {
+            member: "Alice",
+            chamber: "House",
+            party: "D",
+            ticker: "UTWO",
+            transaction_type: "P",
+            transaction_type_label: "Buy",
+            transaction_date: "2026-03-27",
+            filing_date: "2026-04-07",
+            amount_low: 1000,
+            amount_high: 15000,
+            amount_range_raw: "$1K – $15K",
+            issuer_name: "US Treasury Note 2/15/2033",
+            return_pct: null,
+            est_pnl_usd: null,
+            is_non_equity: true,
+          },
+        ],
+        transactions_total: 1,
+        transactions_limit: 200,
+        source: "sqlite",
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-trade-history-table"));
+    const cell = screen.getByTestId("tickers-trade-history-return");
+    expect(cell).toHaveTextContent("n/a");
+  });
 });

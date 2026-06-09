@@ -89,6 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Non chiamare Polygon (no-op utile per test; di solito non serve).",
     )
+    warm_poly.add_argument(
+        "--progress-every",
+        type=int,
+        default=25,
+        metavar="N",
+        help="Stampa una riga di avanzamento ogni N ticker (0 = silenzioso, default 25).",
+    )
 
     export_fd = sub.add_parser("export-fd-csv", help="Esporta CSV dai report FD")
     export_fd.add_argument("--out", type=Path, default=Path("data/fd_filings.csv"))
@@ -188,9 +195,26 @@ def main() -> None:
             as_of=as_of,
             force_refetch=bool(getattr(args, "refresh", False)),
             cache_only=cache_only,
+            progress_every=int(getattr(args, "progress_every", 25) or 0),
         )
         conn.close()
         print(f"warm-polygon-price-cache: elaborati {n:,} ticker distinti.")
+        # Reach back into the module to surface skip/cache-hit counters if the
+        # logger wrote them. We do this by re-querying the cache coverage after
+        # the run, so the user can spot-check whether Polygon returned data.
+        if not cache_only:
+            from .db import get_connection as _gc
+            _conn = _gc()
+            try:
+                cached = _conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) AS c FROM polygon_daily_bar_cache"
+                ).fetchone()["c"]
+                print(
+                    f"  → {cached:,} ticker coperti da polygon_daily_bar_cache. "
+                    f"({n - cached:,} senza dati — probabilmente ticker non quotati o asset non-equity.)"
+                )
+            finally:
+                _conn.close()
     elif args.command == "re-resolve-tickers":
         from .db import get_connection, init_db
         from .ingest_house import re_resolve_all_transaction_tickers
@@ -201,6 +225,21 @@ def main() -> None:
             conn.execute("DELETE FROM asset_resolution_cache")
             conn.commit()
             print("Cleared asset_resolution_cache (Polygon/OpenFIGI will run per distinct asset).")
+        # Fail fast: without an API key every empty-ticker row would just be rewritten to
+        # match_source='none', masking the real cause. Opt out with CONGRESS_RE_RESOLVE_NO_KEY_OK=1
+        # for sandboxed runs (e.g. CI) that intentionally exercise the no-network path.
+        if (
+            not (os.getenv("POLYGON_API_KEY") or "").strip()
+            and not (os.getenv("OPENFIGI_API_KEY") or "").strip()
+            and (os.getenv("CONGRESS_RE_RESOLVE_NO_KEY_OK") or "").strip().lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise SystemExit(
+                "re-resolve-tickers needs at least one of POLYGON_API_KEY or OPENFIGI_API_KEY. "
+                "Without keys, all empty-ticker rows are written back as match_source='none' "
+                "and the cache silently becomes useless. Set CONGRESS_RE_RESOLVE_NO_KEY_OK=1 "
+                "to run anyway (no network lookups will happen)."
+            )
         processed = re_resolve_all_transaction_tickers(conn)
         print(f"Processed {processed:,} transactions.")
         conn.close()

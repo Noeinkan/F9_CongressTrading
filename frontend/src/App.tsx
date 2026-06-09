@@ -11,7 +11,9 @@ import { Raw } from "@/routes/Raw";
 import { Review } from "@/routes/Review";
 import { Tickers } from "@/routes/Tickers";
 
-export const router = createBrowserRouter([
+export const router = createBrowserRouter(
+  [
+
   {
     path: "/login",
     element: <Login />,
@@ -34,4 +36,10 @@ export const router = createBrowserRouter([
   },
   { path: "/404", element: <NotFound /> },
   { path: "*", element: <Navigate to="/404" replace /> },
-]);
+  ],
+  {
+    future: {
+      v7_relativeSplatPath: true,
+    },
+  },
+);

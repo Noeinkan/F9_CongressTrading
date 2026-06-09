@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Killa i processi che tengono occupate le porte 8000 (API) e 5173-5175 (Vite).
+    Killa i processi che tengono occupate le porte 9001 (API) e 5173-5175 (Vite).
 .DESCRIPTION
     Usa Get-NetTCPConnection per trovare i PID e termina solo quelli,
     con taskkill /T /F per chiudere l'intero process tree (incluso
@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = "SilentlyContinue"
 
-$ports = @(8000, 5173, 5174, 5175)
+$ports = @(9001, 5173, 5174, 5175)
 $killed = 0
 $myPid = $PID
 $myTree = @($myPid)
@@ -42,7 +42,7 @@ foreach ($port in $ports) {
 }
 
 if ($killed -eq 0) {
-    Write-Host "  Nessun processo trovato sulle porte 8000/5173-5175 (o tutti protetti)."
+    Write-Host "  Nessun processo trovato sulle porte 9001/5173-5175 (o tutti protetti)."
 } else {
     Write-Host "  Terminati $killed processi."
 }

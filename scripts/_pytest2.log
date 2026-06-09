@@ -1,0 +1,349 @@
+..................................F...............                       [100%]
+================================== FAILURES ===================================
+_________________________ test_tickers_list_row_shape _________________________
+
+client = <starlette.testclient.TestClient object at 0x0000026825AC56A0>
+
+    def test_tickers_list_row_shape(client):
+        _login(client)
+>       r = client.get("/api/tickers?page_size=10")
+
+tests\test_api_tickers.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\starlette\testclient.py:514: in get
+    return super().get(
+.venv\Lib\site-packages\httpx\_client.py:1053: in get
+    return self.request(
+.venv\Lib\site-packages\starlette\testclient.py:484: in request
+    return super().request(
+.venv\Lib\site-packages\httpx\_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+.venv\Lib\site-packages\httpx\_client.py:914: in send
+    response = self._send_handling_auth(
+.venv\Lib\site-packages\httpx\_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv\Lib\site-packages\httpx\_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+.venv\Lib\site-packages\httpx\_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+.venv\Lib\site-packages\starlette\testclient.py:377: in handle_request
+    raise exc
+.venv\Lib\site-packages\starlette\testclient.py:374: in handle_request
+    portal.call(self.app, scope, receive, send)
+.venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\concurrent\futures\_base.py:450: in result
+    return self.__get_result()
+..\..\AppData\Local\Python\pythoncore-3.14-64\Lib\concurrent\futures\_base.py:395: in __get_result
+    raise self._exception
+.venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+.venv\Lib\site-packages\fastapi\applications.py:1054: in __call__
+    await super().__call__(scope, receive, send)
+.venv\Lib\site-packages\starlette\applications.py:113: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv\Lib\site-packages\starlette\middleware\errors.py:187: in __call__
+    raise exc
+.venv\Lib\site-packages\starlette\middleware\errors.py:165: in __call__
+    await self.app(scope, receive, _send)
+.venv\Lib\site-packages\starlette\middleware\cors.py:85: in __call__
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\starlette\middleware\sessions.py:85: in __call__
+    await self.app(scope, receive, send_wrapper)
+.venv\Lib\site-packages\starlette\middleware\exceptions.py:62: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv\Lib\site-packages\starlette\routing.py:715: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv\Lib\site-packages\starlette\routing.py:735: in app
+    await route.handle(scope, receive, send)
+.venv\Lib\site-packages\starlette\routing.py:288: in handle
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\starlette\routing.py:76: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv\Lib\site-packages\starlette\routing.py:73: in app
+    response = await f(request)
+.venv\Lib\site-packages\fastapi\routing.py:301: in app
+    raw_response = await run_endpoint_function(
+.venv\Lib\site-packages\fastapi\routing.py:214: in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+.venv\Lib\site-packages\starlette\concurrency.py:39: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func, *args)
+.venv\Lib\site-packages\anyio\to_thread.py:63: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:2518: in run_sync_in_worker_thread
+    return await future
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:1002: in run
+    result = context.run(func, *args)
+src\api\routers\tickers.py:164: in tickers_list
+    board = ticker_leaderboard(s.filtered)
+src\api\_tickers_analytics.py:357: in ticker_leaderboard
+    metrics = trade_return_metrics(sub_t)
+src\api\_tickers_analytics.py:213: in trade_return_metrics
+    bars = load_polygon_bars_live(str(transactions["ticker"].iloc[0]).strip().upper())
+src\api\_tickers_analytics.py:111: in load_polygon_bars_live
+    init_db(conn)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+conn = <sqlite3.Connection object at 0x00000268273F54E0>
+
+    def init_db(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                chamber TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT '',
+                district TEXT NOT NULL DEFAULT '',
+                party TEXT NOT NULL DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(normalized_name, chamber, state, district)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS filings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                chamber TEXT NOT NULL,
+                filing_type TEXT NOT NULL,
+                filing_date TEXT NOT NULL DEFAULT '',
+                doc_id TEXT NOT NULL DEFAULT '',
+                source_url TEXT NOT NULL DEFAULT '',
+                raw_document_path TEXT NOT NULL,
+                source_hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(member_id) REFERENCES members(id),
+                UNIQUE(member_id, chamber, filing_type, filing_date, doc_id, raw_document_path)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS issuers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issuer_name TEXT NOT NULL,
+                ticker TEXT NOT NULL DEFAULT '',
+                sector TEXT NOT NULL DEFAULT '',
+                industry TEXT NOT NULL DEFAULT '',
+                asset_type TEXT NOT NULL DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(issuer_name, ticker, asset_type)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filing_id INTEGER NOT NULL,
+                issuer_id INTEGER,
+                transaction_date TEXT NOT NULL DEFAULT '',
+                owner_type TEXT NOT NULL DEFAULT '',
+                asset_name_raw TEXT NOT NULL,
+                asset_name_normalized TEXT NOT NULL DEFAULT '',
+                asset_type TEXT NOT NULL DEFAULT '',
+                ticker TEXT NOT NULL DEFAULT '',
+                cusip_or_figi TEXT NOT NULL DEFAULT '',
+                transaction_type TEXT NOT NULL DEFAULT '',
+                amount_low INTEGER,
+                amount_high INTEGER,
+                amount_range_raw TEXT NOT NULL DEFAULT '',
+                confidence_score REAL NOT NULL DEFAULT 0.0,
+                review_status TEXT NOT NULL DEFAULT 'pending',
+                source_page INTEGER,
+                source_row TEXT NOT NULL DEFAULT '',
+                source_hash TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(filing_id) REFERENCES filings(id),
+                FOREIGN KEY(issuer_id) REFERENCES issuers(id),
+                UNIQUE(filing_id, source_hash)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transaction_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(transaction_id) REFERENCES transactions(id),
+                UNIQUE(transaction_id, tag, value)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL UNIQUE,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY(transaction_id) REFERENCES transactions(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_resolution_cache (
+                asset_name_key TEXT PRIMARY KEY,
+                asset_name_raw TEXT NOT NULL,
+                asset_name_normalized TEXT NOT NULL DEFAULT '',
+                issuer_name TEXT NOT NULL DEFAULT '',
+                ticker TEXT NOT NULL DEFAULT '',
+                cusip_or_figi TEXT NOT NULL DEFAULT '',
+                asset_type TEXT NOT NULL DEFAULT '',
+                sector TEXT NOT NULL DEFAULT '',
+                industry TEXT NOT NULL DEFAULT '',
+                confidence_score REAL NOT NULL DEFAULT 0.0,
+                resolution_status TEXT NOT NULL DEFAULT '',
+                match_source TEXT NOT NULL DEFAULT '',
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member TEXT NOT NULL,
+                chamber TEXT NOT NULL,
+                filing_date TEXT,
+                transaction_date TEXT,
+                asset TEXT,
+                ticker TEXT,
+                transaction_type TEXT,
+                amount_range TEXT,
+                source_url TEXT,
+                source_file TEXT,
+                inserted_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_unique
+            ON trades (
+                member, chamber, filing_date, transaction_date,
+                asset, transaction_type, amount_range, source_url
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS files_ingested (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL UNIQUE,
+                sha256 TEXT,
+                ingested_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ticker_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset TEXT NOT NULL UNIQUE,
+                ticker TEXT,
+                source TEXT,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fd_filings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member TEXT NOT NULL,
+                chamber TEXT NOT NULL,
+                filing_type TEXT,
+                state_district TEXT,
+                year INTEGER,
+                filing_date TEXT,
+                doc_id TEXT,
+                source_file TEXT,
+                inserted_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fd_unique
+            ON fd_filings (
+                member, chamber, filing_type, state_district,
+                year, filing_date, doc_id, source_file
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS polygon_daily_bar_cache (
+                ticker TEXT NOT NULL,
+                bar_date TEXT NOT NULL,
+                close REAL NOT NULL,
+                fetched_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (ticker, bar_date)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ticker_details_cache (
+                ticker TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                homepage_url TEXT NOT NULL DEFAULT '',
+                total_employees INTEGER,
+                market_cap REAL,
+                primary_exchange TEXT NOT NULL DEFAULT '',
+                sic_description TEXT NOT NULL DEFAULT '',
+                locale TEXT NOT NULL DEFAULT '',
+                fetched_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        _ensure_columns(
+            conn,
+            "asset_resolution_cache",
+            {
+                "sector": "TEXT NOT NULL DEFAULT ''",
+                "industry": "TEXT NOT NULL DEFAULT ''",
+                "resolution_status": "TEXT NOT NULL DEFAULT ''",
+            },
+        )
+>       conn.execute(
+            """
+            UPDATE asset_resolution_cache
+            SET resolution_status = CASE
+                WHEN ticker <> '' AND confidence_score >= 0.98 THEN 'exact_match'
+                WHEN ticker <> '' THEN 'fuzzy_match'
+                ELSE 'manual_review'
+            END
+            WHERE COALESCE(resolution_status, '') = ''
+            """
+        )
+E       sqlite3.OperationalError: database is locked
+
+src\db.py:271: OperationalError
+=========================== short test summary info ===========================
+FAILED tests/test_api_tickers.py::test_tickers_list_row_shape - sqlite3.Opera...
+1 failed, 49 passed in 6911.02s (1:55:11)

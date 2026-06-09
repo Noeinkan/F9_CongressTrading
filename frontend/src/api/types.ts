@@ -363,17 +363,21 @@ export type MemberKpis = {
 export type MemberTickerRow = {
   ticker: string;
   issuer_name?: string;
-  buy: number;
-  sell: number;
-  call: number;
-  put: number;
-  exchange: number;
-  trades: number;
-  amount_low_sum: number;
-  amount_high_sum: number;
-  disclosed_range: string;
-  first_trade: string | null;
-  last_trade: string | null;
+  transaction_type: string;
+  transaction_type_label: string;
+  transaction_date: string | null;
+  filing_date?: string | null;
+  amount_low: number | null;
+  amount_high: number | null;
+  amount_range_raw: string;
+  disclosure_url?: string;
+  price_trade?: string | null;
+  price_session?: string | null;
+  price_asof?: string | null;
+  price_asof_session?: string | null;
+  return_pct?: number | null;
+  est_pnl_usd?: number | null;
+  is_non_equity?: boolean;
 };
 
 export type MemberTickersResponse = {
@@ -441,6 +445,9 @@ export type TickersLeaderboardRow = {
   disclosed_range: string;
   first_trade: string | null;
   last_trade: string | null;
+  return_pct: number | null;
+  return_trade_count: number;
+  is_non_equity?: boolean;
 };
 
 export type TickersListResponse = {
@@ -479,6 +486,8 @@ export type TickerProfileKpis = {
   disclosed_range: string;
   first_trade: string | null;
   last_trade: string | null;
+  return_pct: number | null;
+  return_trade_count: number;
   sparklines?: {
     transactions: SparklinePoint[];
     members: SparklinePoint[];
@@ -518,6 +527,13 @@ export type TickerTransactionRow = {
   issuer_name: string;
   asset_name_raw?: string;
   disclosure_url?: string;
+  price_trade?: string | null;
+  price_session?: string | null;
+  price_asof?: string | null;
+  price_asof_session?: string | null;
+  return_pct?: number | null;
+  est_pnl_usd?: number | null;
+  is_non_equity?: boolean;
 };
 
 export type TickerDetailResponse = {

@@ -20,7 +20,7 @@ The Streamlit dashboard has been replaced by a **FastAPI JSON API (`src/api/`) +
 
 **Clean-boundary rule:** no Streamlit imports anywhere under `src/api/`. Analytics live in `src/api/repository.py`, `_constants.py`, `_format.py`, `_sparklines.py`, and `_*_analytics.py`.
 
-- Run API: `python -m src.api` (env `API_SERVER_PORT`, default 8000).
+- Run API: `python -m src.api` (env `API_SERVER_PORT`, default 9001).
 - Run frontend: `cd frontend && npm run dev` (Vite on :5173; proxies `/api/*` to the API; all `fetch` uses `credentials: "include"`).
 - Auth: signed httpOnly session cookie (Starlette SessionMiddleware), uses `APP_USERNAME`/`APP_PASSWORD`.
 - API tests: `tests/test_api_*.py`. Frontend tests: `cd frontend && npm test`.

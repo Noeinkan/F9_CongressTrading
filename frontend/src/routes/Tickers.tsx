@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -23,6 +24,7 @@ import {
 } from "@/api/tickers";
 import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerMember";
+import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTileSimple } from "@/components/KpiTileSimple";
 import { PageState } from "@/components/PageState";
@@ -31,7 +33,14 @@ import { PriceOverlayChart } from "@/components/PriceOverlayChart";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
-import { formatDate, msnMoneyQuoteUrl, yahooFinanceQuoteUrl } from "@/utils/format";
+import {
+  formatDate,
+  formatSignedPercent,
+  msnMoneyQuoteUrl,
+  returnColor,
+  yahooFinanceQuoteUrl,
+} from "@/utils/format";
+import { rangeOpacity } from "@/utils/transactions";
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -174,6 +183,24 @@ export function Tickers() {
               </SimpleGrid>
             ) : null}
 
+            {kpis ? (
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+                <KpiTileSimple
+                  kpi={{
+                    key: "weighted_return",
+                    label: "Return (since trade)",
+                    value: formatSignedPercent(kpis.return_pct),
+                    detail:
+                      kpis.return_pct == null
+                        ? "Polygon cache empty"
+                        : `Weighted over ${kpis.return_trade_count ?? 0} trade${
+                            (kpis.return_trade_count ?? 0) === 1 ? "" : "s"
+                          }`,
+                  }}
+                />
+              </SimpleGrid>
+            ) : null}
+
             <ChartCard title={COPY.tickers.whoTraded} testId="tickers-members-table">
               <Table.ScrollContainer minWidth={900}>
                 <Table striped data-testid="tickers-who-traded">
@@ -191,30 +218,149 @@ export function Tickers() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {(profile.data?.members ?? []).map((row) => (
-                      <Table.Tr key={row.member}>
-                        <Table.Td>
-                          <Anchor
-                            component={Link}
-                            to={`/members?member=${encodeURIComponent(row.member)}`}
-                            size="sm"
+                    {(profile.data?.members ?? []).map((row) => {
+                      // Per-row trade-size bucket: same opacity ramp as the
+                      // "By ticker" table, so the cell's color saturation
+                      // captures the importance of the trade.
+                      const rowOpacity = rangeOpacity(row.disclosed_range);
+                      return (
+                        <Table.Tr key={row.member}>
+                          <Table.Td>
+                            <Anchor
+                              component={Link}
+                              to={`/members?member=${encodeURIComponent(row.member)}`}
+                              size="sm"
+                            >
+                              {row.member}
+                            </Anchor>
+                          </Table.Td>
+                          <Table.Td
+                            c="teal"
+                            style={{
+                              opacity: row.buy ? rowOpacity : 0.35,
+                              fontWeight: 600,
+                            }}
+                            data-testid="tickers-who-traded-buys"
                           >
-                            {row.member}
-                          </Anchor>
-                        </Table.Td>
-                        <Table.Td>{row.buy}</Table.Td>
-                        <Table.Td>{row.sell}</Table.Td>
-                        <Table.Td>{row.call}</Table.Td>
-                        <Table.Td>{row.put}</Table.Td>
-                        <Table.Td>{row.trades}</Table.Td>
-                        <Table.Td>{row.disclosed_range}</Table.Td>
-                        <Table.Td>{formatDate(row.first_trade)}</Table.Td>
-                        <Table.Td>{formatDate(row.last_trade)}</Table.Td>
-                      </Table.Tr>
-                    ))}
+                            {row.buy}
+                          </Table.Td>
+                          <Table.Td
+                            c="red"
+                            style={{
+                              opacity: row.sell ? rowOpacity : 0.35,
+                              fontWeight: 600,
+                            }}
+                            data-testid="tickers-who-traded-sells"
+                          >
+                            {row.sell}
+                          </Table.Td>
+                          <Table.Td>{row.call}</Table.Td>
+                          <Table.Td>{row.put}</Table.Td>
+                          <Table.Td>{row.trades}</Table.Td>
+                          <Table.Td>{row.disclosed_range}</Table.Td>
+                          <Table.Td>{formatDate(row.first_trade)}</Table.Td>
+                          <Table.Td>{formatDate(row.last_trade)}</Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
                   </Table.Tbody>
                 </Table>
               </Table.ScrollContainer>
+            </ChartCard>
+
+            <ChartCard
+              title="Trade history"
+              caption="Most recent disclosures on this ticker. The Return column shows the market move from the trade date to today, using the local Polygon daily-bar cache."
+              testId="tickers-trade-history"
+            >
+              {profile.data?.transactions && profile.data.transactions.length > 0 ? (
+                <Table.ScrollContainer minWidth={1100}>
+                  <Table striped data-testid="tickers-trade-history-table">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Date</Table.Th>
+                        <Table.Th>Member</Table.Th>
+                        <Table.Th>Type</Table.Th>
+                        <Table.Th>Amount</Table.Th>
+                        <Table.Th>Price (trade)</Table.Th>
+                        <Table.Th>Price (now)</Table.Th>
+                        <Table.Th>Return</Table.Th>
+                        <Table.Th>Est. P&amp;L</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {profile.data.transactions.map((row, i) => (
+                        <Table.Tr
+                          key={`${row.member}-${row.transaction_date}-${i}`}
+                          data-testid="tickers-trade-history-row"
+                        >
+                          <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
+                          <Table.Td>{row.member}</Table.Td>
+                          <Table.Td>
+                            <DirectionBadge
+                              label={row.transaction_type_label}
+                              amountRangeRaw={row.amount_range_raw}
+                              size="xs"
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <Text
+                              size="sm"
+                              style={{ opacity: rangeOpacity(row.amount_range_raw) }}
+                            >
+                              {row.amount_range_raw}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            {row.price_trade ? `$${Number(row.price_trade).toFixed(2)}` : "—"}
+                          </Table.Td>
+                          <Table.Td>
+                            {row.price_asof ? `$${Number(row.price_asof).toFixed(2)}` : "—"}
+                          </Table.Td>
+                          <Table.Td
+                            c={returnColor(row.return_pct)}
+                            fw={600}
+                            data-testid="tickers-trade-history-return"
+                          >
+                            {row.is_non_equity ? (
+                              <Tooltip
+                                label="Non-equity asset (bond, treasury, etc.) — no daily market price."
+                                withArrow
+                              >
+                                <Text component="span" c="dimmed" fw={400}>
+                                  n/a
+                                </Text>
+                              </Tooltip>
+                            ) : (
+                              formatSignedPercent(row.return_pct)
+                            )}
+                          </Table.Td>
+                          <Table.Td c={returnColor(row.est_pnl_usd)}>
+                            {row.is_non_equity ? (
+                              <Tooltip
+                                label="Non-equity asset (bond, treasury, etc.) — no daily market price."
+                                withArrow
+                              >
+                                <Text component="span" c="dimmed" fw={400}>
+                                  n/a
+                                </Text>
+                              </Tooltip>
+                            ) : row.est_pnl_usd == null ? (
+                              "—"
+                            ) : (
+                              `${row.est_pnl_usd >= 0 ? "+" : ""}$${Math.abs(
+                                row.est_pnl_usd,
+                              ).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                            )}
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              ) : (
+                <Text c="dimmed">No disclosures in the active slice for this ticker.</Text>
+              )}
             </ChartCard>
 
             <ChartCard title={COPY.tickers.priceOverlay} testId="tickers-price-overlay">

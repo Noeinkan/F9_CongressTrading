@@ -104,6 +104,9 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
         return pd.DataFrame()
     sub = add_trade_categories(sub)
     issuer_col = "issuer_name" if "issuer_name" in sub.columns else None
+    # Lazy import to avoid a circular import at module load.
+    from ._tickers_analytics import trade_return_metrics, weighted_aggregate_return
+
     rows: list[dict[str, object]] = []
     for ticker, g in sub.groupby("ticker", observed=True):
         t = str(ticker).strip()
@@ -115,6 +118,8 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
             non_empty = non_empty[non_empty != ""]
             if not non_empty.empty:
                 issuer = non_empty.iloc[0]
+        metrics = trade_return_metrics(g)
+        agg_metric = weighted_aggregate_return(metrics)
         rows.append(
             {
                 "ticker": t,
@@ -129,11 +134,82 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
                 "amount_high_sum": float(g["amount_high"].sum(skipna=True)),
                 "first_trade": g["transaction_date"].min(),
                 "last_trade": g["transaction_date"].max(),
+                "return_pct": agg_metric["return_pct"] if agg_metric else None,
+                "return_trade_count": agg_metric["trade_count"] if agg_metric else 0,
             }
         )
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows).sort_values(["trades", "amount_high_sum"], ascending=[False, False])
+
+
+# Columns the members/transaction-list payload surfaces to the frontend.
+_MEMBER_TRANSACTION_COLUMNS: tuple[str, ...] = (
+    "ticker",
+    "issuer_name",
+    "transaction_type",
+    "transaction_type_label",
+    "transaction_date",
+    "filing_date",
+    "amount_low",
+    "amount_high",
+    "amount_range_raw",
+    "disclosure_url",
+    "price_trade",
+    "price_session",
+    "price_asof",
+    "price_asof_session",
+    "return_pct",
+    "est_pnl_usd",
+    "is_non_equity",
+)
+
+
+def member_transactions(frame: pd.DataFrame, member: str) -> pd.DataFrame:
+    """One row per transaction for ``member`` in ``frame`` (newest first).
+
+    Mirrors the per-trade column set exposed by ``ticker_profile``'s
+    ``transactions`` list (date, type, ticker, amount range, return) so the
+    Members drill-down can show a true trade-by-trade history instead of a
+    per-ticker rollup.
+
+    Per-trade return metrics come from the local Polygon cache only — same
+    offline-friendly contract as the Tickers page.
+    """
+    sub = frame.loc[frame["member"].astype(str) == str(member)].copy()
+    if sub.empty:
+        return pd.DataFrame(columns=list(_MEMBER_TRANSACTION_COLUMNS))
+    sub = add_trade_categories(sub)
+    if "transaction_type_label" not in sub.columns:
+        sub["transaction_type_label"] = sub["transaction_type"].map(transaction_type_display_label)
+
+    keep = [c for c in _MEMBER_TRANSACTION_COLUMNS if c in sub.columns]
+    out = sub[keep].copy()
+    out = out.sort_values(["transaction_date", "ticker"], ascending=[False, True]).reset_index(drop=True)
+
+    # Group per ticker so the single-ticker Polygon helper can be reused.
+    from ._tickers_analytics import trade_return_metrics
+
+    if not out.empty and "ticker" in out.columns:
+        metric_keys = (
+            "price_trade",
+            "price_session",
+            "price_asof",
+            "price_asof_session",
+            "return_pct",
+            "est_pnl_usd",
+            "is_non_equity",
+        )
+        for idx_block in out.groupby("ticker", observed=True).groups.values():
+            block = out.loc[idx_block]
+            metrics = trade_return_metrics(block)
+            if len(metrics) != len(block):
+                continue
+            for row_label, m in zip(idx_block, metrics, strict=True):
+                for key in metric_keys:
+                    if key in _MEMBER_TRANSACTION_COLUMNS and key in m:
+                        out.at[row_label, key] = m.get(key)
+    return out
 
 
 def ticker_member_breakdown(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:

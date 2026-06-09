@@ -53,7 +53,7 @@ export function Login() {
             <Title order={3}>Sign in</Title>
             <Alert color="red" title="Session probe failed">
               Could not reach <code>/api/session</code>. Make sure the FastAPI server is
-              running on port 8000.
+              running on port 9001.
             </Alert>
             <Button variant="default" onClick={() => session.refetch()}>
               Try again

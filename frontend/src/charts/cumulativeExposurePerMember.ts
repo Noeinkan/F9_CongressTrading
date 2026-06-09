@@ -45,10 +45,53 @@ function compactCurrency(v: number): string {
   return `${sign}$${abs}`;
 }
 
+// Format the x-axis time tick as a short, scannable date. ECharts' default for
+// "time" axes is "yyyy-MM-dd" which is too dense to read at the widths we have.
+function formatXDate(value: number): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  // "Mar 2024" is the sweet spot — fits without crowding when the x-axis is
+  // shared across 5+ panels.
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 function shortName(name: string, max = 26): string {
   const safe = name ?? "";
   if (safe.length <= max) return safe;
   return `${safe.slice(0, max - 1)}…`;
+}
+
+// Pick a "nice" round axis domain that contains [dataMin, dataMax] and snaps
+// to a clean tick interval. The result also covers at least the first
+// round-multiple above dataMax and below dataMin so we get whole-number
+// ticks (e.g. -$30K, -$20K, -$10K, $0, $10K) instead of $8,371.
+function computeSharedDomain(dataMin: number, dataMax: number): {
+  min: number;
+  max: number;
+  interval: number;
+} {
+  // Always include 0 — buys and sells above/below it are the whole point of
+  // the chart.
+  const lo = Math.min(0, dataMin);
+  const hi = Math.max(0, dataMax);
+
+  // Round magnitude up to the next 1, 2, 2.5, 5 × 10^k to get a clean tick
+  // interval. We aim for ~4–6 ticks across the range.
+  const range = Math.max(1, hi - lo);
+  const targetTicks = 5;
+  const roughInterval = range / targetTicks;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
+  const normalized = roughInterval / magnitude;
+  let niceInterval: number;
+  if (normalized < 1.5) niceInterval = 1 * magnitude;
+  else if (normalized < 3) niceInterval = 2 * magnitude;
+  else if (normalized < 7) niceInterval = 5 * magnitude;
+  else niceInterval = 10 * magnitude;
+
+  const niceMin = Math.floor(lo / niceInterval) * niceInterval;
+  const niceMax = Math.ceil(hi / niceInterval) * niceInterval;
+
+  return { min: niceMin, max: niceMax, interval: niceInterval };
 }
 
 export type CumulativeExposurePerMemberMeta = {
@@ -64,12 +107,29 @@ export function buildCumulativeExposurePerMemberOption(
 ): Record<string, unknown> | null {
   if (!rows.length || !members.length) return null;
 
-  const n = members.length;
-  const panelHeight = 96;
-  const totalHeight = Math.max(280, n * panelHeight + 32);
+  // Flip member order: place the member with the largest *absolute* net
+  // exposure at the top so the most consequential swimlane is read first.
+  // Tie-break alphabetically for stability across renders.
+  const memberRank = new Map<string, number>();
+  members.forEach((m) => {
+    const memberRows = rows.filter((r) => r.member === m);
+    const lastNet = memberRows[memberRows.length - 1]?.cumulative_net ?? 0;
+    memberRank.set(m, Math.abs(lastNet));
+  });
+  const orderedMembers = [...members].sort((a, b) => {
+    const ra = memberRank.get(a) ?? 0;
+    const rb = memberRank.get(b) ?? 0;
+    if (rb !== ra) return rb - ra;
+    return a.localeCompare(b);
+  });
+
+  const n = orderedMembers.length;
+  const panelHeight = 100;
+  // Extra space at the bottom for the x-axis title row.
+  const totalHeight = Math.max(300, n * panelHeight + 56);
 
   const memberColorMap: Record<string, string> = {};
-  members.forEach((m, i) => {
+  orderedMembers.forEach((m, i) => {
     memberColorMap[m] = memberColor(i);
   });
 
@@ -88,19 +148,40 @@ export function buildCumulativeExposurePerMemberOption(
     null as string | null,
   );
 
-  members.forEach((member, i) => {
+  // All panels share the same y-domain too — otherwise you can't compare
+  // members at a glance (one person's $5K step looks identical to another's
+  // $50K step because each panel auto-scales).
+  const dataMin = rows.reduce(
+    (acc, r) => Math.min(acc, r.cumulative_net),
+    Number.POSITIVE_INFINITY,
+  );
+  const dataMax = rows.reduce(
+    (acc, r) => Math.max(acc, r.cumulative_net),
+    Number.NEGATIVE_INFINITY,
+  );
+  const sharedYDomain = computeSharedDomain(dataMin, dataMax);
+  const sharedYTickInterval = sharedYDomain.interval;
+
+  orderedMembers.forEach((member, i) => {
     const top = `${Math.round((i / n) * 100)}%`;
     const height = `${Math.round((1 / n) * 100 - 1.5)}%`;
     const accent = memberColorMap[member];
     const isFirst = i === 0;
     const isLast = i === n - 1;
 
+    // Swimlane: paint the panel background with a faint tint of the member
+    // accent. Alternating rows also get a slightly different base so the
+    // lanes read as distinct rows even when the data is sparse.
+    const laneFill = i % 2 === 0 ? `${accent}1a` : "#f8fafc";
     grids.push({
       left: 168,
       right: 124,
       top,
       height,
       containLabel: false,
+      backgroundStyle: {
+        color: laneFill,
+      },
     });
 
     xAxes.push({
@@ -113,10 +194,27 @@ export function buildCumulativeExposurePerMemberOption(
         fontSize: 11,
         color: "#475569",
         hideOverlap: true,
+        formatter: (v: number) => formatXDate(v),
       },
       axisLine: { show: isLast, lineStyle: { color: "#cbd5e1" } },
       axisTick: { show: isLast },
     });
+
+    // The x-axis *name* only renders on the bottom panel — ECharts attaches
+    // it to whichever axis we configure. Putting `name: "Transaction date"`
+    // on the bottom x-axis answers "what is this axis?" in one glance.
+    if (isLast) {
+      const lastXAxis = xAxes[xAxes.length - 1] as Record<string, unknown>;
+      lastXAxis.name = "Transaction date";
+      lastXAxis.nameLocation = "middle";
+      lastXAxis.nameGap = 28;
+      lastXAxis.nameTextStyle = {
+        color: "#0f172a",
+        fontSize: 12,
+        fontWeight: 600,
+        padding: [8, 0, 0, 0],
+      };
+    }
 
     yAxes.push({
       type: "value",
@@ -131,6 +229,9 @@ export function buildCumulativeExposurePerMemberOption(
         align: "left",
         padding: [0, 0, 0, 4],
       },
+      min: sharedYDomain.min,
+      max: sharedYDomain.max,
+      interval: sharedYTickInterval,
       axisLabel: {
         fontSize: 10,
         color: "#64748b",
@@ -140,8 +241,8 @@ export function buildCumulativeExposurePerMemberOption(
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: {
-        show: i === 0, // only draw the first panel's grid lines; keeps the chart airy
-        lineStyle: { color: "#e2e8f0", type: "dashed" },
+        show: true,
+        lineStyle: { color: "#ffffff", type: "solid" },
       },
     });
 
@@ -241,28 +342,26 @@ export function buildCumulativeExposurePerMemberOption(
       });
     }
 
-    // Dashed $0 reference line on the top panel — referenced by the "How to
-    // read this chart" copy but never actually drawn before.
-    if (isFirst) {
-      series.push({
-        type: "line",
-        xAxisIndex: i,
-        yAxisIndex: i,
-        markLine: {
-          symbol: "none",
-          silent: true,
-          label: {
-            show: true,
-            position: "insideEndTop",
-            color: "#94a3b8",
-            fontSize: 10,
-            formatter: "$0",
-          },
-          lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-          data: [{ yAxis: 0 }],
+    // Dashed $0 reference line on every panel — "buys and sells balance
+    // out so far" is meaningless without the visual anchor.
+    series.push({
+      type: "line",
+      xAxisIndex: i,
+      yAxisIndex: i,
+      markLine: {
+        symbol: "none",
+        silent: true,
+        label: {
+          show: isFirst, // label only on top panel to avoid clutter
+          position: "insideEndTop",
+          color: "#94a3b8",
+          fontSize: 10,
+          formatter: "$0",
         },
-      });
-    }
+        lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
+        data: [{ yAxis: 0 }],
+      },
+    });
   });
 
   // Panel dividers are implied by grid alignment + the member-color band on

@@ -135,10 +135,10 @@ Avvio locale (tutto dalla root del repo):
 |---|---|
 | `npm start` | **⭐ Lancia API + frontend insieme.** Log colorati, Ctrl+C termina entrambi. |
 | `npm run dev` | Identico a `npm start` (alias). |
-| `npm run start:api-only` | Solo backend FastAPI (`:8000`). |
+| `npm run start:api-only` | Solo backend FastAPI (`:9001`). |
 | `npm run start:web-only` | Solo frontend Vite (`:5173`). |
 | `npm run start:detach` | Apre una nuova finestra PowerShell con dentro `npm start` (sopravvive se chiudi quella attuale). |
-| `npm run clean` | Killa processi appesi alle porte 8000/5173-5175. |
+| `npm run clean` | Killa processi appesi alle porte 9001/5173-5175. |
 | `powershell -ExecutionPolicy Bypass -File .\dev.ps1` | Fallback shell pura (no Node), log in file `.dev-*.log`. |
 | Manuale (2 terminali) | `python -m src.api` + `cd frontend && npm run dev`. |
 | In VS Code | `Ctrl+Shift+B` → `Start Dashboard` (compound task). |
@@ -151,7 +151,7 @@ Avvio locale (tutto dalla root del repo):
 
 Per esporre l'app su internet (es. `http://77.42.70.26/`) da un VPS Linux con repo e SQLite locali:
 
-1. Copia `.env.example` in `.env` e imposta `APP_USERNAME`, `APP_PASSWORD`, `API_SERVER_ADDRESS=127.0.0.1`, `API_SERVER_PORT=8000`
+1. Copia `.env.example` in `.env` e imposta `APP_USERNAME`, `APP_PASSWORD`, `API_SERVER_ADDRESS=127.0.0.1`, `API_SERVER_PORT=9001`
 2. Apri le porte firewall: `sudo ufw allow 80/tcp` (e `443/tcp` per HTTPS)
 3. Installa Caddy + systemd (`deploy/congress-api.service`, `deploy/congress-web.service` — vedi `deploy/README.md`)
 4. Da un altro laptop apri l’URL pubblico e accedi con username/password

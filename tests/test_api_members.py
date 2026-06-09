@@ -120,19 +120,16 @@ def test_members_tickers_shape_for_real_member(client):
         for key in (
             "ticker",
             "issuer_name",
-            "buy",
-            "sell",
-            "call",
-            "put",
-            "exchange",
-            "trades",
-            "amount_low_sum",
-            "amount_high_sum",
-            "disclosed_range",
-            "first_trade",
-            "last_trade",
+            "transaction_type",
+            "transaction_type_label",
+            "transaction_date",
+            "amount_low",
+            "amount_high",
+            "amount_range_raw",
+            "is_non_equity",
         ):
             assert key in row, f"missing tickers row key: {key}"
+        assert isinstance(row["is_non_equity"], bool)
 
 
 def test_members_committee_relevant_requires_auth(client):

@@ -1,4 +1,5 @@
 import { Alert, Box, Group, Stack, Text } from "@mantine/core";
+import { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 
 import type { TickerCumulativeExposureRow } from "@/api/types";
@@ -20,8 +21,25 @@ export function CumulativeExposurePerMember({
   rows,
   truncated,
 }: CumulativeExposurePerMemberProps) {
+  // Same ordering as the chart (largest absolute net first) so the legend
+  // matches the swimlanes top-to-bottom.
+  const orderedMembers = useMemo(() => {
+    // Last-seen net per member (rows arrive chronologically, so the final
+    // write is the member's current net).
+    const lastNetByMember = new Map<string, number>();
+    rows.forEach((r) => {
+      lastNetByMember.set(r.member, r.cumulative_net);
+    });
+    return [...members].sort((a, b) => {
+      const ra = Math.abs(lastNetByMember.get(a) ?? 0);
+      const rb = Math.abs(lastNetByMember.get(b) ?? 0);
+      if (rb !== ra) return rb - ra;
+      return a.localeCompare(b);
+    });
+  }, [members, rows]);
+
   const option = buildCumulativeExposurePerMemberOption(rows, members);
-  const meta = getCumulativeExposurePerMemberMeta(members, rows);
+  const meta = getCumulativeExposurePerMemberMeta(orderedMembers, rows);
 
   return (
     <div data-testid="cumulative-exposure-per-member">
@@ -100,15 +118,18 @@ export function CumulativeExposurePerMember({
 
       <Stack gap={2} mb="xs">
         <Text size="xs" c="dimmed">
-          Each panel is one member. Step up = buy, step down = sell, flat = no new trades. Dashed
-          line on the top panel marks the $0 break-even.
+          Each tinted band is one member's swimlane, ordered by absolute net
+          exposure (largest at the top). Step up = buy, step down = sell, flat
+          = no new trades. The x-axis is the transaction date. The dashed line
+          in every lane marks the $0 break-even; y-ticks are in disclosed
+          dollars.
         </Text>
       </Stack>
 
       {option ? (
         <ReactECharts
           option={option}
-          style={{ height: Math.max(360, members.length * 96 + 32), width: "100%" }}
+          style={{ height: Math.max(360, members.length * 100 + 56), width: "100%" }}
           opts={{ renderer: "svg" }}
           data-testid="cumulative-exposure-chart"
         />

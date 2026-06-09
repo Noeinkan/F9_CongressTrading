@@ -71,8 +71,10 @@ def test_tickers_list_row_shape(client):
         "disclosed_range",
         "first_trade",
         "last_trade",
+        "is_non_equity",
     ):
         assert key in row, f"missing leaderboard row key: {key}"
+    assert isinstance(row["is_non_equity"], bool)
 
 
 def test_tickers_list_sort_and_order(client):
@@ -179,6 +181,10 @@ def test_ticker_detail_shape_for_real_symbol(client):
             "last_trade",
         ):
             assert key in member_row, f"missing members row key: {key}"
+    if data["transactions"]:
+        tx_row = data["transactions"][0]
+        assert "is_non_equity" in tx_row, "missing transactions.is_non_equity"
+        assert isinstance(tx_row["is_non_equity"], bool)
 
 
 def test_ticker_detail_tx_limit_param(client):
@@ -283,3 +289,43 @@ def test_ticker_cumulative_exposure_for_real_symbol(client):
             "txn_type_label",
         ):
             assert key in row, f"missing cumulative row key: {key}"
+
+
+def test_resolve_session_close_returns_price_first():
+    """Regression: ``_resolve_session_close`` must always return ``(price, date)``.
+
+    The leaderboard + member-tickers endpoints 500'd when the trade date
+    wasn't an exact match in the Polygon bar cache because the
+    ``after``/``before`` branches returned ``(date, price)`` and downstream
+    ``price_trade <= 0`` blew up with ``TypeError``.
+    """
+    from datetime import date
+
+    from src.api._tickers_analytics import _resolve_session_close
+
+    bars = [
+        (date(2024, 1, 2), 100.0),
+        (date(2024, 1, 3), 101.5),
+        (date(2024, 1, 4), 102.0),
+    ]
+
+    # Exact match: any date in the bar list.
+    exact = _resolve_session_close(bars, date(2024, 1, 3))
+    assert exact is not None
+    price, session = exact
+    assert isinstance(price, float) and isinstance(session, date)
+    assert price == 101.5 and session == date(2024, 1, 3)
+
+    # Date before every cached bar — falls back to the first session.
+    before = _resolve_session_close(bars, date(2023, 12, 31))
+    assert before is not None
+    price, session = before
+    assert isinstance(price, float) and isinstance(session, date)
+    assert price == 100.0 and session == date(2024, 1, 2)
+
+    # Date after every cached bar — falls back to the last session.
+    after = _resolve_session_close(bars, date(2024, 1, 10))
+    assert after is not None
+    price, session = after
+    assert isinstance(price, float) and isinstance(session, date)
+    assert price == 102.0 and session == date(2024, 1, 4)

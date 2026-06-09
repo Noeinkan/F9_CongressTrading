@@ -9,6 +9,7 @@ import {
   Stack,
   Table,
   Text,
+  Tooltip,
 } from "@mantine/core";
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -28,7 +29,9 @@ import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
-import { formatDate } from "@/utils/format";
+import { formatCurrency, formatDate, formatSignedPercent, returnColor } from "@/utils/format";
+import { rangeOpacity } from "@/utils/transactions";
+import { DirectionBadge } from "@/components/DirectionBadge";
 
 const COMMITTEE_VIEW = "committee_relevance";
 
@@ -96,10 +99,15 @@ export function Members() {
   const kpis = memberTickers.data?.kpis;
   const topTickerRows = useMemo(() => {
     const rows = memberTickers.data?.rows ?? [];
-    return [...rows]
-      .sort((a, b) => b.trades - a.trades)
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.ticker) continue;
+      counts.set(r.ticker, (counts.get(r.ticker) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
       .slice(0, 12)
-      .map((r) => ({ label: r.ticker, value: r.trades }));
+      .map(([ticker, count]) => ({ label: ticker, value: count }));
   }, [memberTickers.data?.rows]);
 
   return (
@@ -232,9 +240,19 @@ export function Members() {
                               </Table.Td>
                               <Table.Td>{row.sector}</Table.Td>
                               <Table.Td>{row.matching_committees}</Table.Td>
-                              <Table.Td>{row.transaction_type_label}</Table.Td>
+                              <Table.Td>
+                                <DirectionBadge
+                                  label={row.transaction_type_label}
+                                  amountRangeRaw={row.amount_range_raw}
+                                  size="xs"
+                                />
+                              </Table.Td>
                               <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
-                              <Table.Td>{row.amount_range_raw}</Table.Td>
+                              <Table.Td>
+                                <Text size="sm" style={{ opacity: rangeOpacity(row.amount_range_raw) }}>
+                                  {row.amount_range_raw}
+                                </Text>
+                              </Table.Td>
                             </Table.Tr>
                           ))}
                         </Table.Tbody>
@@ -245,45 +263,93 @@ export function Members() {
               ) : null}
 
               <ChartCard title={COPY.members.byTicker} testId="members-by-ticker">
-                <Table.ScrollContainer minWidth={900}>
+                <Table.ScrollContainer minWidth={820}>
                   <Table striped data-testid="members-by-ticker-table">
                     <Table.Thead>
                       <Table.Tr>
+                        <Table.Th>Date</Table.Th>
                         <Table.Th>Ticker</Table.Th>
                         <Table.Th>Issuer</Table.Th>
-                        <Table.Th>Buys</Table.Th>
-                        <Table.Th>Sells</Table.Th>
-                        <Table.Th>Calls</Table.Th>
-                        <Table.Th>Puts</Table.Th>
-                        <Table.Th>Trades</Table.Th>
-                        <Table.Th>Range</Table.Th>
-                        <Table.Th>First</Table.Th>
-                        <Table.Th>Last</Table.Th>
+                        <Table.Th>Type</Table.Th>
+                        <Table.Th>Amount</Table.Th>
+                        <Table.Th>Filed</Table.Th>
+                        <Table.Th>P&amp;L</Table.Th>
+                        <Table.Th>P&amp;L %</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {(memberTickers.data?.rows ?? []).map((row) => (
-                        <Table.Tr key={row.ticker}>
-                          <Table.Td>
-                            <Anchor
-                              component={Link}
-                              to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                              size="sm"
-                            >
-                              {row.ticker}
-                            </Anchor>
+                      {(memberTickers.data?.rows ?? []).map((row, i) => {
+                        // Bucket the row's disclosed range into an opacity in
+                        // [0.35, 1] — the badge's color saturation tracks the
+                        // trade-size importance, per the design spec.
+                        return (
+                          <Table.Tr key={`${row.ticker}-${row.transaction_date ?? ""}-${i}`}>
+                            <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
+                            <Table.Td>
+                              <Anchor
+                                component={Link}
+                                to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
+                                size="sm"
+                              >
+                                {row.ticker}
+                              </Anchor>
+                            </Table.Td>
+                            <Table.Td c="dimmed">{row.issuer_name || "—"}</Table.Td>
+                            <Table.Td>
+                              <DirectionBadge
+                                label={row.transaction_type_label}
+                                amountRangeRaw={row.amount_range_raw}
+                                size="xs"
+                              />
+                            </Table.Td>
+                            <Table.Td>
+                              <Text
+                                size="sm"
+                                style={{ opacity: rangeOpacity(row.amount_range_raw) }}
+                              >
+                                {row.amount_range_raw}
+                              </Text>
+                            </Table.Td>
+                          <Table.Td>{formatDate(row.filing_date ?? null)}</Table.Td>
+                          <Table.Td
+                            c={returnColor(row.return_pct ?? null)}
+                            fw={600}
+                            data-testid="members-by-ticker-pnl"
+                          >
+                            {row.is_non_equity ? (
+                              <Tooltip
+                                label="Non-equity asset (bond, treasury, etc.) — no daily market price."
+                                withArrow
+                              >
+                                <Text component="span" c="dimmed" fw={400}>
+                                  n/a
+                                </Text>
+                              </Tooltip>
+                            ) : (
+                              formatCurrency(row.est_pnl_usd ?? null)
+                            )}
                           </Table.Td>
-                          <Table.Td c="dimmed">{row.issuer_name || "—"}</Table.Td>
-                          <Table.Td>{row.buy}</Table.Td>
-                          <Table.Td>{row.sell}</Table.Td>
-                          <Table.Td>{row.call}</Table.Td>
-                          <Table.Td>{row.put}</Table.Td>
-                          <Table.Td>{row.trades}</Table.Td>
-                          <Table.Td>{row.disclosed_range}</Table.Td>
-                          <Table.Td>{formatDate(row.first_trade)}</Table.Td>
-                          <Table.Td>{formatDate(row.last_trade)}</Table.Td>
-                        </Table.Tr>
-                      ))}
+                          <Table.Td
+                            c={returnColor(row.return_pct ?? null)}
+                            fw={600}
+                            data-testid="members-by-ticker-return"
+                          >
+                            {row.is_non_equity ? (
+                              <Tooltip
+                                label="Non-equity asset (bond, treasury, etc.) — no daily market price."
+                                withArrow
+                              >
+                                <Text component="span" c="dimmed" fw={400}>
+                                  n/a
+                                </Text>
+                              </Tooltip>
+                            ) : (
+                              formatSignedPercent(row.return_pct ?? null)
+                            )}
+                          </Table.Td>
+                          </Table.Tr>
+                        );
+                      })}
                     </Table.Tbody>
                   </Table>
                 </Table.ScrollContainer>

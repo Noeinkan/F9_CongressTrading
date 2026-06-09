@@ -68,10 +68,10 @@ echo
 echo "=== status ==="
 systemctl --no-pager status congress-api  | head -12 || true
 systemctl --no-pager status congress-web  | head -12 || true
-ss -ltn | awk 'NR==1 || $4 ~ /:(80|443|8000)$/'
+ss -ltn | awk 'NR==1 || $4 ~ /:(80|443|9001)$/'
 echo
 echo "Smoke tests:"
 curl -sS -o /dev/null -w "  http 80  -> %{http_code}\n" --max-time 5 http://127.0.0.1/
-curl -sS -o /dev/null -w "  api 8000 -> %{http_code}\n" --max-time 5 http://127.0.0.1:8000/api/health
+curl -sS -o /dev/null -w "  api 9001 -> %{http_code}\n" --max-time 5 http://127.0.0.1:9001/api/health
 echo
 echo "Done. Dashboard: http://77.42.70.26/"
