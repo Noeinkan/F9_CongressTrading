@@ -58,7 +58,14 @@ export function Tickers() {
   const cumulative = useTickerCumulativeExposure(tickerForView || null, periodParams);
 
   const tickerOptions = useMemo(
-    () => (listQuery.data?.rows ?? []).map((r) => r.ticker),
+    () =>
+      (listQuery.data?.rows ?? []).map((r) => {
+        const name = r.issuer_name?.trim();
+        return {
+          value: r.ticker,
+          label: name ? `${r.ticker} — ${name}` : r.ticker,
+        };
+      }),
     [listQuery.data?.rows],
   );
 
