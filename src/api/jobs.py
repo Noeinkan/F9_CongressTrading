@@ -63,7 +63,7 @@ def _check_cancel(cancel_event: threading.Event) -> None:
         raise CancelledError()
 
 
-def run_ingest_all(state: JobState, cancel_event: threading.Event) -> None:
+def run_ingest_all(state: JobState, cancel_event: threading.Event, *, overwrite: bool = False) -> None:
     """Download House FD metadata, then run House + Senate ingest."""
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
@@ -79,8 +79,8 @@ def run_ingest_all(state: JobState, cancel_event: threading.Event) -> None:
         _check_cancel(cancel_event)
 
         years = list(range(START_YEAR, datetime.now().year + 1))
-        completed_years = download_house_fd_bulk(years, overwrite=False, extract=True)
-        state.result = {"download_years": completed_years}
+        completed_years = download_house_fd_bulk(years, overwrite=overwrite, extract=True)
+        state.result = {"download_years": completed_years, "overwrite": overwrite}
 
         state.progress = 15
         state.current_step = "ingest-house"
@@ -121,7 +121,7 @@ class JobManager:
         with self._lock:
             return self._snapshot()
 
-    def start_or_restart(self) -> dict[str, Any]:
+    def start_or_restart(self, *, overwrite: bool = False) -> dict[str, Any]:
         with self._lock:
             if self._state.status == "running":
                 self._cancel_event.set()
@@ -141,6 +141,7 @@ class JobManager:
                 run_id,
                 new_state,
                 cancel_event,
+                overwrite,
             )
             return self._snapshot()
 
@@ -169,9 +170,10 @@ class JobManager:
         run_id: int,
         state: JobState,
         cancel_event: threading.Event,
+        overwrite: bool = False,
     ) -> None:
         try:
-            run_ingest_all(state, cancel_event)
+            run_ingest_all(state, cancel_event, overwrite=overwrite)
             with self._lock:
                 if self._run_id != run_id:
                     return

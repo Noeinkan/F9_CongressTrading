@@ -34,10 +34,10 @@ export function useRefreshStatus() {
 export function useStartRefresh() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (variables: { overwrite?: boolean } = {}) =>
       apiFetch<RefreshStatusResponse>("/api/admin/refresh-data", {
         method: "POST",
-        body: { restart: true },
+        body: { restart: true, overwrite: Boolean(variables.overwrite) },
       }),
     onSuccess: (data) => {
       queryClient.setQueryData(refreshStatusQueryKey, data);

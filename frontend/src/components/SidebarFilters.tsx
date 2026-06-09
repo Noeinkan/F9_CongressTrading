@@ -1,6 +1,6 @@
-import { Button, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { Button, Checkbox, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
@@ -45,6 +45,7 @@ function SidebarRefreshControls() {
   const refreshStatus = useRefreshStatus();
   const startRefresh = useStartRefresh();
   const cancelRefresh = useCancelRefresh();
+  const [forceRedownload, setForceRedownload] = useState(false);
 
   const status = refreshStatus.data?.status ?? "idle";
   const isRunning = status === "running" || startRefresh.isPending;
@@ -75,9 +76,9 @@ function SidebarRefreshControls() {
 
   return (
     <Tooltip
-      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures"
+      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures. Tick 'Force re-download' to bypass the local cache and refetch the yearly zip from the Clerk."
       multiline
-      w={220}
+      w={240}
     >
       <Stack gap="xs" data-testid="sidebar-admin">
         <Button
@@ -86,11 +87,19 @@ function SidebarRefreshControls() {
           size="compact-sm"
           loading={isRunning}
           disabled={cancelRefresh.isPending}
-          onClick={() => startRefresh.mutate()}
+          onClick={() => startRefresh.mutate({ overwrite: forceRedownload })}
           data-testid="sidebar-refresh"
         >
           {isRunning ? `Refreshing… ${progress}%` : primaryLabel}
         </Button>
+        <Checkbox
+          size="xs"
+          label="Force re-download from Clerk"
+          checked={forceRedownload}
+          onChange={(event) => setForceRedownload(event.currentTarget.checked)}
+          disabled={isRunning}
+          data-testid="sidebar-refresh-overwrite"
+        />
         {isRunning ? (
           <>
             <Progress value={progress} size="sm" color="navy" data-testid="sidebar-refresh-progress" />
