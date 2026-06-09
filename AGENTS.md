@@ -22,7 +22,7 @@ Python tracker for U.S. House and Senate public financial disclosures: raw PDFs 
 
 - **Interpreter**: prefer project venv `.venv\Scripts\python.exe` (Windows) — see README troubleshooting if imports fail.
 
-- **Secrets**: `POLYGON_API_KEY`; optional `OPENFIGI_API_KEY`.
+- **Secrets**: `POLYGON_API_KEY`; optional `OPENFIGI_API_KEY`. `re-resolve-tickers` requires at least one of these; set `CONGRESS_RE_RESOLVE_NO_KEY_OK=1` to bypass the check (e.g. CI runs with no network).
 
 - **App auth (optional, VPS)**: `APP_USERNAME`, `APP_PASSWORD` (non-empty enables login gate), `APP_SESSION_SECRET`, `APP_SESSION_COOKIE`, `APP_SESSION_HTTPS_ONLY`, `APP_SESSION_MAX_AGE`, `APP_CORS_ORIGINS`.
 
@@ -54,11 +54,13 @@ All CLI: **`python -m src.main <command>`** from repo root.
 
 | `export-csv` | Normalized trades → `--out` (default `data/congress_trades.csv`). Optional Polygon columns: `--polygon-pnl` [`--as-of YYYY-MM-DD`] [`--polygon-pnl-cache-only`] [`--polygon-pnl-refresh`] |
 
-| `warm-polygon-price-cache` | Prefetch Polygon daily bars into `polygon_daily_bar_cache` for tickers in `transactions` (`--as-of`, `--refresh`, `--cache-only`) |
+| `warm-polygon-price-cache` | Prefetch Polygon daily bars into `polygon_daily_bar_cache` for tickers in `transactions` (`--as-of`, `--refresh`, `--cache-only`, `--progress-every N`) |
 
 | `export-fd-csv` | FD report CSV |
 
 | `export-review-csv` | Review queue CSV |
+
+| `re-resolve-tickers` | Re-resolve ticker/issuer on all SQLite transactions without re-parsing PDFs; uses disclosure text + cache/API (`--clear-asset-cache`) |
 
 
 

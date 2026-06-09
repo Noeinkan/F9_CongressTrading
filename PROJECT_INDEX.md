@@ -51,6 +51,7 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `src/main.tsx` | MantineProvider + QueryClientProvider + RouterProvider |
 | `src/App.tsx` | React Router config (login + 6 pages) |
 | `src/api/` | `client.ts` (fetch + credentials), `types.ts`, TanStack Query hooks per resource |
+| `src/utils/` | `format.ts` (date/currency formatters), `transactions.ts` (sorting + display helpers for Home table) |
 | `src/charts/` | Pure ECharts option builders |
 | `src/components/` | AppShell, SidebarLayout, TopBar, ChartCard, FilterContext, etc. |
 | `src/routes/` | One file per dashboard page |
