@@ -22,3 +22,16 @@
 [1100/1997] MA        bars=   0  cache_hit=0  elapsed=431.9s  rate= 2.5/s  eta=  352s
 [1150/1997] MKTX      bars=   0  cache_hit=0  elapsed=452.5s  rate= 2.5/s  eta=  333s
 [1200/1997] MTSFY     bars=   0  cache_hit=0  elapsed=473.1s  rate= 2.5/s  eta=  314s
+[1250/1997] NOG       bars=   0  cache_hit=0  elapsed=492.6s  rate= 2.5/s  eta=  294s
+[1300/1997] OGE       bars=   0  cache_hit=0  elapsed=512.5s  rate= 2.5/s  eta=  275s
+[1350/1997] PCH       bars= 412  cache_hit=1  elapsed=532.7s  rate= 2.5/s  eta=  255s
+[1400/1997] PNC       bars=   0  cache_hit=0  elapsed=553.0s  rate= 2.5/s  eta=  236s
+[1450/1997] QTWO      bars=   0  cache_hit=0  elapsed=573.1s  rate= 2.5/s  eta=  216s
+[1500/1997] RPT       bars=   0  cache_hit=0  elapsed=594.4s  rate= 2.5/s  eta=  197s
+[1550/1997] SEDG      bars=   0  cache_hit=0  elapsed=613.2s  rate= 2.5/s  eta=  177s
+[1600/1997] SMAA      bars=   0  cache_hit=0  elapsed=631.9s  rate= 2.5/s  eta=  157s
+[1650/1997] SPHR      bars=   0  cache_hit=0  elapsed=654.0s  rate= 2.5/s  eta=  138s
+[1700/1997] SWRAY     bars=   0  cache_hit=0  elapsed=673.5s  rate= 2.5/s  eta=  118s
+[1750/1997] TIMB      bars=   0  cache_hit=0  elapsed=690.6s  rate= 2.5/s  eta=   97s
+[1800/1997] TSM       bars=   0  cache_hit=0  elapsed=715.2s  rate= 2.5/s  eta=   78s
+[1850/1997] UNH       bars=   0  cache_hit=0  elapsed=734.7s  rate= 2.5/s  eta=   58s
