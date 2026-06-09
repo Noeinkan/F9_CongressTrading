@@ -129,13 +129,23 @@ Vista inclusa:
 - pannello review queue per casi irrisolti o derivati dal `review_status`
 - tabella raw con download CSV del subset filtrato
 
-Avvio locale:
-- **Un comando (consigliato):** `npm start` dalla root del repo.
-  Lancia backend FastAPI (`:8000`) e frontend Vite (`:5173`) in parallelo, con log colorati, e apre il browser. Ctrl+C termina entrambi.
-  La prima volta esegui `npm install` (installa `concurrently`).
-- **Alternativa senza Node backend:** `powershell -ExecutionPolicy Bypass -File .\dev.ps1` (stesso comportamento, log in file `.dev-*.log`).
-- **Manuale (due terminali):** API: `python -m src.api` (porta 8000); Frontend: `cd frontend && npm install && npm run dev` (porta 5173, proxy `/api/*`).
-- **In VS Code:** task compound `Start Dashboard` (build default), oppure i due task separati `API Server (venv)` + `Frontend Dev`.
+Avvio locale (tutto dalla root del repo):
+
+| Comando | Cosa fa |
+|---|---|
+| `npm start` | **⭐ Lancia API + frontend insieme.** Log colorati, Ctrl+C termina entrambi. |
+| `npm run dev` | Identico a `npm start` (alias). |
+| `npm run start:api-only` | Solo backend FastAPI (`:8000`). |
+| `npm run start:web-only` | Solo frontend Vite (`:5173`). |
+| `npm run start:detach` | Apre una nuova finestra PowerShell con dentro `npm start` (sopravvive se chiudi quella attuale). |
+| `npm run clean` | Killa processi appesi alle porte 8000/5173-5175. |
+| `powershell -ExecutionPolicy Bypass -File .\dev.ps1` | Fallback shell pura (no Node), log in file `.dev-*.log`. |
+| Manuale (2 terminali) | `python -m src.api` + `cd frontend && npm run dev`. |
+| In VS Code | `Ctrl+Shift+B` → `Start Dashboard` (compound task). |
+
+**Prima volta:** `npm install` (installa `concurrently` come dev-dep). Le dipendenze frontend sono già gestite da `frontend/package.json`; al primo `npm start` Vite le usa direttamente da `frontend/node_modules/` (se mancanti, `dev.ps1` fa `npm install` automaticamente).
+
+**Se una porta è occupata:** `npm run clean` e riprova.
 
 ### Dashboard remota (VPS)
 

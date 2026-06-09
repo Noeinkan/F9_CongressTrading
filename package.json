@@ -8,8 +8,12 @@
     "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node scripts/dev-api.js",
     "dev:web": "npm --prefix frontend run dev",
+    "start:web-only": "npm:dev:web",
+    "start:api-only": "npm:dev:api",
+    "start:detach": "powershell -NoProfile -Command \"Start-Process powershell -ArgumentList '-NoProfile','-Command',\\\"cd '$((Get-Location).Path)'; npm start\\\" -Verb RunAs\"",
     "install:all": "npm install && npm --prefix frontend install",
-    "postinstall": "node -e \"console.log('\\n  Run `npm start` to launch the dashboard locally.\\n')\""
+    "clean": "powershell -NoProfile -File scripts/clean-ports.ps1",
+    "predev:api": "node scripts/check-venv.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

@@ -17,6 +17,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { netTradeCsvUrl, useHomeSummary } from "@/api/home";
 import { useTickerDrilldown } from "@/api/tickerDrilldown";
+import type { HomeTransactionRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposure } from "@/components/CumulativeExposure";
 import { useFilters } from "@/components/FilterContext";
@@ -30,6 +31,78 @@ import { SectionIntro } from "@/components/SectionIntro";
 import { Ticker3D } from "@/components/Ticker3D";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { formatDate, formatDisclosedRange } from "@/utils/format";
+import {
+  classifyTransaction,
+  directionColor,
+  parseRangeHigh,
+  rangeOpacity,
+} from "@/utils/transactions";
+
+type LatestSortKey =
+  | "member"
+  | "ticker"
+  | "transaction_type_label"
+  | "transaction_date"
+  | "amount_range_raw";
+type SortDir = "asc" | "desc";
+
+const LATEST_SIZE_OPTIONS = ["25", "50", "75", "100"];
+
+function compareLatestRows(
+  a: HomeTransactionRow,
+  b: HomeTransactionRow,
+  key: LatestSortKey,
+  dir: SortDir,
+): number {
+  const sign = dir === "asc" ? 1 : -1;
+  if (key === "transaction_date") {
+    const av = a.transaction_date ?? "";
+    const bv = b.transaction_date ?? "";
+    return av.localeCompare(bv) * sign;
+  }
+  if (key === "amount_range_raw") {
+    return (parseRangeHigh(a.amount_range_raw) - parseRangeHigh(b.amount_range_raw)) * sign;
+  }
+  const av = String(a[key] ?? "").toLowerCase();
+  const bv = String(b[key] ?? "").toLowerCase();
+  if (av < bv) return -1 * sign;
+  if (av > bv) return 1 * sign;
+  return 0;
+}
+
+type SortableThProps = {
+  label: string;
+  sortKey: LatestSortKey;
+  active: { key: LatestSortKey; dir: SortDir };
+  onSort: (next: { key: LatestSortKey; dir: SortDir }) => void;
+};
+
+function SortableTh({ label, sortKey, active, onSort }: SortableThProps) {
+  const isActive = active.key === sortKey;
+  const indicator = !isActive ? "↕" : active.dir === "asc" ? "↑" : "↓";
+  return (
+    <Table.Th
+      role="button"
+      tabIndex={0}
+      aria-sort={isActive ? (active.dir === "asc" ? "ascending" : "descending") : "none"}
+      onClick={() =>
+        onSort({ key: sortKey, dir: isActive && active.dir === "asc" ? "desc" : "asc" })
+      }
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSort({ key: sortKey, dir: isActive && active.dir === "asc" ? "desc" : "asc" });
+        }
+      }}
+      style={{ cursor: "pointer", userSelect: "none" }}
+      data-testid={`home-latest-sort-${sortKey}`}
+    >
+      <span>
+        {label} <span style={{ opacity: 0.5, fontSize: "0.85em" }}>{indicator}</span>
+      </span>
+    </Table.Th>
+  );
+}
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -40,6 +113,11 @@ export function Home() {
   const { lookback, quarters } = useFilters();
   const [searchParams, setSearchParams] = useSearchParams();
   const [manualTicker, setManualTicker] = useState(searchParams.get("ticker_override") ?? "");
+  const [latestSize, setLatestSize] = useState<string>(LATEST_SIZE_OPTIONS[0] ?? "25");
+  const [latestSort, setLatestSort] = useState<{ key: LatestSortKey; dir: SortDir }>({
+    key: "transaction_date",
+    dir: "desc",
+  });
 
   const periodParams = useMemo(
     () => ({ lookback, quarters: quartersParam(quarters) }),
@@ -47,6 +125,15 @@ export function Home() {
   );
 
   const { data, isLoading, isError } = useHomeSummary(periodParams);
+
+  const visibleLatestRows = useMemo(() => {
+    const rows = data?.latest_transactions ?? [];
+    const size = Number(latestSize) || 25;
+    const sorted = [...rows].sort((a, b) =>
+      compareLatestRows(a, b, latestSort.key, latestSort.dir),
+    );
+    return sorted.slice(0, size);
+  }, [data?.latest_transactions, latestSize, latestSort]);
 
   const netView = (searchParams.get("net_view") ?? "chart") as "chart" | "table";
   const selectedTicker = searchParams.get("ticker") ?? data?.tickers_available[0] ?? "";
@@ -130,47 +217,121 @@ export function Home() {
             ))}
           </SimpleGrid>
 
-          <ChartCard title="Latest activity" caption="Most recent disclosures in the slice (preview).">
+          <ChartCard
+            title="Latest activity"
+            caption="Most recent disclosures in the slice (preview). Click a ticker to open its profile."
+            headerRight={
+              <Group gap="xs" data-testid="home-latest-size">
+                <Text size="xs" c="dimmed">
+                  Rows
+                </Text>
+                <SegmentedControl
+                  value={latestSize}
+                  onChange={setLatestSize}
+                  data={LATEST_SIZE_OPTIONS}
+                  size="xs"
+                />
+              </Group>
+            }
+          >
             <Table.ScrollContainer minWidth={700}>
-              <Table striped data-testid="home-latest-table">
+              <Table striped highlightOnHover data-testid="home-latest-table">
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Member</Table.Th>
-                    <Table.Th>Ticker</Table.Th>
-                    <Table.Th>Type</Table.Th>
-                    <Table.Th>Traded</Table.Th>
-                    <Table.Th>Range</Table.Th>
+                    <SortableTh
+                      label="Member"
+                      sortKey="member"
+                      active={latestSort}
+                      onSort={setLatestSort}
+                    />
+                    <SortableTh
+                      label="Ticker"
+                      sortKey="ticker"
+                      active={latestSort}
+                      onSort={setLatestSort}
+                    />
+                    <SortableTh
+                      label="Type"
+                      sortKey="transaction_type_label"
+                      active={latestSort}
+                      onSort={setLatestSort}
+                    />
+                    <SortableTh
+                      label="Traded"
+                      sortKey="transaction_date"
+                      active={latestSort}
+                      onSort={setLatestSort}
+                    />
+                    <SortableTh
+                      label="Range"
+                      sortKey="amount_range_raw"
+                      active={latestSort}
+                      onSort={setLatestSort}
+                    />
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {data.latest_transactions.slice(0, 10).map((row, i) => (
-                    <Table.Tr key={`${row.member}-${row.transaction_date}-${i}`}>
-                      <Table.Td>
-                        <Text
-                          component={Link}
-                          to={`/members?member=${encodeURIComponent(row.member)}`}
-                          size="sm"
-                        >
-                          {row.member}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td>
-                        <Stack gap={0}>
-                          <Text size="sm" fw={500}>
-                            {row.ticker || "—"}
+                  {visibleLatestRows.map((row, i) => {
+                    const direction = classifyTransaction(row.transaction_type_label);
+                    const color = directionColor(direction);
+                    const opacity = rangeOpacity(row.amount_range_raw);
+                    const badgeStyle = { opacity } as const;
+                    return (
+                      <Table.Tr
+                        key={`${row.member}-${row.transaction_date}-${i}`}
+                        data-testid="home-latest-row"
+                      >
+                        <Table.Td>
+                          <Text
+                            component={Link}
+                            to={`/members?member=${encodeURIComponent(row.member)}`}
+                            size="sm"
+                          >
+                            {row.member}
                           </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          {row.ticker ? (
+                            <Text
+                              component={Link}
+                              to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
+                              size="sm"
+                              fw={500}
+                              data-testid="home-latest-ticker"
+                            >
+                              {row.ticker}
+                            </Text>
+                          ) : (
+                            <Text size="sm" fw={500}>
+                              —
+                            </Text>
+                          )}
                           {row.issuer_name ? (
                             <Text size="xs" c="dimmed" lineClamp={1}>
                               {row.issuer_name}
                             </Text>
                           ) : null}
-                        </Stack>
-                      </Table.Td>
-                      <Table.Td>{row.transaction_type_label}</Table.Td>
-                      <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
-                      <Table.Td>{row.amount_range_raw}</Table.Td>
-                    </Table.Tr>
-                  ))}
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge
+                            variant="light"
+                            color={color}
+                            style={badgeStyle}
+                            data-testid="home-latest-type"
+                            data-direction={direction}
+                          >
+                            {row.transaction_type_label || "—"}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
+                        <Table.Td>
+                          <Text size="sm" style={{ opacity }}>
+                            {row.amount_range_raw}
+                          </Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
