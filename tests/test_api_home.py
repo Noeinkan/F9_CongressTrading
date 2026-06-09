@@ -150,3 +150,18 @@ def test_home_members_leaderboard_row_shape(client):
         row = data["members_leaderboard"][0]
         for key in ("member", "trades", "tickers", "chamber", "party", "state"):
             assert key in row, f"missing leaderboard row key: {key}"
+
+
+def test_home_latest_transactions_row_shape(client):
+    client.post("/api/login", json={"username": "analyst", "password": "secret123"})
+    r = client.get("/api/home/summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data["latest_transactions"], list)
+    if data["latest_transactions"]:
+        row = data["latest_transactions"][0]
+        for key in ("member", "ticker", "transaction_type_label", "amount_range_raw"):
+            assert key in row, f"missing latest_transactions row key: {key}"
+        # issuer_name is the company label rendered next to the ticker; it
+        # may be an empty string when unresolved, but the key must exist.
+        assert "issuer_name" in row, "missing issuer_name in latest_transactions row"

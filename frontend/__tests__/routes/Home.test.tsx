@@ -61,10 +61,22 @@ const sampleData = {
       chamber: "House",
       party: "D",
       ticker: "AAPL",
+      issuer_name: "Apple Inc.",
       transaction_type_label: "Buy",
       transaction_date: "2024-06-01",
       amount_range_raw: "$1K – $15K",
       filing_date: "2024-06-15",
+      disclosure_url: "",
+    },
+    {
+      member: "Bob",
+      chamber: "House",
+      party: "R",
+      ticker: "",
+      transaction_type_label: "Buy",
+      transaction_date: "2024-06-02",
+      amount_range_raw: "$1K – $15K",
+      filing_date: "2024-06-16",
       disclosure_url: "",
     },
   ],
@@ -160,6 +172,18 @@ describe("Home route", () => {
     useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
     renderHome();
     expect(useTickerDrilldown).toHaveBeenCalledWith("AAPL", expect.any(Object));
+  });
+
+  it("renders the latest activity table with issuer name next to the ticker", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-latest-table")).toBeInTheDocument();
+    });
+    const table = screen.getByTestId("home-latest-table");
+    expect(within(table).getByText("AAPL")).toBeInTheDocument();
+    expect(within(table).getByText("Apple Inc.")).toBeInTheDocument();
+    expect(within(table).getByText("—")).toBeInTheDocument();
   });
 
   it("toggles net trade chart/table and enables CSV only in table view", async () => {

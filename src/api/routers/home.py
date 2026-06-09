@@ -41,6 +41,7 @@ _LATEST_COLUMNS = [
     "chamber",
     "party",
     "ticker",
+    "issuer_name",
     "transaction_type_label",
     "transaction_date",
     "amount_range_raw",

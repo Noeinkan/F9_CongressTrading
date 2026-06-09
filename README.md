@@ -130,9 +130,12 @@ Vista inclusa:
 - tabella raw con download CSV del subset filtrato
 
 Avvio locale:
-- API: `python -m src.api` (porta 8000)
-- Frontend: `cd frontend && npm install && npm run dev` (porta 5173, proxy `/api/*`)
-- in VS Code: task `API Server (venv)` + `Frontend Dev`
+- **Un comando (consigliato):** `npm start` dalla root del repo.
+  Lancia backend FastAPI (`:8000`) e frontend Vite (`:5173`) in parallelo, con log colorati, e apre il browser. Ctrl+C termina entrambi.
+  La prima volta esegui `npm install` (installa `concurrently`).
+- **Alternativa senza Node backend:** `powershell -ExecutionPolicy Bypass -File .\dev.ps1` (stesso comportamento, log in file `.dev-*.log`).
+- **Manuale (due terminali):** API: `python -m src.api` (porta 8000); Frontend: `cd frontend && npm install && npm run dev` (porta 5173, proxy `/api/*`).
+- **In VS Code:** task compound `Start Dashboard` (build default), oppure i due task separati `API Server (venv)` + `Frontend Dev`.
 
 ### Dashboard remota (VPS)
 

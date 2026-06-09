@@ -154,7 +154,18 @@ export function Home() {
                           {row.member}
                         </Text>
                       </Table.Td>
-                      <Table.Td>{row.ticker || "—"}</Table.Td>
+                      <Table.Td>
+                        <Stack gap={0}>
+                          <Text size="sm" fw={500}>
+                            {row.ticker || "—"}
+                          </Text>
+                          {row.issuer_name ? (
+                            <Text size="xs" c="dimmed" lineClamp={1}>
+                              {row.issuer_name}
+                            </Text>
+                          ) : null}
+                        </Stack>
+                      </Table.Td>
                       <Table.Td>{row.transaction_type_label}</Table.Td>
                       <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
                       <Table.Td>{row.amount_range_raw}</Table.Td>

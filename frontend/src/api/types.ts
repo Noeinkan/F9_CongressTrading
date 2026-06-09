@@ -57,6 +57,7 @@ export type HomeTransactionRow = {
   chamber: string;
   party: string;
   ticker: string;
+  issuer_name?: string;
   transaction_type_label: string;
   transaction_date: string | null;
   amount_range_raw: string;

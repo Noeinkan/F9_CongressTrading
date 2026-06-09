@@ -36,6 +36,21 @@
 			},
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "Start Dashboard",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [],
+			"dependsOn": [
+				"API Server (venv)",
+				"Frontend Dev"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
 		}
 	]
 }

@@ -1,0 +1,17 @@
+{
+  "name": "f9-congress-trading",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Congress trading tracker - local dev orchestrator (API + Dashboard)",
+  "scripts": {
+    "start": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node scripts/dev-api.js",
+    "dev:web": "npm --prefix frontend run dev",
+    "install:all": "npm install && npm --prefix frontend install",
+    "postinstall": "node -e \"console.log('\\n  Run `npm start` to launch the dashboard locally.\\n')\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

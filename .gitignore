@@ -26,3 +26,7 @@ Thumbs.db
 # Throwaway deploy/diag scripts (prefix `_`); keep bootstrap_services.sh
 deploy/_*.sh
 deploy/_*.ps1
+
+# dev.ps1 runtime logs
+.dev-*.log
+node_modules/
