@@ -245,6 +245,17 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS yahoo_daily_bar_cache (
+            ticker TEXT NOT NULL,
+            bar_date TEXT NOT NULL,
+            close REAL NOT NULL,
+            fetched_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (ticker, bar_date)
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS ticker_details_cache (
             ticker TEXT PRIMARY KEY,
             name TEXT NOT NULL DEFAULT '',

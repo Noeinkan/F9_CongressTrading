@@ -25,7 +25,9 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from ..config import price_cache_source
 from ..db import get_connection, init_db
+from ..polygon_prices import CACHE_TABLE_BY_SOURCE, PriceSource
 from ..utils import is_non_equity_asset
 from ._format import format_cumulative_net_label
 from ._home_analytics import _dedupe_cumulative_trades
@@ -237,20 +239,20 @@ def load_issuer_info_live(ticker: str) -> dict[str, str]:
         conn.close()
 
 
-def load_polygon_bars_live(ticker: str) -> pd.DataFrame:
-    """Return the cached daily bars for one ticker as a frame (date, close)."""
+def _load_bars_from_table(ticker: str, table: str) -> pd.DataFrame:
+    """Return cached daily bars for one ticker from the given cache table."""
     t = str(ticker).strip().upper()
     if not t:
         return pd.DataFrame(columns=["date", "close"])
     conn = get_connection()
     try:
         init_db(conn)
-        if not _table_exists(conn, "polygon_daily_bar_cache"):
+        if not _table_exists(conn, table):
             return pd.DataFrame(columns=["date", "close"])
         return pd.read_sql_query(
-            """
+            f"""
             SELECT bar_date AS date, close
-            FROM polygon_daily_bar_cache
+            FROM {table}
             WHERE ticker = ?
             ORDER BY bar_date
             """,
@@ -259,6 +261,24 @@ def load_polygon_bars_live(ticker: str) -> pd.DataFrame:
         )
     finally:
         conn.close()
+
+
+def load_polygon_bars_live(ticker: str) -> pd.DataFrame:
+    """Return Polygon-cached daily bars for one ticker (date, close)."""
+    return _load_bars_from_table(ticker, "polygon_daily_bar_cache")
+
+
+def load_yahoo_bars_live(ticker: str) -> pd.DataFrame:
+    """Return Yahoo-cached daily bars for one ticker (date, close)."""
+    return _load_bars_from_table(ticker, "yahoo_daily_bar_cache")
+
+
+def load_bars_live(ticker: str, source: str | None = None) -> pd.DataFrame:
+    """Load daily bars from the configured cache source (``yahoo`` or ``polygon``)."""
+    src: PriceSource = (source or price_cache_source()).strip().lower()  # type: ignore[assignment]
+    if src not in CACHE_TABLE_BY_SOURCE:
+        src = "yahoo"
+    return _load_bars_from_table(ticker, CACHE_TABLE_BY_SOURCE[src])
 
 
 def _median_amount(low: Any, high: Any) -> float | None:
@@ -422,7 +442,7 @@ def trade_return_metrics(
     if transactions.empty:
         return []
 
-    bars = load_polygon_bars_live(str(transactions["ticker"].iloc[0]).strip().upper())
+    bars = load_bars_live(str(transactions["ticker"].iloc[0]).strip().upper())
     pairs: list[tuple[date, float]] = []
     if not bars.empty:
         bar_dates = pd.to_datetime(bars["date"], errors="coerce")
@@ -771,7 +791,7 @@ def polygon_price_overlay(
     t = str(ticker).strip().upper()
     if not t:
         return {"ticker": "", "bars": [], "trades": [], "ready": False}
-    bars = load_polygon_bars_live(t)
+    bars = load_bars_live(t)
     sub = frame.loc[frame["ticker"].astype(str).str.upper() == t].dropna(
         subset=["transaction_date"]
     ).copy() if not frame.empty else pd.DataFrame()

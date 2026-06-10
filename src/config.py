@@ -109,6 +109,24 @@ OPENFIGI_API_URL = "https://api.openfigi.com/v3/mapping"
 # Name / keyword resolution (FIGI mapping jobs use idType/idValue; plain-name jobs are not accepted).
 OPENFIGI_SEARCH_URL = "https://api.openfigi.com/v3/search"
 
+YAHOO_HISTORY_PERIOD_FALLBACK = "5y"
+YAHOO_REQUEST_TIMEOUT = 30
+
+
+def price_cache_source() -> str:
+    """Which SQLite bar cache the API reads: ``yahoo`` or ``polygon``."""
+    v = (os.getenv("PRICE_CACHE_SOURCE") or "yahoo").strip().lower()
+    return v if v in {"yahoo", "polygon"} else "yahoo"
+
+
+def price_cache_parallel_workers() -> int:
+    raw = (os.getenv("PRICE_CACHE_PARALLEL_WORKERS") or "4").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 4
+
+
 try:
     from dotenv import load_dotenv
 

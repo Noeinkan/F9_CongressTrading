@@ -27,6 +27,13 @@ Thumbs.db
 deploy/_*.sh
 deploy/_*.ps1
 
-# dev.ps1 runtime logs
+# scripts/ — anything prefixed with `_` is throwaway diag / logs (keep the 6
+# 'real' scripts: check-venv.js, clean-ports.ps1, count_empty_tickers.py,
+# dev-api.js, nightly_ingest.sh, smoke_apis.py)
+scripts/_*
+scripts/__pycache__/
+scripts/cloudflared/
+scripts/deploy/
+*.err.log
 .dev-*.log
 node_modules/

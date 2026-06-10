@@ -97,6 +97,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stampa una riga di avanzamento ogni N ticker (0 = silenzioso, default 25).",
     )
 
+    warm_yahoo = sub.add_parser(
+        "warm-yahoo-price-cache",
+        help="Precarica in SQLite le barre giornaliere Yahoo per ticker/date dei trade.",
+    )
+    warm_yahoo.add_argument("--as-of", type=str, default=None, metavar="YYYY-MM-DD")
+    warm_yahoo.add_argument("--refresh", action="store_true")
+    warm_yahoo.add_argument("--cache-only", action="store_true")
+    warm_yahoo.add_argument("--progress-every", type=int, default=25, metavar="N")
+
+    warm_both = sub.add_parser(
+        "warm-price-cache",
+        help="Precarica Yahoo + Polygon in parallelo (tabelle cache separate per A/B).",
+    )
+    warm_both.add_argument("--as-of", type=str, default=None, metavar="YYYY-MM-DD")
+    warm_both.add_argument("--refresh", action="store_true")
+    warm_both.add_argument("--cache-only", action="store_true")
+    warm_both.add_argument("--progress-every", type=int, default=25, metavar="N")
+
     export_fd = sub.add_parser("export-fd-csv", help="Esporta CSV dai report FD")
     export_fd.add_argument("--out", type=Path, default=Path("data/fd_filings.csv"))
 
@@ -212,6 +230,91 @@ def main() -> None:
                 print(
                     f"  → {cached:,} ticker coperti da polygon_daily_bar_cache. "
                     f"({n - cached:,} senza dati — probabilmente ticker non quotati o asset non-equity.)"
+                )
+            finally:
+                _conn.close()
+    elif args.command == "warm-yahoo-price-cache":
+        from datetime import date as date_cls
+
+        from .db import get_connection, init_db
+        from .polygon_prices import warm_yahoo_price_cache_for_db
+
+        as_of = date_cls.today()
+        if getattr(args, "as_of", None):
+            try:
+                as_of = date_cls.fromisoformat(str(args.as_of).strip()[:10])
+            except ValueError:
+                raise SystemExit("Argomento --as-of non valido (usa YYYY-MM-DD).") from None
+        conn = get_connection()
+        init_db(conn)
+        n = warm_yahoo_price_cache_for_db(
+            conn,
+            as_of=as_of,
+            force_refetch=bool(getattr(args, "refresh", False)),
+            cache_only=bool(getattr(args, "cache_only", False)),
+            progress_every=int(getattr(args, "progress_every", 25) or 0),
+        )
+        conn.close()
+        print(f"warm-yahoo-price-cache: elaborati {n:,} ticker distinti.")
+        if not getattr(args, "cache_only", False):
+            from .db import get_connection as _gc
+
+            _conn = _gc()
+            try:
+                cached = _conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) AS c FROM yahoo_daily_bar_cache"
+                ).fetchone()["c"]
+                print(f"  → {cached:,} ticker coperti da yahoo_daily_bar_cache.")
+            finally:
+                _conn.close()
+    elif args.command == "warm-price-cache":
+        from datetime import date as date_cls
+
+        from .db import get_connection, init_db
+        from .polygon_prices import warm_price_cache_for_db
+
+        as_of = date_cls.today()
+        if getattr(args, "as_of", None):
+            try:
+                as_of = date_cls.fromisoformat(str(args.as_of).strip()[:10])
+            except ValueError:
+                raise SystemExit("Argomento --as-of non valido (usa YYYY-MM-DD).") from None
+        cache_only = bool(getattr(args, "cache_only", False))
+        if not cache_only and not (os.getenv("POLYGON_API_KEY") or "").strip():
+            print(
+                "Nota: POLYGON_API_KEY mancante — solo Yahoo verrà popolato "
+                "(usa --cache-only per saltare entrambe le API).",
+                file=sys.stderr,
+            )
+        conn = get_connection()
+        init_db(conn)
+        counts = warm_price_cache_for_db(
+            conn,
+            as_of=as_of,
+            force_refetch=bool(getattr(args, "refresh", False)),
+            cache_only=cache_only,
+            progress_every=int(getattr(args, "progress_every", 100) or 0),
+        )
+        conn.close()
+        yahoo_n = counts.get("yahoo", 0)
+        poly_n = counts.get("polygon", 0)
+        print(
+            f"warm-price-cache: yahoo={yahoo_n:,} ticker, polygon={poly_n:,} ticker."
+        )
+        if not cache_only:
+            from .db import get_connection as _gc
+
+            _conn = _gc()
+            try:
+                yahoo_cached = _conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) AS c FROM yahoo_daily_bar_cache"
+                ).fetchone()["c"]
+                poly_cached = _conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) AS c FROM polygon_daily_bar_cache"
+                ).fetchone()["c"]
+                print(
+                    f"  → yahoo_daily_bar_cache: {yahoo_cached:,} ticker; "
+                    f"polygon_daily_bar_cache: {poly_cached:,} ticker."
                 )
             finally:
                 _conn.close()

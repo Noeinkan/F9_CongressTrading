@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
 import requests
@@ -28,16 +29,19 @@ from .utils import normalize_key, normalize_whitespace
 class RateLimiter:
     min_interval: float
     last_call: float = 0.0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def wait(self) -> None:
-        elapsed = time.time() - self.last_call
-        if elapsed < self.min_interval:
-            time.sleep(self.min_interval - elapsed)
-        self.last_call = time.time()
+        with self._lock:
+            elapsed = time.time() - self.last_call
+            if elapsed < self.min_interval:
+                time.sleep(self.min_interval - elapsed)
+            self.last_call = time.time()
 
     def backoff(self, delay_seconds: float) -> None:
-        delay = max(delay_seconds, self.min_interval)
-        self.last_call = time.time() + delay - self.min_interval
+        with self._lock:
+            delay = max(delay_seconds, self.min_interval)
+            self.last_call = time.time() + delay - self.min_interval
 
 
 @dataclass
@@ -52,12 +56,14 @@ class AssetMatch:
 
 
 DEFAULT_POLYGON_MIN_INTERVAL = float(os.getenv("POLYGON_MIN_INTERVAL_SECONDS", "0.28"))
+DEFAULT_YAHOO_MIN_INTERVAL = float(os.getenv("YAHOO_MIN_INTERVAL_SECONDS", "0.30"))
 # OpenFIGI docs: with API key, ~25 mapping requests / 6s; ~0.24s spacing is safe headroom.
 DEFAULT_OPENFIGI_MIN_INTERVAL = float(os.getenv("OPENFIGI_MIN_INTERVAL_SECONDS", "0.28"))
 DEFAULT_RATE_LIMIT_BACKOFF = float(os.getenv("LOOKUP_RATE_LIMIT_BACKOFF_SECONDS", "60"))
 MAX_RATE_LIMIT_RETRY_AFTER = float(os.getenv("LOOKUP_MAX_RATE_LIMIT_RETRY_AFTER_SECONDS", "5"))
 
 POLYGON_LIMITER = RateLimiter(DEFAULT_POLYGON_MIN_INTERVAL)
+YAHOO_LIMITER = RateLimiter(DEFAULT_YAHOO_MIN_INTERVAL)
 OPENFIGI_LIMITER = RateLimiter(DEFAULT_OPENFIGI_MIN_INTERVAL)
 
 

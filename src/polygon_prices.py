@@ -4,16 +4,30 @@ import os
 import sqlite3
 import sys
 import time as _time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, time
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 from urllib.parse import quote, urljoin
 from zoneinfo import ZoneInfo
 
-from .config import POLYGON_AGGS_DAY, USER_AGENT
-from .ticker_lookup import POLYGON_LIMITER, _request_with_rate_limit
+from .config import (
+    POLYGON_AGGS_DAY,
+    USER_AGENT,
+    YAHOO_REQUEST_TIMEOUT,
+    price_cache_parallel_workers,
+)
+from .db import get_connection, init_db
+from .ticker_lookup import POLYGON_LIMITER, YAHOO_LIMITER, _request_with_rate_limit
 from .utils import is_non_equity_asset
 
 _ET = ZoneInfo("America/New_York")
+
+PriceSource = Literal["yahoo", "polygon"]
+
+CACHE_TABLE_BY_SOURCE: dict[PriceSource, str] = {
+    "polygon": "polygon_daily_bar_cache",
+    "yahoo": "yahoo_daily_bar_cache",
+}
 
 
 def _date_to_et_midnight_ms(d: date) -> int:
@@ -89,9 +103,18 @@ def _signed_return_and_pnl(
     return ret_pct, None
 
 
-def _cache_range_for_ticker(conn: sqlite3.Connection, ticker: str) -> tuple[str | None, str | None]:
+def _cache_table(source: PriceSource) -> str:
+    return CACHE_TABLE_BY_SOURCE[source]
+
+
+def _cache_range_for_ticker(
+    conn: sqlite3.Connection,
+    ticker: str,
+    *,
+    table: str = "polygon_daily_bar_cache",
+) -> tuple[str | None, str | None]:
     row = conn.execute(
-        "SELECT MIN(bar_date), MAX(bar_date) FROM polygon_daily_bar_cache WHERE ticker = ?",
+        f"SELECT MIN(bar_date), MAX(bar_date) FROM {table} WHERE ticker = ?",
         (ticker,),
     ).fetchone()
     if row is None or row[0] is None:
@@ -99,17 +122,31 @@ def _cache_range_for_ticker(conn: sqlite3.Connection, ticker: str) -> tuple[str 
     return str(row[0]), str(row[1])
 
 
-def _cache_covers(conn: sqlite3.Connection, ticker: str, d_lo: date, d_hi: date) -> bool:
-    mn, mx = _cache_range_for_ticker(conn, ticker)
+def _cache_covers(
+    conn: sqlite3.Connection,
+    ticker: str,
+    d_lo: date,
+    d_hi: date,
+    *,
+    table: str = "polygon_daily_bar_cache",
+) -> bool:
+    mn, mx = _cache_range_for_ticker(conn, ticker, table=table)
     if not mn or not mx:
         return False
     return mn <= d_lo.isoformat() and mx >= d_hi.isoformat()
 
 
-def _load_bars(conn: sqlite3.Connection, ticker: str, d_lo: date, d_hi: date) -> list[tuple[date, float]]:
+def _load_bars(
+    conn: sqlite3.Connection,
+    ticker: str,
+    d_lo: date,
+    d_hi: date,
+    *,
+    table: str = "polygon_daily_bar_cache",
+) -> list[tuple[date, float]]:
     rows = conn.execute(
-        """
-        SELECT bar_date, close FROM polygon_daily_bar_cache
+        f"""
+        SELECT bar_date, close FROM {table}
         WHERE ticker = ? AND bar_date >= ? AND bar_date <= ?
         ORDER BY bar_date
         """,
@@ -125,20 +162,75 @@ def _load_bars(conn: sqlite3.Connection, ticker: str, d_lo: date, d_hi: date) ->
     return out
 
 
-def _upsert_bars(conn: sqlite3.Connection, ticker: str, bars: Sequence[tuple[date, float]]) -> None:
+def _upsert_bars(
+    conn: sqlite3.Connection,
+    table: str,
+    ticker: str,
+    bars: Sequence[tuple[date, float]],
+    *,
+    only_missing: bool = False,
+) -> None:
     if not bars:
         return
+    conflict = "DO NOTHING" if only_missing else (
+        "DO UPDATE SET close = excluded.close, fetched_at = datetime('now')"
+    )
     conn.executemany(
-        """
-        INSERT INTO polygon_daily_bar_cache (ticker, bar_date, close)
+        f"""
+        INSERT INTO {table} (ticker, bar_date, close)
         VALUES (?, ?, ?)
-        ON CONFLICT(ticker, bar_date) DO UPDATE SET
-            close = excluded.close,
-            fetched_at = datetime('now')
+        ON CONFLICT(ticker, bar_date) {conflict}
         """,
         [(ticker, d.isoformat(), c) for d, c in bars],
     )
     conn.commit()
+
+
+def _yahoo_symbol(ticker: str) -> str:
+    """Yahoo uses hyphens for share classes (e.g. BRK-B)."""
+    return ticker.replace(".", "-")
+
+
+def fetch_yahoo_daily_bars(
+    ticker: str,
+    d_lo: date,
+    d_hi: date,
+) -> list[tuple[date, float]]:
+    """Fetch adjusted daily closes from Yahoo Finance (no API key)."""
+    t = _normalize_ticker_path(ticker)
+    if not t:
+        return []
+    try:
+        import yfinance as yf
+    except ImportError:
+        return []
+
+    sym = _yahoo_symbol(t)
+    YAHOO_LIMITER.wait()
+    try:
+        hist = yf.Ticker(sym).history(
+            start=d_lo.isoformat(),
+            end=(d_hi + timedelta(days=1)).isoformat(),
+            auto_adjust=True,
+            actions=False,
+            timeout=YAHOO_REQUEST_TIMEOUT,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return []
+
+    dedup: dict[date, float] = {}
+    for idx, close in zip(hist.index, hist["Close"], strict=False):
+        try:
+            ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
+            d0 = ts.date() if hasattr(ts, "date") else date.fromisoformat(str(idx)[:10])
+            c = float(close)
+        except (TypeError, ValueError):
+            continue
+        if c > 0:
+            dedup[d0] = c
+    return sorted(dedup.items(), key=lambda x: x[0])
 
 
 def fetch_polygon_daily_bars(
@@ -200,6 +292,36 @@ def fetch_polygon_daily_bars(
     return sorted(dedup.items(), key=lambda x: x[0])
 
 
+def ensure_bars_for_ticker_source(
+    conn: sqlite3.Connection,
+    ticker: str,
+    d_lo: date,
+    d_hi: date,
+    api_key: str,
+    source: PriceSource,
+    *,
+    force_refetch: bool,
+    cache_only: bool,
+) -> list[tuple[date, float]]:
+    t = _normalize_ticker_path(ticker)
+    if not t:
+        return []
+    table = _cache_table(source)
+    pad_lo = d_lo - timedelta(days=21)
+    pad_hi = d_hi + timedelta(days=21)
+    if not force_refetch and _cache_covers(conn, t, pad_lo, pad_hi, table=table):
+        return _load_bars(conn, t, pad_lo, pad_hi, table=table)
+    if cache_only:
+        return _load_bars(conn, t, pad_lo, pad_hi, table=table)
+    if source == "yahoo":
+        fetched = fetch_yahoo_daily_bars(t, pad_lo, pad_hi)
+        _upsert_bars(conn, table, t, fetched)
+    else:
+        fetched = fetch_polygon_daily_bars(t, pad_lo, pad_hi, api_key)
+        _upsert_bars(conn, table, t, fetched, only_missing=False)
+    return _load_bars(conn, t, pad_lo, pad_hi, table=table)
+
+
 def ensure_bars_for_ticker(
     conn: sqlite3.Connection,
     ticker: str,
@@ -210,44 +332,21 @@ def ensure_bars_for_ticker(
     force_refetch: bool,
     cache_only: bool,
 ) -> list[tuple[date, float]]:
-    t = _normalize_ticker_path(ticker)
-    if not t:
-        return []
-    pad_lo = d_lo - timedelta(days=21)
-    pad_hi = d_hi + timedelta(days=21)
-    if not force_refetch and _cache_covers(conn, t, pad_lo, pad_hi):
-        return _load_bars(conn, t, pad_lo, pad_hi)
-    if cache_only:
-        return _load_bars(conn, t, pad_lo, pad_hi)
-    fetched = fetch_polygon_daily_bars(t, pad_lo, pad_hi, api_key)
-    _upsert_bars(conn, t, fetched)
-    return _load_bars(conn, t, pad_lo, pad_hi)
+    """Polygon-only compatibility wrapper."""
+    return ensure_bars_for_ticker_source(
+        conn,
+        ticker,
+        d_lo,
+        d_hi,
+        api_key,
+        "polygon",
+        force_refetch=force_refetch,
+        cache_only=cache_only,
+    )
 
 
-def warm_polygon_price_cache_for_db(
-    conn: sqlite3.Connection,
-    *,
-    as_of: date,
-    api_key: str | None = None,
-    force_refetch: bool = False,
-    cache_only: bool = False,
-    progress_every: int = 25,
-    progress_cb=None,
-) -> int:
-    """
-    Prefetch Polygon daily bars for every distinct ticker with a parseable transaction_date
-    in `transactions`. Returns count of tickers requested (network or cache-only).
-
-    ``progress_every``: stampa una riga di avanzamento ogni N ticker (0 = silenzioso,
-    tranne il riepilogo finale). ``progress_cb`` (opzionale) è invocato con
-    ``(i, total, ticker, n_bars, cache_hit)`` ad ogni ticker, utile per wrapper CLI
-    o test. Le stampe vanno a ``stderr`` per non sporcare ``stdout`` (che è
-    riservato al riepilogo finale ``N ticker distinti``).
-    """
-    key = api_key or os.getenv("POLYGON_API_KEY", "").strip()
-    if not key and not cache_only:
-        raise RuntimeError("POLYGON_API_KEY mancante")
-    rows = conn.execute(
+def _distinct_trade_ticker_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
         """
         SELECT UPPER(TRIM(ticker)) AS ticker,
                MIN(t.transaction_date) AS mn,
@@ -262,86 +361,261 @@ def warm_polygon_price_cache_for_db(
         ORDER BY UPPER(TRIM(ticker))
         """
     ).fetchall()
-    total = len(rows)
-    n = 0
-    cache_hits = 0
-    api_calls = 0
-    non_equity_skipped = 0
-    started = _time.monotonic()
-    for i, row in enumerate(rows, start=1):
-        tk = str(row["ticker"] or "").strip()
-        if not tk:
-            continue
-        try:
-            d_min = date.fromisoformat(str(row["mn"]).strip()[:10])
-            d_max = date.fromisoformat(str(row["mx"]).strip()[:10])
-        except ValueError:
-            continue
-        lo = min(d_min, as_of)
-        hi = max(d_max, as_of)
-        # Skip assets that have no continuous market price (Treasury notes,
-        # municipal / corporate bonds, bond funds, …). Polygon will return
-        # empty for them anyway — this saves ~25-40 API calls on the
-        # current dataset and keeps the progress bar honest.
-        if is_non_equity_asset(tk, str(row["asset_name_raw"] or "")):
-            non_equity_skipped += 1
-            if progress_every and (i % progress_every == 0 or i == total):
-                elapsed = _time.monotonic() - started
-                rate = i / elapsed if elapsed > 0 else 0.0
-                eta = (total - i) / rate if rate > 0 else float("inf")
-                print(
-                    f"[{i:>4d}/{total}] {tk:<8s}  SKIP (non-equity)  "
-                    f"elapsed={elapsed:5.1f}s  rate={rate:4.1f}/s  eta={eta:5.0f}s",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            n += 1
-            continue
-        # Snapshot cache size before/after to know whether we hit cache or
-        # actually called the API — Polygon has a per-minute rate limit so the
-        # free tier can be exhausted silently otherwise.
-        before = _cache_range_for_ticker(conn, tk)
-        ensure_bars_for_ticker(
+
+
+def _warm_one_ticker(
+    row: sqlite3.Row,
+    *,
+    as_of: date,
+    source: PriceSource,
+    api_key: str,
+    force_refetch: bool,
+    cache_only: bool,
+) -> tuple[str, int, bool, bool]:
+    """Returns (ticker, bar_count, cache_hit, skipped_non_equity)."""
+    tk = str(row["ticker"] or "").strip()
+    if not tk:
+        return "", 0, False, False
+    try:
+        d_min = date.fromisoformat(str(row["mn"]).strip()[:10])
+        d_max = date.fromisoformat(str(row["mx"]).strip()[:10])
+    except ValueError:
+        return tk, 0, False, False
+    lo = min(d_min, as_of)
+    hi = max(d_max, as_of)
+    if is_non_equity_asset(tk, str(row["asset_name_raw"] or "")):
+        return tk, 0, False, True
+
+    table = _cache_table(source)
+    conn = get_connection()
+    init_db(conn)
+    try:
+        before = _cache_range_for_ticker(conn, tk, table=table)
+        ensure_bars_for_ticker_source(
             conn,
             tk,
             lo,
             hi,
-            key or "",
+            api_key,
+            source,
             force_refetch=force_refetch,
             cache_only=cache_only,
         )
-        after = _cache_range_for_ticker(conn, tk)
+        after = _cache_range_for_ticker(conn, tk, table=table)
         bars_now = (
             conn.execute(
-                "SELECT COUNT(*) AS c FROM polygon_daily_bar_cache WHERE ticker = ?",
+                f"SELECT COUNT(*) AS c FROM {table} WHERE ticker = ?",
                 (tk,),
             ).fetchone()["c"]
             if after[0] is not None
             else 0
         )
         cache_hit = bool(before[0] and before[1] and not force_refetch)
-        if cache_hit:
-            cache_hits += 1
-        else:
-            api_calls += 1
+        return tk, int(bars_now), cache_hit, False
+    finally:
+        conn.close()
+
+
+def _warm_source_price_cache_for_db(
+    conn: sqlite3.Connection,
+    *,
+    as_of: date,
+    source: PriceSource,
+    api_key: str | None = None,
+    force_refetch: bool = False,
+    cache_only: bool = False,
+    progress_every: int = 25,
+    progress_cb=None,
+    parallel_workers: int = 1,
+) -> int:
+    """Prefetch daily bars for one source (yahoo or polygon)."""
+    key = api_key or os.getenv("POLYGON_API_KEY", "").strip()
+    if source == "polygon" and not key and not cache_only:
+        raise RuntimeError("POLYGON_API_KEY mancante")
+    rows = _distinct_trade_ticker_rows(conn)
+    total = len(rows)
+    label = source.upper()[:3]
+    n = 0
+    started = _time.monotonic()
+    workers = max(1, parallel_workers)
+
+    def _report(i: int, tk: str, bars_now: int, cache_hit: bool, *, skipped: bool) -> None:
         if progress_cb is not None:
             try:
                 progress_cb(i, total, tk, bars_now, cache_hit)
             except Exception:  # noqa: BLE001
                 pass
-        if progress_every and (i % progress_every == 0 or i == total):
-            elapsed = _time.monotonic() - started
-            rate = i / elapsed if elapsed > 0 else 0.0
-            eta = (total - i) / rate if rate > 0 else float("inf")
+        if not progress_every or (i % progress_every != 0 and i != total):
+            return
+        elapsed = _time.monotonic() - started
+        rate = i / elapsed if elapsed > 0 else 0.0
+        eta = (total - i) / rate if rate > 0 else float("inf")
+        if skipped:
             print(
-                f"[{i:>4d}/{total}] {tk:<8s}  bars={bars_now:>4d}  "
+                f"[{label} {i:>4d}/{total}] {tk:<8s}  SKIP (non-equity)  "
+                f"elapsed={elapsed:5.1f}s  rate={rate:4.1f}/s  eta={eta:5.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                f"[{label} {i:>4d}/{total}] {tk:<8s}  bars={bars_now:>4d}  "
                 f"cache_hit={int(cache_hit)}  "
                 f"elapsed={elapsed:5.1f}s  rate={rate:4.1f}/s  eta={eta:5.0f}s",
                 file=sys.stderr,
                 flush=True,
             )
-        n += 1
+
+    if workers <= 1:
+        for i, row in enumerate(rows, start=1):
+            tk, bars_now, cache_hit, skipped = _warm_one_ticker(
+                row,
+                as_of=as_of,
+                source=source,
+                api_key=key or "",
+                force_refetch=force_refetch,
+                cache_only=cache_only,
+            )
+            if not tk:
+                continue
+            _report(i, tk, bars_now, cache_hit, skipped=skipped)
+            n += 1
+        return n
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _warm_one_ticker,
+                row,
+                as_of=as_of,
+                source=source,
+                api_key=key or "",
+                force_refetch=force_refetch,
+                cache_only=cache_only,
+            ): (i, row)
+            for i, row in enumerate(rows, start=1)
+        }
+        for fut in as_completed(futures):
+            i, _row = futures[fut]
+            try:
+                tk, bars_now, cache_hit, skipped = fut.result()
+            except Exception:  # noqa: BLE001
+                continue
+            if not tk:
+                continue
+            _report(i, tk, bars_now, cache_hit, skipped=skipped)
+            n += 1
     return n
+
+
+def warm_yahoo_price_cache_for_db(
+    conn: sqlite3.Connection,
+    *,
+    as_of: date,
+    force_refetch: bool = False,
+    cache_only: bool = False,
+    progress_every: int = 25,
+    progress_cb=None,
+    parallel_workers: int | None = None,
+) -> int:
+    workers = parallel_workers if parallel_workers is not None else price_cache_parallel_workers()
+    return _warm_source_price_cache_for_db(
+        conn,
+        as_of=as_of,
+        source="yahoo",
+        force_refetch=force_refetch,
+        cache_only=cache_only,
+        progress_every=progress_every,
+        progress_cb=progress_cb,
+        parallel_workers=workers,
+    )
+
+
+def warm_polygon_price_cache_for_db(
+    conn: sqlite3.Connection,
+    *,
+    as_of: date,
+    api_key: str | None = None,
+    force_refetch: bool = False,
+    cache_only: bool = False,
+    progress_every: int = 25,
+    progress_cb=None,
+    parallel_workers: int | None = None,
+) -> int:
+    """
+    Prefetch Polygon daily bars for every distinct ticker with a parseable transaction_date
+    in `transactions`. Returns count of tickers requested (network or cache-only).
+    """
+    workers = parallel_workers if parallel_workers is not None else price_cache_parallel_workers()
+    return _warm_source_price_cache_for_db(
+        conn,
+        as_of=as_of,
+        source="polygon",
+        api_key=api_key,
+        force_refetch=force_refetch,
+        cache_only=cache_only,
+        progress_every=progress_every,
+        progress_cb=progress_cb,
+        parallel_workers=workers,
+    )
+
+
+def warm_price_cache_for_db(
+    conn: sqlite3.Connection,
+    *,
+    as_of: date,
+    sources: Sequence[PriceSource] = ("yahoo", "polygon"),
+    api_key: str | None = None,
+    force_refetch: bool = False,
+    cache_only: bool = False,
+    progress_every: int = 25,
+    progress_cb=None,
+    parallel_workers: int | None = None,
+) -> dict[str, int]:
+    """Warm Yahoo and Polygon caches in parallel (separate tables for A/B)."""
+    key = api_key or os.getenv("POLYGON_API_KEY", "").strip()
+    active_sources: list[PriceSource] = list(sources)
+    if not cache_only and not key:
+        active_sources = [s for s in active_sources if s != "polygon"]
+    workers = parallel_workers if parallel_workers is not None else price_cache_parallel_workers()
+    per_source = max(1, workers // max(1, len(active_sources) or 1))
+    results: dict[str, int] = {}
+
+    def _run_source(src: PriceSource) -> tuple[str, int]:
+        c = get_connection()
+        init_db(c)
+        try:
+            if src == "yahoo":
+                n = warm_yahoo_price_cache_for_db(
+                    c,
+                    as_of=as_of,
+                    force_refetch=force_refetch,
+                    cache_only=cache_only,
+                    progress_every=progress_every,
+                    progress_cb=progress_cb,
+                    parallel_workers=per_source,
+                )
+            else:
+                n = warm_polygon_price_cache_for_db(
+                    c,
+                    as_of=as_of,
+                    api_key=api_key,
+                    force_refetch=force_refetch,
+                    cache_only=cache_only,
+                    progress_every=progress_every,
+                    progress_cb=progress_cb,
+                    parallel_workers=per_source,
+                )
+            return src, n
+        finally:
+            c.close()
+
+    with ThreadPoolExecutor(max_workers=max(1, len(active_sources))) as pool:
+        futures = [pool.submit(_run_source, src) for src in active_sources]
+        for fut in as_completed(futures):
+            src, n = fut.result()
+            results[src] = n
+    return results
 
 
 def _parse_txn_date(raw: Any) -> date | None:
