@@ -41,12 +41,19 @@ def download_house_fd_bulk(
     *,
     overwrite: bool = False,
     extract: bool = True,
+    force_extract: bool = False,
 ) -> list[int]:
     """
     Scarica gli zip annuali FD del Clerk della House (bulk metadata) e opzionalmente li estrae in
     data/raw/house/<year>FD/ (stessa struttura che si ottiene con zip manuali).
 
     Verifica i termini d'uso del sito disclosures-clerk.house.gov prima di automatizzare download ripetuti.
+
+    - overwrite=True: riscarica lo zip anche se esiste gia localmente.
+    - force_extract=True: dopo l'estrazione, wipe completo dei file top-level dello zip nella dest_dir
+      e ri-estrai. Sicuro ma piu lento: utile quando i metadata locali sembrano allineati ma in realta
+      sono vecchi (succede se la detection basata sulla dimensione del TXT matcha con la dimensione di
+      un TXT precedente; raro ma lo abbiamo visto).
     """
     ensure_dirs([HOUSE_RAW_DIR])
     headers = {"User-Agent": USER_AGENT}
@@ -69,7 +76,14 @@ def download_house_fd_bulk(
                 f"House FD {year}: metadata su disco non coincide con {dest_zip.name}; "
                 f"ri-estraggo senza riscaricare."
             )
-            extract_house_fd_bulk_zip(dest_zip, dest_dir)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=force_extract)
+            print(f"Estratto in {dest_dir}")
+            completed.append(year)
+            continue
+
+        if force_extract and extract and dest_zip.exists():
+            print(f"House FD {year}: force_extract=True, wipe + re-estrazione di {dest_dir}.")
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=True)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
             continue
@@ -97,7 +111,7 @@ def download_house_fd_bulk(
             print(f"Uso zip esistente per {year}: {dest_zip}")
 
         if extract:
-            extract_house_fd_bulk_zip(dest_zip, dest_dir)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=force_extract)
             print(f"Estratto in {dest_dir}")
 
         completed.append(year)

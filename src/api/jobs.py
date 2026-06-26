@@ -63,8 +63,69 @@ def _check_cancel(cancel_event: threading.Event) -> None:
         raise CancelledError()
 
 
-def run_ingest_all(state: JobState, cancel_event: threading.Event, *, overwrite: bool = False) -> None:
-    """Download House FD metadata, then run House + Senate ingest."""
+def _summarize_house_fd_extract(year: int) -> dict[str, int]:
+    """
+    Legge il TXT appena estratto per anno `year` e conta righe totali + righe PTR (FilingType=P).
+    Usato dal job per dare un feedback chiaro a video su quanti PTR sono stati visti nei metadata.
+    """
+    import csv as _csv
+    from ..config import HOUSE_RAW_DIR
+
+    txt_path = HOUSE_RAW_DIR / f"{year}FD" / f"{year}FD.txt"
+    out = {"year": year, "txt_present": int(txt_path.exists()), "rows_total": 0, "rows_ptr": 0}
+    if not txt_path.exists():
+        return out
+    try:
+        with txt_path.open("r", encoding="utf-8", errors="replace") as fh:
+            reader = _csv.reader(fh, delimiter="\t")
+            header = next(reader, None)
+            if not header or "FilingType" not in header:
+                return out
+            type_idx = header.index("FilingType")
+            for row in reader:
+                if not row:
+                    continue
+                out["rows_total"] += 1
+                if row[type_idx].strip().upper() == "P":
+                    out["rows_ptr"] += 1
+    except Exception:
+        return out
+    return out
+
+
+def _summarize_senate_dir() -> dict[str, Any]:
+    """Conta i PDF PTR nella cartella data/raw/senate per dare feedback chiaro all'utente."""
+    from pathlib import Path
+    from ..config import SENATE_RAW_DIR
+
+    p = Path(SENATE_RAW_DIR)
+    if not p.exists():
+        return {"dir": str(p), "exists": False, "pdfs": 0, "reason": "directory non presente"}
+    pdfs = list(p.glob("*.pdf"))
+    reason = ""
+    if not pdfs:
+        reason = (
+            "Nessun PDF trovato in data/raw/senate/. Senate eFD non consente scrape automatico: "
+            "scarica i PTR a mano da https://efdsearch.senate.gov/ e copiali in quella cartella."
+        )
+    return {"dir": str(p), "exists": True, "pdfs": len(pdfs), "reason": reason}
+
+
+def run_ingest_all(
+    state: JobState,
+    cancel_event: threading.Event,
+    *,
+    overwrite: bool = False,
+    force_extract: bool = False,
+    skip_senate: bool = False,
+) -> None:
+    """Download House FD metadata, then run House + Senate ingest.
+
+    overwrite=True: riscarica gli zip FD dal Clerk anche se gia presenti.
+    force_extract=True: dopo l'estrazione, wipe + re-estrazione completa delle dir FD House
+    (sicurezza contro metadata locali vecchi non rilevati dal check basato sulla dimensione).
+    skip_senate=True: salta la fase Senate (utile per debug locale).
+    """
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
     sys.stdout = tee
@@ -79,8 +140,38 @@ def run_ingest_all(state: JobState, cancel_event: threading.Event, *, overwrite:
         _check_cancel(cancel_event)
 
         years = list(range(START_YEAR, datetime.now().year + 1))
-        completed_years = download_house_fd_bulk(years, overwrite=overwrite, extract=True)
-        state.result = {"download_years": completed_years, "overwrite": overwrite}
+        completed_years = download_house_fd_bulk(
+            years,
+            overwrite=overwrite,
+            extract=True,
+            force_extract=force_extract,
+        )
+
+        # Validazione post-estrazione: conferma quanti PTR sono effettivamente nei metadata.
+        per_year: list[dict[str, int]] = []
+        for y in years:
+            per_year.append(_summarize_house_fd_extract(y))
+        total_ptr = sum(x["rows_ptr"] for x in per_year)
+        total_rows = sum(x["rows_total"] for x in per_year)
+        for x in per_year:
+            if x["txt_present"]:
+                print(
+                    f"House FD {x['year']}: TXT rows={x['rows_total']} PTR-rows={x['rows_ptr']}"
+                )
+        print(
+            f"House FD bulk: {total_rows} righe metadata totali, di cui {total_ptr} PTR (FilingType=P) "
+            f"negli anni {min(years)}-{max(years)}."
+        )
+
+        state.result = {
+            "download_years": completed_years,
+            "overwrite": overwrite,
+            "force_extract": force_extract,
+            "skip_senate": skip_senate,
+            "house_fd_rows_total": total_rows,
+            "house_fd_rows_ptr": total_ptr,
+            "house_fd_per_year": per_year,
+        }
 
         state.progress = 15
         state.current_step = "ingest-house"
@@ -90,17 +181,30 @@ def run_ingest_all(state: JobState, cancel_event: threading.Event, *, overwrite:
 
         ingest_house()
 
+        if skip_senate:
+            state.progress = 100
+            state.current_step = "done"
+            state.result["scope"] = "ingest-house-only"
+            return
+
         state.progress = 65
         state.current_step = "ingest-senate"
         _check_cancel(cancel_event)
 
         from ..ingest_senate import ingest_senate
 
+        senate_summary = _summarize_senate_dir()
+        if senate_summary["pdfs"] == 0:
+            print(senate_summary["reason"])
+        else:
+            print(f"Senate: trovati {senate_summary['pdfs']} PDF in {senate_summary['dir']}.")
+
         ingest_senate()
+        state.result["senate"] = senate_summary
 
         state.progress = 100
         state.current_step = "done"
-        state.result = {"scope": "ingest-all", "download_years": completed_years}
+        state.result["scope"] = "ingest-all"
     finally:
         sys.stdout = original_stdout
         tee.flush()
@@ -121,7 +225,13 @@ class JobManager:
         with self._lock:
             return self._snapshot()
 
-    def start_or_restart(self, *, overwrite: bool = False) -> dict[str, Any]:
+    def start_or_restart(
+        self,
+        *,
+        overwrite: bool = False,
+        force_extract: bool = False,
+        skip_senate: bool = False,
+    ) -> dict[str, Any]:
         with self._lock:
             if self._state.status == "running":
                 self._cancel_event.set()
@@ -142,6 +252,8 @@ class JobManager:
                 new_state,
                 cancel_event,
                 overwrite,
+                force_extract,
+                skip_senate,
             )
             return self._snapshot()
 
@@ -171,9 +283,17 @@ class JobManager:
         state: JobState,
         cancel_event: threading.Event,
         overwrite: bool = False,
+        force_extract: bool = False,
+        skip_senate: bool = False,
     ) -> None:
         try:
-            run_ingest_all(state, cancel_event, overwrite=overwrite)
+            run_ingest_all(
+                state,
+                cancel_event,
+                overwrite=overwrite,
+                force_extract=force_extract,
+                skip_senate=skip_senate,
+            )
             with self._lock:
                 if self._run_id != run_id:
                     return

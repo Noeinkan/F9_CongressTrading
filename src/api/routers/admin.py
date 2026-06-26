@@ -13,6 +13,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 class RefreshDataRequest(BaseModel):
     restart: bool = True
     overwrite: bool = False
+    force_extract: bool = False
+    skip_senate: bool = False
 
 
 @router.get("/refresh-data/status")
@@ -25,7 +27,11 @@ def refresh_data_start(
     payload: RefreshDataRequest,
     _user: str = Depends(require_admin),
 ) -> dict[str, object]:
-    return job_manager.start_or_restart(overwrite=payload.overwrite)
+    return job_manager.start_or_restart(
+        overwrite=payload.overwrite,
+        force_extract=payload.force_extract,
+        skip_senate=payload.skip_senate,
+    )
 
 
 @router.post("/refresh-data/cancel")

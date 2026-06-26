@@ -11,4 +11,5 @@ uvicorn[standard]==0.34.0
 itsdangerous==2.2.0
 pytest==8.3.4
 httpx==0.28.1
-yfinance==0.2.51
+yfinance==1.4.1
+curl_cffi==0.15.0

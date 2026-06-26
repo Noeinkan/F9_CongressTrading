@@ -31,8 +31,8 @@ def _login(client: TestClient) -> None:
 def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     calls: list[str] = []
 
-    def fake_download(years, *, overwrite=False, extract=True):
-        calls.append(f"download:{years}:{overwrite}")
+    def fake_download(years, *, overwrite=False, extract=True, force_extract=False):
+        calls.append(f"download:{years}:{overwrite}:{force_extract}")
         return years
 
     def fake_house() -> None:
@@ -63,15 +63,15 @@ def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     assert "download_years" in final["result"]
     assert calls[0].startswith("download:")
     assert calls[-2:] == ["house", "senate"]
-    # default behaviour: overwrite=False
-    assert ":False" in calls[0]
+    # default behaviour: overwrite=False, force_extract=False
+    assert ":False:False" in calls[0]
 
 
 def test_job_manager_propagates_overwrite_true(monkeypatch):
     calls: list[str] = []
 
-    def fake_download(years, *, overwrite=False, extract=True):
-        calls.append(f"overwrite={overwrite}")
+    def fake_download(years, *, overwrite=False, extract=True, force_extract=False):
+        calls.append(f"overwrite={overwrite}:force_extract={force_extract}")
         return years
 
     def noop() -> None:
@@ -92,7 +92,42 @@ def test_job_manager_propagates_overwrite_true(monkeypatch):
         time.sleep(0.05)
 
     assert manager.get_state()["status"] == "succeeded"
-    assert calls and calls[0] == "overwrite=True"
+    assert calls and calls[0] == "overwrite=True:force_extract=False"
+
+
+def test_job_manager_propagates_force_extract_and_skip_senate(monkeypatch):
+    calls: list[str] = []
+
+    def fake_download(years, *, overwrite=False, extract=True, force_extract=False):
+        calls.append(f"force_extract={force_extract}")
+        return years
+
+    def fake_house() -> None:
+        calls.append("house")
+
+    def fake_senate() -> None:
+        calls.append("senate")
+
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", fake_download)
+    monkeypatch.setattr("src.ingest_house.ingest_house", fake_house)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", fake_senate)
+
+    manager = JobManager()
+    manager.start_or_restart(force_extract=True, skip_senate=True)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        snap = manager.get_state()
+        if snap["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+
+    final = manager.get_state()
+    assert final["status"] == "succeeded"
+    assert calls == ["force_extract=True", "house"]
+    assert final["result"]["scope"] == "ingest-house-only"
+    assert final["result"]["skip_senate"] is True
+    assert final["result"]["force_extract"] is True
 
 
 def test_job_manager_cancel_between_steps(monkeypatch):
@@ -143,6 +178,8 @@ def test_refresh_status_requires_auth(client):
     assert client.get("/api/admin/refresh-data/status").status_code == 401
     assert client.post("/api/admin/refresh-data", json={"restart": True}).status_code == 401
     assert client.post("/api/admin/refresh-data", json={"restart": True, "overwrite": True}).status_code == 401
+    assert client.post("/api/admin/refresh-data", json={"restart": True, "force_extract": True}).status_code == 401
+    assert client.post("/api/admin/refresh-data", json={"restart": True, "skip_senate": True}).status_code == 401
     assert client.post("/api/admin/refresh-data/cancel").status_code == 401
 
 

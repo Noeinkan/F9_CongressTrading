@@ -182,16 +182,54 @@ def house_fd_bulk_zip_needs_extract(zip_path: Path, dest_dir: Path) -> bool:
     return False
 
 
-def extract_house_fd_bulk_zip(zip_path: Path, dest_dir: Path) -> None:
-    """Estrae zip bulk FD House: rimuove i file top-level che verranno estratti, poi extractall."""
+def extract_house_fd_bulk_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    *,
+    force: bool = False,
+) -> dict[str, int]:
+    """
+    Estrae zip bulk FD House in modo robusto.
+
+    Se force=True, svuota completamente dest_dir (solo file top-level dello zip) prima di estrarre:
+    utile quando i metadata locali sono vecchi ma hanno la stessa dimensione del file nello zip
+    succoso (raro, ma succede) oppure quando unlink non ha propagato.
+
+    Ritorna un dict {filename: size_on_disk} dei file effettivamente presenti su disco
+    dopo l'estrazione. Se la dimensione di un file estratto non corrisponde a quella
+    che lo zip dichiarava, logga un avviso (perche significa che il file sul disco non
+    e stato aggiornato).
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
+        top: list[tuple[str, int]] = []
         for name in zf.namelist():
             norm = name.replace("\\", "/").strip("/")
             if not norm or "/" in norm:
                 continue
-            (dest_dir / norm).unlink(missing_ok=True)
+            top.append((norm, zf.getinfo(name).file_size))
+
+        if force:
+            for member_name, _ in top:
+                (dest_dir / member_name).unlink(missing_ok=True)
+
         zf.extractall(dest_dir)
+
+    extracted: dict[str, int] = {}
+    for member_name, zip_size in top:
+        dest = dest_dir / member_name
+        if dest.exists():
+            actual = dest.stat().st_size
+            extracted[member_name] = actual
+            if actual != zip_size:
+                # File sul disco ha dimensione diversa da quanto estratto dallo zip.
+                # Caso tipico: file era aperto da un altro processo durante l'estrazione.
+                print(
+                    f"[extract_house_fd_bulk_zip] ATTENZIONE: {dest} on-disk size={actual} "
+                    f"!= zip size={zip_size} (il file potrebbe non essere stato sovrascritto).",
+                    flush=True,
+                )
+    return extracted
 
 
 def now_iso() -> str:

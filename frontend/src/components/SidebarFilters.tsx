@@ -46,6 +46,8 @@ function SidebarRefreshControls() {
   const startRefresh = useStartRefresh();
   const cancelRefresh = useCancelRefresh();
   const [forceRedownload, setForceRedownload] = useState(false);
+  const [forceExtract, setForceExtract] = useState(false);
+  const [skipSenate, setSkipSenate] = useState(false);
 
   const status = refreshStatus.data?.status ?? "idle";
   const isRunning = status === "running" || startRefresh.isPending;
@@ -74,11 +76,21 @@ function SidebarRefreshControls() {
       ? "Retry refresh"
       : "Refresh data";
 
+  const resultSummary = (() => {
+    const result = refreshStatus.data?.result;
+    if (!result || typeof result !== "object") return null;
+    const rowsPtr = typeof result.house_fd_rows_ptr === "number" ? result.house_fd_rows_ptr : null;
+    const rowsTotal = typeof result.house_fd_rows_total === "number" ? result.house_fd_rows_total : null;
+    const senate = (result as { senate?: { pdfs?: number; reason?: string } }).senate;
+    if (rowsPtr == null && rowsTotal == null && !senate) return null;
+    return { rowsPtr, rowsTotal, senate };
+  })();
+
   return (
     <Tooltip
-      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures. Tick 'Force re-download' to bypass the local cache and refetch the yearly zip from the Clerk."
+      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures. 'Force re-download' re-fetches the yearly zip. 'Wipe + re-extract FD' is the nuclear option when local FD metadata look aligned but are actually stale."
       multiline
-      w={240}
+      w={260}
     >
       <Stack gap="xs" data-testid="sidebar-admin">
         <Button
@@ -87,7 +99,13 @@ function SidebarRefreshControls() {
           size="compact-sm"
           loading={isRunning}
           disabled={cancelRefresh.isPending}
-          onClick={() => startRefresh.mutate({ overwrite: forceRedownload })}
+          onClick={() =>
+            startRefresh.mutate({
+              overwrite: forceRedownload,
+              force_extract: forceExtract,
+              skip_senate: skipSenate,
+            })
+          }
           data-testid="sidebar-refresh"
         >
           {isRunning ? `Refreshing… ${progress}%` : primaryLabel}
@@ -99,6 +117,22 @@ function SidebarRefreshControls() {
           onChange={(event) => setForceRedownload(event.currentTarget.checked)}
           disabled={isRunning}
           data-testid="sidebar-refresh-overwrite"
+        />
+        <Checkbox
+          size="xs"
+          label="Wipe + re-extract FD metadata"
+          checked={forceExtract}
+          onChange={(event) => setForceExtract(event.currentTarget.checked)}
+          disabled={isRunning}
+          data-testid="sidebar-refresh-force-extract"
+        />
+        <Checkbox
+          size="xs"
+          label="Skip Senate"
+          checked={skipSenate}
+          onChange={(event) => setSkipSenate(event.currentTarget.checked)}
+          disabled={isRunning}
+          data-testid="sidebar-refresh-skip-senate"
         />
         {isRunning ? (
           <>
@@ -127,6 +161,21 @@ function SidebarRefreshControls() {
             startedAt={refreshStatus.data?.started_at ?? null}
             isLive={isRunning}
           />
+        ) : null}
+        {!isRunning && status === "succeeded" && resultSummary ? (
+          <Stack gap={2} data-testid="sidebar-refresh-summary">
+            {resultSummary.rowsPtr != null ? (
+              <Text size="xs" c="teal">
+                {resultSummary.rowsPtr} PTR rows seen across FD metadata
+                {resultSummary.rowsTotal != null ? ` (${resultSummary.rowsTotal} total)` : ""}
+              </Text>
+            ) : null}
+            {resultSummary.senate && resultSummary.senate.pdfs === 0 ? (
+              <Text size="xs" c="orange">
+                Senate: 0 PDF in data/raw/senate/ (drop files there and re-run without 'Skip Senate').
+              </Text>
+            ) : null}
+          </Stack>
         ) : null}
         {!isRunning && status === "succeeded" ? (
           <Text size="xs" c="teal" data-testid="sidebar-refresh-success">

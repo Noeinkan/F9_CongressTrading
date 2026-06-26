@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import sys
@@ -196,7 +197,11 @@ def fetch_yahoo_daily_bars(
     d_lo: date,
     d_hi: date,
 ) -> list[tuple[date, float]]:
-    """Fetch adjusted daily closes from Yahoo Finance (no API key)."""
+    """Fetch adjusted daily closes from Yahoo Finance (no API key).
+
+    Requires yfinance >= 0.2.65 (curl_cffi backend); 0.2.51 breaks against
+    current Yahoo endpoints (JSONDecodeError on every ticker).
+    """
     t = _normalize_ticker_path(ticker)
     if not t:
         return []
@@ -207,6 +212,9 @@ def fetch_yahoo_daily_bars(
 
     sym = _yahoo_symbol(t)
     YAHOO_LIMITER.wait()
+    yf_log = logging.getLogger("yfinance")
+    prev_level = yf_log.level
+    yf_log.setLevel(logging.CRITICAL)
     try:
         hist = yf.Ticker(sym).history(
             start=d_lo.isoformat(),
@@ -217,6 +225,8 @@ def fetch_yahoo_daily_bars(
         )
     except Exception:  # noqa: BLE001
         return []
+    finally:
+        yf_log.setLevel(prev_level)
     if hist is None or hist.empty or "Close" not in hist.columns:
         return []
 
