@@ -21,6 +21,9 @@ class RefreshDataRequest(BaseModel):
     overwrite: bool = False
     force_extract: bool = False
     skip_senate: bool = False
+    # Skip the OGE Executive branch (download + ingest). Defaults to False so
+    # the dashboard "Refresh data" button also populates the Executive page.
+    skip_oge: bool = False
 
 
 @router.get("/refresh-data/status")
@@ -38,6 +41,7 @@ def refresh_data_start(
         overwrite=payload.overwrite,
         force_extract=payload.force_extract,
         skip_senate=payload.skip_senate,
+        skip_oge=payload.skip_oge,
     )
 
 

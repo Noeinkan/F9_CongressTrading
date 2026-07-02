@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
 from collections import defaultdict
 
 import requests
 from tqdm import tqdm
+
+HOUSE_INGEST_PARSE_WORKERS = int(os.getenv("HOUSE_INGEST_PARSE_WORKERS", "4"))
+HOUSE_INGEST_DB_COMMIT_CHUNK = int(os.getenv("HOUSE_INGEST_DB_COMMIT_CHUNK", "25"))
 
 from .config import (
     HOUSE_PTR_PDF_URL,
@@ -810,6 +814,200 @@ def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
     return downloaded
 
 
+def _process_pdf_batch(
+    conn,
+    pdf_paths: list[Path],
+    fd_lookup: dict[str, dict[str, str | None]],
+    start_index: int,
+    total_pdfs: int,
+) -> tuple[int, int]:
+    """Parse a chunk of PDFs (parallel, in a process pool) and persist their transactions.
+
+    Returns ``(parsed_count, persisted_count)``. Each call to this function ends with a single
+    explicit ``conn.commit()`` so a crash mid-run keeps the dashboard up-to-date with everything
+    up to the last completed batch.
+    """
+    if not pdf_paths:
+        return 0, 0
+
+    # Step 1: parse PDFs in a process pool. pdfplumber is mostly I/O + regex and the per-call
+    # ProcessPoolExecutor in parse_ptr_pdf_safe pays a fork cost; we share one pool here.
+    parsed: list[tuple[Path, str, dict[str, str | None], list[dict[str, str | None]]]] = []
+    parsed_count = 0
+    max_workers = max(1, min(HOUSE_INGEST_PARSE_WORKERS, len(pdf_paths)))
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_path = {
+            executor.submit(parse_ptr_pdf_safe, p): (idx, p)
+            for idx, p in enumerate(pdf_paths)
+        }
+        for future in as_completed(future_to_path):
+            idx, pdf_path = future_to_path[future]
+            try:
+                header, rows = future.result()
+            except Exception as exc:
+                print(
+                    f"  ✗ PDF {start_index + idx + 1}/{total_pdfs}: {pdf_path.name} — errore: {exc}",
+                    flush=True,
+                )
+                continue
+            parsed.append((pdf_path, sha256_file(pdf_path), header, rows))
+            parsed_count += 1
+
+    if not parsed:
+        return 0, 0
+
+    # Step 2: bulk-resolve distinct assets once for the whole chunk (cuts Polygon/OpenFIGI calls
+    # by N where N is the avg transactions-per-PDF in the chunk).
+    distinct_assets: dict[str, None] = {}
+    for _pdf, _sha, header, rows in parsed:
+        for row in rows:
+            asset = normalize_whitespace(row.get("asset") or "")
+            if asset:
+                distinct_assets[asset] = None
+    bulk = bulk_resolve_unique_assets_for_reconcile(
+        conn, list(distinct_assets.keys()), commit=False
+    )
+
+    # Step 3: persist everything on the main thread (serial DB writes).
+    persisted = 0
+    for pdf_path, sha, header, rows in parsed:
+        member = header.get("member") or fd_lookup.get(pdf_path.stem, {}).get("member") or pdf_path.stem
+        _fd_hint = fd_lookup.get(pdf_path.stem, {})
+        _filing_hint = header.get("filing_date") or _fd_hint.get("filing_date") or "?"
+        _txn_count = len([r for r in rows if (r.get("asset") or "").strip()])
+        print(
+            f"  PDF {start_index + pdf_paths.index(pdf_path) + 1}/{total_pdfs}: {pdf_path.name} | "
+            f"{member} | filed {_filing_hint} | {_txn_count} txn",
+            flush=True,
+        )
+        member = header.get("member") or pdf_path.stem
+        filing_date = header.get("filing_date") or _lookup_house_ptr_filing_date(conn, pdf_path.stem)
+        source_url = ""
+        member_id = upsert_member(conn, full_name=normalize_whitespace(member), chamber="House")
+        filing_id = insert_filing(
+            conn,
+            member_id=member_id,
+            chamber="House",
+            filing_type="PTR",
+            filing_date=filing_date,
+            doc_id=pdf_path.stem,
+            source_url=source_url,
+            raw_document_path=str(pdf_path),
+            source_hash=sha,
+        )
+        to_insert = []
+        for index, row in enumerate(rows):
+            asset = normalize_whitespace(row.get("asset") or "")
+            if not asset:
+                continue
+            resolution = bulk.get(asset) or resolve_asset(conn, asset, commit=False)
+            amount_range = normalize_whitespace(row.get("amount_range") or "")
+            amount_low, amount_high = parse_amount_range(amount_range)
+            source_page_value = row.get("source_page")
+            source_page = int(source_page_value) if source_page_value else None
+            issuer_id = upsert_issuer(
+                conn,
+                issuer_name=resolution.get("issuer_name") or asset,
+                ticker=resolution.get("ticker"),
+                sector=resolution.get("sector"),
+                industry=resolution.get("industry"),
+                asset_type=resolution.get("asset_type"),
+                commit=False,
+            )
+            transaction_id = insert_transaction(
+                conn,
+                filing_id=filing_id,
+                issuer_id=issuer_id,
+                transaction_date=sanitize_transaction_date(
+                    parse_date(row.get("transaction_date") or ""), filing_date
+                ),
+                owner_type=row.get("owner_type"),
+                asset_name_raw=asset,
+                asset_name_normalized=resolution.get("asset_name_normalized"),
+                asset_type=resolution.get("asset_type"),
+                ticker=resolution.get("ticker"),
+                cusip_or_figi=resolution.get("cusip_or_figi"),
+                transaction_type=normalize_whitespace(row.get("transaction_type") or ""),
+                amount_low=amount_low,
+                amount_high=amount_high,
+                amount_range_raw=amount_range,
+                confidence_score=float(resolution.get("confidence_score") or 0.0),
+                review_status=resolution.get("review_status"),
+                source_page=source_page,
+                source_row=str(index),
+                source_hash=make_transaction_source_hash(
+                    sha,
+                    source_page,
+                    row.get("transaction_date"),
+                    asset,
+                    row.get("transaction_type"),
+                    amount_range,
+                    row.get("owner_type"),
+                ),
+            )
+            review_status = resolution.get("review_status")
+            if review_status != "exact_match":
+                if review_status == "fuzzy_match":
+                    review_notes = (
+                        f"Fuzzy asset match: {asset} -> "
+                        f"{resolution.get('issuer_name') or asset} ({resolution.get('ticker') or 'no ticker'})"
+                    )
+                else:
+                    review_notes = f"Asset requires manual review: {asset}"
+                queue_transaction_review(
+                    conn,
+                    transaction_id=transaction_id,
+                    reason="asset_resolution",
+                    notes=review_notes,
+                    commit=False,
+                )
+            if row.get("parse_warning"):
+                queue_transaction_review(
+                    conn,
+                    transaction_id=transaction_id,
+                    reason="parse_warning",
+                    notes=row.get("parse_warning"),
+                    commit=False,
+                )
+            if resolution.get("sector"):
+                insert_transaction_tag(
+                    conn,
+                    transaction_id=transaction_id,
+                    tag="sector",
+                    value=str(resolution.get("sector")),
+                    # NB: insert_transaction_tag commits internally; safe to call here.
+                )
+            if resolution.get("industry"):
+                insert_transaction_tag(
+                    conn,
+                    transaction_id=transaction_id,
+                    tag="industry",
+                    value=str(resolution.get("industry")),
+                )
+            to_insert.append(
+                {
+                    "member": normalize_whitespace(member),
+                    "chamber": "House",
+                    "filing_date": filing_date,
+                    "transaction_date": sanitize_transaction_date(
+                        parse_date(row.get("transaction_date") or ""), filing_date
+                    ),
+                    "asset": asset,
+                    "ticker": resolution.get("ticker"),
+                    "transaction_type": normalize_whitespace(row.get("transaction_type") or ""),
+                    "amount_range": amount_range,
+                    "source_url": source_url,
+                    "source_file": str(pdf_path),
+                }
+            )
+        insert_trades(conn, to_insert)
+        mark_file_ingested(conn, str(pdf_path), sha)
+        persisted += 1
+
+    conn.commit()
+    return parsed_count, persisted
+
+
 def _extract_local_zip_files() -> None:
     zip_paths = list(HOUSE_RAW_DIR.glob("*.zip")) + list(RAW_DIR.glob("*.zip"))
     for zip_path in zip_paths:
@@ -922,149 +1120,49 @@ def ingest_house() -> None:
 
     skipped = 0
     parsed_count = 0
+    persisted_count = 0
+
+    # Pre-filter: only PDFs that need parsing get queued. With FORCE_REPARSE_PDFS set, all of them
+    # are queued; without it, anything already in files_ingested (matching sha) is skipped.
+    pending: list[tuple[int, Path]] = []
     for pdf_index, pdf_path in enumerate(ptr_paths):
         sha = sha256_file(pdf_path)
         if not house_ingest_force_reparse_pdfs() and is_file_ingested(conn, str(pdf_path), sha):
             skipped += 1
             continue
-        try:
-            header, rows = parse_ptr_pdf_safe(pdf_path)
-        except Exception as exc:
-            print(f"  ✗ PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name} — errore: {exc}", flush=True)
-            mark_file_ingested(conn, str(pdf_path), sha)
-            continue
-        parsed_count += 1
-        member = header.get("member") or fd_lookup.get(pdf_path.stem, {}).get("member") or pdf_path.stem
-        _fd_hint = fd_lookup.get(pdf_path.stem, {})
-        _filing_hint = header.get("filing_date") or _fd_hint.get("filing_date") or "?"
-        _txn_count = len([r for r in rows if (r.get("asset") or "").strip()])
-        print(
-            f"  PDF {pdf_index + 1}/{total_pdfs}: {pdf_path.name} | "
-            f"{member} | filed {_filing_hint} | {_txn_count} txn",
-            flush=True,
-        )
-        member = header.get("member") or pdf_path.stem
-        filing_date = header.get("filing_date") or _lookup_house_ptr_filing_date(conn, pdf_path.stem)
-        source_url = ""
-        member_id = upsert_member(conn, full_name=normalize_whitespace(member), chamber="House")
-        filing_id = insert_filing(
-            conn,
-            member_id=member_id,
-            chamber="House",
-            filing_type="PTR",
-            filing_date=filing_date,
-            doc_id=pdf_path.stem,
-            source_url=source_url,
-            raw_document_path=str(pdf_path),
-            source_hash=sha,
-        )
-        to_insert = []
-        for index, row in enumerate(rows):
-            asset = normalize_whitespace(row.get("asset") or "")
-            if not asset:
-                continue
-            resolution = resolve_asset(conn, asset)
-            amount_range = normalize_whitespace(row.get("amount_range") or "")
-            amount_low, amount_high = parse_amount_range(amount_range)
-            source_page_value = row.get("source_page")
-            source_page = int(source_page_value) if source_page_value else None
-            issuer_id = upsert_issuer(
+        pending.append((pdf_index, pdf_path))
+    if skipped:
+        print(f"Skip {skipped} PDF gia ingeriti (HOUSE_INGEST_FORCE_REPARSE_PDFS non attivo).", flush=True)
+
+    if not pending:
+        print("Nessun PDF da processare.", flush=True)
+    else:
+        chunk = max(1, HOUSE_INGEST_DB_COMMIT_CHUNK)
+        for batch_start in range(0, len(pending), chunk):
+            batch = pending[batch_start : batch_start + chunk]
+            batch_paths = [p for _idx, p in batch]
+            batch_start_index = batch[0][0]
+            t0 = time.time()
+            batch_parsed, batch_persisted = _process_pdf_batch(
                 conn,
-                issuer_name=resolution.get("issuer_name") or asset,
-                ticker=resolution.get("ticker"),
-                sector=resolution.get("sector"),
-                industry=resolution.get("industry"),
-                asset_type=resolution.get("asset_type"),
+                batch_paths,
+                fd_lookup,
+                batch_start_index,
+                total_pdfs,
             )
-            transaction_id = insert_transaction(
-                conn,
-                filing_id=filing_id,
-                issuer_id=issuer_id,
-                transaction_date=sanitize_transaction_date(
-                    parse_date(row.get("transaction_date") or ""), filing_date
-                ),
-                owner_type=row.get("owner_type"),
-                asset_name_raw=asset,
-                asset_name_normalized=resolution.get("asset_name_normalized"),
-                asset_type=resolution.get("asset_type"),
-                ticker=resolution.get("ticker"),
-                cusip_or_figi=resolution.get("cusip_or_figi"),
-                transaction_type=normalize_whitespace(row.get("transaction_type") or ""),
-                amount_low=amount_low,
-                amount_high=amount_high,
-                amount_range_raw=amount_range,
-                confidence_score=float(resolution.get("confidence_score") or 0.0),
-                review_status=resolution.get("review_status"),
-                source_page=source_page,
-                source_row=str(index),
-                source_hash=make_transaction_source_hash(
-                    sha,
-                    source_page,
-                    row.get("transaction_date"),
-                    asset,
-                    row.get("transaction_type"),
-                    amount_range,
-                    row.get("owner_type"),
-                ),
+            parsed_count += batch_parsed
+            persisted_count += batch_persisted
+            elapsed = time.time() - t0
+            done = min(batch_start + chunk, len(pending))
+            print(
+                f"  [batch {done}/{len(pending)}] parsed={batch_parsed} persisted={batch_persisted} "
+                f"in {elapsed:.1f}s — commit eseguito, dati visibili al dashboard.",
+                flush=True,
             )
-            review_status = resolution.get("review_status")
-            if review_status != "exact_match":
-                if review_status == "fuzzy_match":
-                    review_notes = (
-                        f"Fuzzy asset match: {asset} -> "
-                        f"{resolution.get('issuer_name') or asset} ({resolution.get('ticker') or 'no ticker'})"
-                    )
-                else:
-                    review_notes = f"Asset requires manual review: {asset}"
-                queue_transaction_review(
-                    conn,
-                    transaction_id=transaction_id,
-                    reason="asset_resolution",
-                    notes=review_notes,
-                )
-            if row.get("parse_warning"):
-                queue_transaction_review(
-                    conn,
-                    transaction_id=transaction_id,
-                    reason="parse_warning",
-                    notes=row.get("parse_warning"),
-                )
-            if resolution.get("sector"):
-                insert_transaction_tag(
-                    conn,
-                    transaction_id=transaction_id,
-                    tag="sector",
-                    value=str(resolution.get("sector")),
-                )
-            if resolution.get("industry"):
-                insert_transaction_tag(
-                    conn,
-                    transaction_id=transaction_id,
-                    tag="industry",
-                    value=str(resolution.get("industry")),
-                )
-            to_insert.append(
-                {
-                    "member": normalize_whitespace(member),
-                    "chamber": "House",
-                    "filing_date": filing_date,
-                    "transaction_date": sanitize_transaction_date(
-                        parse_date(row.get("transaction_date") or ""), filing_date
-                    ),
-                    "asset": asset,
-                    "ticker": resolution.get("ticker"),
-                    "transaction_type": normalize_whitespace(row.get("transaction_type") or ""),
-                    "amount_range": amount_range,
-                    "source_url": source_url,
-                    "source_file": str(pdf_path),
-                }
-            )
-        insert_trades(conn, to_insert)
-        mark_file_ingested(conn, str(pdf_path), sha)
 
     print(
-        f"House PTR completato: {parsed_count} PDF parsati, {skipped} gia ingeriti (skip), "
-        f"{total_pdfs} totali.",
+        f"House PTR completato: {parsed_count} PDF parsati, {persisted_count} persistiti, "
+        f"{skipped} gia ingeriti (skip), {total_pdfs} totali.",
         flush=True,
     )
     print_house_coverage_report(conn)

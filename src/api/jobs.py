@@ -112,6 +112,18 @@ def _summarize_senate_dir() -> dict[str, Any]:
     return {"dir": str(p), "exists": True, "pdfs": len(pdfs), "reason": reason}
 
 
+def _summarize_oge_registry() -> dict[str, int]:
+    """Quanti filing sono registrati in src/oge_source.py per dare feedback prima del download."""
+    from ..oge_source import all_filings
+
+    filings = all_filings()
+    return {
+        "registered": len(filings),
+        "registered_278t": sum(1 for f in filings if f.is_periodic()),
+        "registered_278e": sum(1 for f in filings if f.is_annual()),
+    }
+
+
 def run_ingest_all(
     state: JobState,
     cancel_event: threading.Event,
@@ -120,8 +132,9 @@ def run_ingest_all(
     overwrite: bool = False,
     force_extract: bool = False,
     skip_senate: bool = False,
+    skip_oge: bool = False,
 ) -> None:
-    """Download House FD metadata, then run House + Senate ingest.
+    """Download House FD metadata, then run House + Senate + OGE ingest.
 
     force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the ingest
     subprocess so every PDF is re-parsed even if its sha256 is already in
@@ -131,6 +144,7 @@ def run_ingest_all(
     force_extract=True: dopo l'estrazione, wipe + re-estrazione completa delle dir FD House
     (sicurezza contro metadata locali vecchi non rilevati dal check basato sulla dimensione).
     skip_senate=True: salta la fase Senate (utile per debug locale).
+    skip_oge=True: salta la fase OGE (download + ingest Executive branch).
     """
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
@@ -216,6 +230,59 @@ def run_ingest_all(
         ingest_senate()
         state.result["senate"] = senate_summary
 
+        if skip_oge:
+            state.progress = 100
+            state.current_step = "done"
+            state.result["scope"] = "ingest-all-no-oge"
+            state.result["oge_skipped"] = True
+            return
+
+        state.progress = 80
+        state.current_step = "download-oge"
+        _check_cancel(cancel_event)
+
+        from ..download_oge import download_oge_filings
+        from ..ingest_oge import ingest_oge
+
+        oge_registry = _summarize_oge_registry()
+        print(
+            f"OGE registry: {oge_registry['registered']} filing registrati "
+            f"({oge_registry['registered_278t']} 278-T, {oge_registry['registered_278e']} 278e)."
+        )
+        # overwrite=False: scarica solo i PDF mancanti. Il registry è
+        # hard-coded, quindi un refresh normale non dovrebbe ri-hammerare
+        # extapps2.oge.gov per file già presenti.
+        oge_download_error: str | None = None
+        try:
+            downloaded, already_present = download_oge_filings(overwrite=False)
+            print(
+                f"OGE download: {downloaded} scaricati, {already_present} gia presenti su disco."
+            )
+        except Exception as exc:
+            # 404 dal registry: fail loud (politica del downloader), ma non
+            # blocchiamo l'intero refresh — lasciamo che l'ingest tenti
+            # comunque sui file gia presenti.
+            print(f"OGE download error: {exc}")
+            downloaded, already_present = 0, 0
+            oge_download_error = str(exc)
+
+        state.result["oge_download"] = {
+            "registry": oge_registry,
+            "downloaded": downloaded,
+            "already_present": already_present,
+            "error": oge_download_error,
+        }
+
+        state.progress = 90
+        state.current_step = "ingest-oge"
+        _check_cancel(cancel_event)
+
+        try:
+            ingest_oge()
+        except Exception as exc:
+            print(f"OGE ingest error: {exc}")
+            state.result["oge_ingest_error"] = str(exc)
+
         state.progress = 100
         state.current_step = "done"
         state.result["scope"] = "ingest-all"
@@ -246,6 +313,7 @@ class JobManager:
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,
+        skip_oge: bool = False,
     ) -> dict[str, Any]:
         with self._lock:
             if self._state.status == "running":
@@ -270,6 +338,7 @@ class JobManager:
                 overwrite,
                 force_extract,
                 skip_senate,
+                skip_oge,
             )
             return self._snapshot()
 
@@ -302,6 +371,7 @@ class JobManager:
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,
+        skip_oge: bool = False,
     ) -> None:
         try:
             run_ingest_all(
@@ -311,6 +381,7 @@ class JobManager:
                 overwrite=overwrite,
                 force_extract=force_extract,
                 skip_senate=skip_senate,
+                skip_oge=skip_oge,
             )
             with self._lock:
                 if self._run_id != run_id:
