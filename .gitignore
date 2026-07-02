@@ -37,3 +37,6 @@ scripts/deploy/
 *.err.log
 .dev-*.log
 node_modules/
+
+# Personal one-shot prod-deploy wrapper (Bash equivalent of deploy_local.ps1)
+deploy.sh
