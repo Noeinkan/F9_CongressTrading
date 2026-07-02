@@ -1,0 +1,18 @@
+[Unit]
+Description=Congress Trading watchdog — restart congress-web/api if down
+# This service is intentionally minimal: it does NOT start congress-web/api
+# itself; systemd's Restart=always in those units handles process-level
+# restarts. The watchdog catches the case where the operator (or a bug)
+# stopped the service cleanly via 'systemctl stop' and didn't restart it.
+# systemd treats 'systemctl stop' as an explicit action and never auto-restarts
+# the target unit, even with Restart=always — so we need an out-of-band nudge.
+
+[Service]
+Type=oneshot
+# Must run as root so it can systemctl start the target units without polkit.
+User=root
+Group=root
+ExecStart=/bin/bash -c 'set +e; for svc in congress-web congress-api; do if ! systemctl is-active --quiet "$svc"; then echo "watchdog: $svc is not active, starting it"; systemctl start "$svc"; fi; done'
+
+[Install]
+WantedBy=multi-user.target

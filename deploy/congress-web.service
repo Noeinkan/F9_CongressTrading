@@ -1,6 +1,10 @@
 [Unit]
 Description=Congress Trading web frontend (Caddy)
 After=network.target congress-api.service
+# Caps the auto-restart loop in case Caddy crashes on every boot (e.g. misconfig).
+# After 5 failed starts in 60s systemd gives up and leaves the service in 'failed'.
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -11,7 +15,7 @@ Group=deploy
 # Example: 8080 -> Caddy listens on 0.0.0.0:8080.
 Environment=CONGRESS_WEB_ADDR=:8080
 ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile.d/congress.caddy --adapter caddyfile
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

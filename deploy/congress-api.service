@@ -1,6 +1,11 @@
 [Unit]
 Description=Congress Trading FastAPI service
 After=network.target
+# Caps the auto-restart loop in case the API crashes on every boot
+# (e.g. bad .env, missing DB). After 5 failed starts in 60s systemd gives up
+# and leaves the service in 'failed' state.
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -9,7 +14,7 @@ Group=deploy
 WorkingDirectory=/opt/F9_CongressTrading
 EnvironmentFile=/opt/F9_CongressTrading/.env
 ExecStart=/opt/F9_CongressTrading/.venv/bin/python -m src.api
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

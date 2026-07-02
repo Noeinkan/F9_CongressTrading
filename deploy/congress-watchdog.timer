@@ -1,0 +1,12 @@
+[Unit]
+Description=Run congress-watchdog every 2 minutes
+# Boot-relative timer so the watchdog kicks in even if the server was rebooted
+# while the dashboard was running.
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
