@@ -9,6 +9,7 @@ DATA_DIR = BASE_DIR / "data"
 RAW_DIR = DATA_DIR / "raw"
 HOUSE_RAW_DIR = RAW_DIR / "house"
 SENATE_RAW_DIR = RAW_DIR / "senate"
+OGE_RAW_DIR = RAW_DIR / "oge"
 DB_DIR = DATA_DIR / "db"
 DB_PATH = DB_DIR / "congress_trades.sqlite"
 CACHE_DIR = DATA_DIR / "cache"
@@ -45,6 +46,12 @@ def house_ptr_auto_download_min_filing_year() -> int:
 
 def house_ptr_download_min_interval_seconds() -> float:
     return float(os.getenv("HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS", "0.2"))
+
+
+# OGE Executive disclosure downloader — conservative, one PDF at a time.
+OGE_DOWNLOAD_MIN_INTERVAL_SECONDS = float(
+    os.getenv("OGE_DOWNLOAD_MIN_INTERVAL_SECONDS", "1.0")
+)
 
 
 def house_ingest_force_reparse_pdfs() -> bool:

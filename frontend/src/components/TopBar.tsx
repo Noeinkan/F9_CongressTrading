@@ -6,6 +6,7 @@ import { useIsMobile } from "@/hooks/useMediaQuery";
 
 export const NAV_ITEMS = [
   { to: "/", label: "Home" },
+  { to: "/executive", label: "Executive" },
   { to: "/members", label: "Members" },
   { to: "/tickers", label: "Tickers" },
   { to: "/patterns", label: "Patterns" },

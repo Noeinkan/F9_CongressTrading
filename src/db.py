@@ -245,6 +245,25 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS executive_holdings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filing_id INTEGER NOT NULL,
+            asset_name TEXT NOT NULL DEFAULT '',
+            value_range TEXT NOT NULL DEFAULT '',
+            owner_type TEXT NOT NULL DEFAULT '',
+            asset_type TEXT NOT NULL DEFAULT '',
+            source_page INTEGER,
+            source_row TEXT NOT NULL DEFAULT '',
+            source_hash TEXT NOT NULL DEFAULT '',
+            parse_warning TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(filing_id) REFERENCES filings(id),
+            UNIQUE(filing_id, source_hash)
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS yahoo_daily_bar_cache (
             ticker TEXT NOT NULL,
             bar_date TEXT NOT NULL,
@@ -779,3 +798,72 @@ def get_ticker_cache(conn: sqlite3.Connection, asset: str) -> str | None:
         (_text(asset),),
     ).fetchone()
     return legacy_row["ticker"] if legacy_row else None
+
+
+def insert_executive_holding(
+    conn: sqlite3.Connection,
+    *,
+    filing_id: int,
+    asset_name: str | None,
+    value_range: str | None,
+    owner_type: str | None,
+    asset_type: str | None,
+    source_page: int | None,
+    source_row: str | None,
+    parse_warning: str | None = None,
+    source_hash: str | None = None,
+) -> int:
+    """Insert (or upsert on conflict) one row in ``executive_holdings``.
+
+    Mirrors :func:`insert_transaction` style: callers pass a ``source_hash``
+    derived from the row contents; we fall back to a content hash so repeated
+    ingests of the same PDF remain idempotent.
+    """
+    asset_name_value = _text(asset_name)
+    value_range_value = _text(value_range)
+    owner_type_value = _text(owner_type)
+    asset_type_value = _text(asset_type)
+    source_row_value = _text(source_row)
+    parse_warning_value = _text(parse_warning)
+    source_hash_value = _text(source_hash) or make_content_hash(
+        str(filing_id),
+        asset_name_value,
+        value_range_value,
+        owner_type_value,
+        asset_type_value,
+        source_row_value,
+    )
+
+    conn.execute(
+        """
+        INSERT INTO executive_holdings (
+            filing_id, asset_name, value_range, owner_type, asset_type,
+            source_page, source_row, source_hash, parse_warning
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(filing_id, source_hash) DO UPDATE SET
+            asset_name=excluded.asset_name,
+            value_range=excluded.value_range,
+            owner_type=excluded.owner_type,
+            asset_type=excluded.asset_type,
+            parse_warning=excluded.parse_warning
+        """,
+        (
+            filing_id,
+            asset_name_value,
+            value_range_value,
+            owner_type_value,
+            asset_type_value,
+            source_page,
+            source_row_value,
+            source_hash_value,
+            parse_warning_value,
+        ),
+    )
+    row = conn.execute(
+        "SELECT id FROM executive_holdings WHERE filing_id = ? AND source_hash = ?",
+        (filing_id, source_hash_value),
+    ).fetchone()
+    conn.commit()
+    if row is None:
+        raise RuntimeError("Failed to insert executive holding")
+    return int(row["id"])

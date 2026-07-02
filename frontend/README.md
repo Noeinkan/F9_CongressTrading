@@ -55,7 +55,7 @@ src/
   api/          fetch client, types, TanStack Query hooks, URL param builders (params.ts)
   charts/       pure ECharts option builders
   components/   SidebarLayout, TopBar, UserMenu, ChartCard, shared UI
-  routes/       one file per dashboard page (Home, Raw, Review, Members, Tickers, Patterns)
+  routes/       one file per dashboard page (Home, Executive, Raw, Review, Members, Tickers, Patterns)
   copy.ts       page copy strings
   styles/       global CSS
 ```

@@ -18,6 +18,8 @@ Tests: `pytest` from repo root. Venv: `.venv\Scripts\python.exe`.
 
 The Streamlit dashboard has been replaced by a **FastAPI JSON API (`src/api/`) + React frontend** (`frontend/` — Vite + Mantine + TanStack Query/Table + ECharts). Python data layer (db, ingest, parse, schema, Polygon cache, CLI) is untouched.
 
+**Executive branch (OGE):** the pipeline also ingests OGE Form 278-T (periodic transactions) and 278e (annual report) PDFs for the U.S. President (`chamber='Executive'`). 278-T rows land in `transactions` like PTRs; 278e rows land in a dedicated `executive_holdings` table (snapshot of holdings, not trades). Source URLs are hard-coded in `src/oge_source.py`.
+
 **Clean-boundary rule:** no Streamlit imports anywhere under `src/api/`. Analytics live in `src/api/repository.py`, `_constants.py`, `_format.py`, `_sparklines.py`, and `_*_analytics.py`.
 
 - Run API: `python -m src.api` (env `API_SERVER_PORT`, default 9001).

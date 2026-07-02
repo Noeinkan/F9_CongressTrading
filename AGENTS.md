@@ -46,11 +46,15 @@ All CLI: **`python -m src.main <command>`** from repo root.
 
 | `download-house-fd` | Bulk House FD zips → `data/raw/house/` (`--years`, `--overwrite`, `--zip-only`) |
 
+| `download-oge` | OGE Executive PDFs (278-T + 278e) → `data/raw/oge/<doc_id>.pdf` from the hard-coded registry in `src/oge_source.py` (`--filer NAME`, `--overwrite`). Conservative 1 req/sec; fails loud on 404. |
+
 | `ingest-house` | House PTR + FD pipeline |
 
 | `ingest-senate` | Senate PTR (expects PDFs present) |
 
-| `ingest-all` | House + Senate |
+| `ingest-oge` | OGE Executive (278-T + 278e) PDFs from `data/raw/oge/`. 278-T rows go to `transactions`; 278e rows go to the dedicated `executive_holdings` table. |
+
+| `ingest-all` | House + Senate + OGE |
 
 | `export-csv` | Normalized trades → `--out` (default `data/congress_trades.csv`). Optional Polygon columns: `--polygon-pnl` [`--as-of YYYY-MM-DD`] [`--polygon-pnl-cache-only`] [`--polygon-pnl-refresh`] |
 
@@ -112,9 +116,17 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 | `ingest_senate.py` | Senate PTR ingest pipeline |
 
+| `ingest_oge.py` | OGE Executive (278-T + 278e) ingest pipeline (`chamber='Executive'`) |
+
+| `oge_source.py` | Hard-coded OGE filing registry (dataclass + `TRUMP_OGE_FILINGS`) |
+
+| `download_oge.py` | Conservative OGE PDF downloader (1 req/sec) |
+
 | `parse_ptr.py` | PTR PDF parsing |
 
 | `parse_fd.py` | Financial Disclosure PDF parsing |
+
+| `parse_oge.py` | OGE 278-T (periodic) + 278e (annual) PDF parsing |
 
 | `download_house_fd.py` | Bulk download from House Clerk |
 
@@ -154,7 +166,9 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 | `_home_analytics.py`, `_patterns_analytics.py`, `_tickers_analytics.py` | Page analytics |
 
-| `routers/` | One router per dashboard page |
+| `_executive_analytics.py` | Executive (OGE) page analytics |
+
+| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |
 
 
 
@@ -162,7 +176,7 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 
 
-SQLite holds normalized tracker tables: `members`, `filings`, `transactions`, `issuers`, `transaction_tags`, `review_queue`, `asset_resolution_cache`, `polygon_daily_bar_cache` (Polygon daily closes for optional return/PnL-style export and dashboard). Asset resolution: `exact_match` / `fuzzy_match` / `manual_review` — parser and mapping are heuristic.
+SQLite holds normalized tracker tables: `members`, `filings`, `transactions`, `issuers`, `transaction_tags`, `review_queue`, `asset_resolution_cache`, `polygon_daily_bar_cache` (Polygon daily closes for optional return/PnL-style export and dashboard), `executive_holdings` (OGE 278e annual-report snapshots). Asset resolution: `exact_match` / `fuzzy_match` / `manual_review` — parser and mapping are heuristic. Members carry a `chamber` discriminator (`'House'`, `'Senate'`, or `'Executive'`); OGE rows use `filing_type='OGE278T'` (periodic transactions, lands in `transactions`) or `'OGE278e'` (annual report, lands in `executive_holdings`).
 
 
 

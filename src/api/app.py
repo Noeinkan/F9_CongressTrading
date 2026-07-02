@@ -15,7 +15,7 @@ from ..config import DB_PATH, app_auth_required
 from ..db import get_connection, init_db
 from . import settings
 from .repository import polygon_daily_bar_cache_size
-from .routers import admin, home, members, patterns, raw, review, tickers
+from .routers import admin, executive, home, members, patterns, raw, review, tickers
 from .security import current_user, login_session, logout_session, require_auth
 
 
@@ -101,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(patterns.router)
     app.include_router(members.router)
     app.include_router(tickers.router)
+    app.include_router(executive.router)
     return app
 
 

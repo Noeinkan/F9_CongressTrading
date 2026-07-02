@@ -22,7 +22,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verifica metadata FD House su disco e freshness fd_filings (anni da HOUSE_COVERAGE_MIN_YEAR)",
     )
     sub.add_parser("ingest-senate", help="Ingesta PTR Senate (manuale)")
-    sub.add_parser("ingest-all", help="Esegue ingestione House + Senate")
+    sub.add_parser("ingest-oge", help="Ingesta filing OGE Executive (278-T + 278e) da data/raw/oge/")
+    sub.add_parser("ingest-all", help="Esegue ingestione House + Senate + OGE")
+
+    dl_oge = sub.add_parser(
+        "download-oge",
+        help="Scarica PDF OGE Executive dal registro in src/oge_source.py in data/raw/oge/",
+    )
+    dl_oge.add_argument(
+        "--filer",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Filtra il registro per filer (es. 'Donald J. Trump'). Default: tutti i filer registrati.",
+    )
+    dl_oge.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Riscarica anche se il PDF è già presente su disco.",
+    )
 
     dl = sub.add_parser(
         "download-house-fd",
@@ -140,10 +158,25 @@ def main() -> None:
     from .config import START_YEAR
     from .export_csv import export_csv, export_fd_csv, export_review_csv
     from .ingest_house import ingest_house
+    from .ingest_oge import ingest_oge
     from .ingest_senate import ingest_senate
 
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "download-oge":
+        from .download_oge import download_oge_filings
+
+        filer = getattr(args, "filer", None)
+        overwrite = bool(getattr(args, "overwrite", False))
+        downloaded, already_present = download_oge_filings(
+            filer_name=filer,
+            overwrite=overwrite,
+        )
+        print(
+            f"download-oge: {downloaded} downloaded, {already_present} already present."
+        )
+        return
 
     if args.command == "download-house-fd":
         from .download_house_fd import download_house_fd_bulk
@@ -167,9 +200,13 @@ def main() -> None:
         conn.close()
     elif args.command == "ingest-senate":
         ingest_senate()
+    elif args.command == "ingest-oge":
+        filer = getattr(args, "filer", None)
+        ingest_oge(filer_name=filer)
     elif args.command == "ingest-all":
         ingest_house()
         ingest_senate()
+        ingest_oge()
     elif args.command == "export-csv":
         from datetime import date as date_cls
 

@@ -602,3 +602,91 @@ export type PatternsParams = PeriodParams & {
   min_members?: number;
   coordinated_limit?: number;
 };
+
+// Full transaction row shape returned by /api/executive/transactions. The
+// backend scopes this to `chamber = "Executive"` and returns the same columns
+// the existing Raw endpoint exposes.
+export type ExecutiveTransactionRow = Record<string, unknown> & {
+  chamber?: string;
+  member?: string;
+  filing_type?: string;
+  filing_date?: string | null;
+  transaction_date?: string | null;
+  asset_name_raw?: string;
+  asset_name_normalized?: string;
+  asset_type?: string;
+  issuer_name?: string;
+  ticker?: string;
+  sector?: string;
+  industry?: string;
+  transaction_type?: string;
+  transaction_type_label?: string;
+  amount_low?: number | null;
+  amount_high?: number | null;
+  amount_range_raw?: string;
+  confidence_score?: number | null;
+  review_status?: string;
+  source_url?: string;
+  raw_document_path?: string;
+  disclosure_url?: string;
+  doc_id?: string;
+};
+
+export type ExecutiveFiler = {
+  filer_name: string;
+  latest_filing_date: string;
+  filing_count: number;
+  transaction_count: number;
+};
+
+export type ExecutiveFiling = {
+  filing_id?: number;
+  filer_name?: string;
+  filing_type: string;
+  filing_date: string;
+  doc_id: string;
+  source_url: string;
+  raw_document_path?: string;
+  transaction_count: number;
+};
+
+export type ExecutiveHolding = {
+  id?: number;
+  filing_id?: number;
+  filer_name?: string;
+  filing_type?: string;
+  doc_id?: string;
+  raw_document_path?: string;
+  asset_name: string;
+  value_range: string;
+  owner_type: string;
+  asset_type: string;
+  source_url: string;
+  filing_date: string;
+  source_page?: number | null;
+  parse_warning?: string;
+};
+
+export type ExecutiveTransactionsResponse = {
+  ready: boolean;
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  transaction_source?: string;
+  rows: ExecutiveTransactionRow[];
+  summary?: Record<string, unknown>;
+  monthly_timeline?: unknown[];
+  by_owner_type?: Record<string, unknown>;
+  years_available?: number[];
+};
+
+export type ExecutiveTransactionsParams = {
+  lookback?: number | null;
+  quarters?: string;
+  transaction_type?: string;
+  owner_type?: string;
+  filing_doc_id?: string;
+  page?: number;
+  page_size?: number;
+};

@@ -13,9 +13,13 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `main.py` | CLI entrypoint (argparse) |
 | `ingest_house.py` | House PTR + FD ingest pipeline |
 | `ingest_senate.py` | Senate PTR ingest pipeline |
+| `ingest_oge.py` | OGE Executive (278-T + 278e) ingest pipeline |
 | `parse_ptr.py` | PTR PDF parsing (layout-sensitive) |
 | `parse_fd.py` | Financial Disclosure PDF parsing |
+| `parse_oge.py` | OGE 278-T (periodic) + 278e (annual) PDF parsing |
+| `oge_source.py` | Hard-coded OGE filing registry (dataclass + `TRUMP_OGE_FILINGS`) |
 | `download_house_fd.py` | Bulk download from House Clerk |
+| `download_oge.py` | Conservative OGE PDF downloader (1 req/sec) |
 | `house_coverage.py` | House coverage tracking |
 | `ticker_lookup.py` | Ticker/CUSIP resolution |
 | `issuer_enrichment.py` | Issuer metadata enrichment |
@@ -40,7 +44,8 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `_home_analytics.py` | Home page analytics |
 | `_patterns_analytics.py` | Pattern detection, breakdowns, committee relevance |
 | `_tickers_analytics.py` | Ticker leaderboard, profile, price overlay |
-| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers) |
+| `_executive_analytics.py` | Executive (OGE) summary, monthly timeline, by-owner breakdown |
+| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |
 
 ## `frontend/` — React dashboard
 

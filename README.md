@@ -48,7 +48,8 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 ## Dove trovare i PDF
 - House: usa il portale ufficiale del Clerk della House su https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure. I file FD annuali sono scaricabili in blocco (`download-house-fd` o zip manuali); i PTR possono essere scaricati automaticamente da `ingest-house` quando conosci `Year` e `DocID` dai metadata, oppure dal portale e salvati sotto `data/raw/house/<anno>/`.
 - Senate: usa il portale ufficiale eFD su https://efdsearch.senate.gov/search/. Devi prima accettare i termini di utilizzo, poi puoi cercare i filing dal 2012 in avanti. Filtra o cerca i Periodic Transaction Report, apri il filing e salva il PDF sotto `data/raw/senate/<anno>/`.
-- Il parser cerca ricorsivamente qualsiasi file `.pdf` dentro `data/raw/house/` e `data/raw/senate/`, quindi le sottocartelle per anno sono consigliate ma non obbligatorie.
+- Executive (OGE): i 278-T (periodic transactions) e 278e (annual report) del Presidente USA sono pubblici sotto 5 U.S.C. § 13107 sul portale https://extapps2.oge.gov/201/Presiden.nsf/. La pipeline OGE è registrata come lista di URL hard-coded in `src/oge_source.py` (`TRUMP_OGE_FILINGS`): aggiungere un nuovo filer = appendere un `OgeFiling`. `download-oge` scarica a 1 req/sec, salta i file gia presenti, fallisce loud su 404; `ingest-oge` processa i PDF in `data/raw/oge/`, scrive i 278-T nella tabella `transactions` (come i PTR) e gli 278e nella nuova tabella `executive_holdings` (snapshot annuale).
+- Il parser cerca ricorsivamente qualsiasi file `.pdf` dentro `data/raw/house/`, `data/raw/senate/` e `data/raw/oge/`, quindi le sottocartelle per anno sono consigliate ma non obbligatorie.
 - Se hai archivi `.zip`, puoi anche copiarli in `data/raw/`, `data/raw/house/` o `data/raw/senate/`: la pipeline prova a estrarli automaticamente prima del parsing.
 
 ## Setup rapido Windows
@@ -58,9 +59,11 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 
 ## Comandi principali
 - Bulk FD House (metadata annuali `.zip` dal Clerk, poi estrazione in `data/raw/house/<anno>FD/`): `python -m src.main download-house-fd` (default: anni da `START_YEAR` in `src/config.py` fino all’anno corrente). Opzioni: `--years 2020 2021`, `--overwrite`, `--zip-only` (solo zip; l’estrazione avviene al prossimo `ingest-house`).
+- Download OGE Executive (PDF 278-T + 278e dal registro in `src/oge_source.py`): `python -m src.main download-oge` (opzioni: `--filer "Donald J. Trump"`, `--overwrite`).
 - Ingest House 2022+: `python -m src.main ingest-house`
 - Ingest Senate 2022+: `python -m src.main ingest-senate`
-- Esegui tutto: `python -m src.main ingest-all`
+- Ingest OGE Executive (PDF in `data/raw/oge/`): `python -m src.main ingest-oge`
+- Esegui tutto: `python -m src.main ingest-all` (House + Senate + OGE)
 - Export CSV: `python -m src.main export-csv --out data/congress_trades.csv`
 - Export review queue: `python -m src.main export-review-csv --out data/review_queue.csv`
 - API: `python -m src.api` (frontend: `cd frontend && npm run dev`)
@@ -119,7 +122,7 @@ Colonne principali dell'export normalizzato:
 - non esiste ancora un sistema di alert; la dashboard React e il primo layer di analisi sopra il backend normalizzato
 
 ## Dashboard (React + FastAPI)
-La dashboard legge dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`) e, se non trova righe, prova i CSV esportati.
+La dashboard legge dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`, `executive_holdings`) e, se non trova righe, prova i CSV esportati.
 
 Vista inclusa:
 - KPI su volume transazioni, membri attivi, ticker risolti e review aperte
@@ -128,6 +131,7 @@ Vista inclusa:
 - filtri per lookback e trimestre
 - pannello review queue per casi irrisolti o derivati dal `review_status`
 - tabella raw con download CSV del subset filtrato
+- pagina Executive (OGE 278-T + 278e): filers, filings, transazioni periodiche, holdings annuali — `chamber='Executive'`, esposta via `/api/executive/*`
 
 Avvio locale (tutto dalla root del repo):
 

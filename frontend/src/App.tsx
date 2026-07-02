@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 
 import { RequireAuth } from "@/components/RequireAuth";
 import { SidebarLayout } from "@/components/SidebarLayout";
+import { Executive } from "@/routes/Executive";
 import { Home } from "@/routes/Home";
 import { Login } from "@/routes/Login";
 import { Members } from "@/routes/Members";
@@ -25,6 +26,7 @@ export const router = createBrowserRouter(
         element: <SidebarLayout />,
         children: [
           { index: true, element: <Home /> },
+          { path: "executive", element: <Executive /> },
           { path: "raw", element: <Raw /> },
           { path: "review", element: <Review /> },
           { path: "patterns", element: <Patterns /> },
