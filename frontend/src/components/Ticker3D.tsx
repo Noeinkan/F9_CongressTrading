@@ -25,7 +25,7 @@ type Ticker3DProps = {
 
 export function Ticker3D({ rows }: Ticker3DProps) {
   const canRender = useMemo(() => webglAvailable(), []);
-  const option = buildTicker3DOption(rows);
+  const option = useMemo(() => buildTicker3DOption(rows), [rows]);
 
   if (!canRender) {
     return (
@@ -38,8 +38,10 @@ export function Ticker3D({ rows }: Ticker3DProps) {
   return (
     <ReactECharts
       option={option}
-      style={{ height: 480, width: "100%" }}
+      style={{ height: 600, width: "100%" }}
       opts={{ renderer: "canvas" }}
+      notMerge
+      lazyUpdate
       data-testid="ticker-3d-chart"
     />
   );
