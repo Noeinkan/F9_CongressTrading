@@ -88,7 +88,9 @@ def ingest_senate() -> None:
 
     senate_pdfs = sorted(SENATE_RAW_DIR.rglob("*.pdf"), key=lambda p: str(p).casefold())
     if not senate_pdfs:
-        print("Nessun PDF trovato in data/raw/senate/. Aggiungi i PTR manualmente.")
+        # Il job 'Refresh data' mostra gia un messaggio piu dettagliato; qui stampiamo solo un
+        # reminder sintetico quando ingest_senate viene invocato standalone (CLI / script).
+        print("Senate: 0 PDF in data/raw/senate/. Aggiungi i PTR a mano da https://efdsearch.senate.gov/.")
         return
 
     total_pdfs = len(senate_pdfs)

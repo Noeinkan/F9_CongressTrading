@@ -1,6 +1,4 @@
-import { Button, Checkbox, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Button, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
 import { Link, useLocation } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
@@ -41,13 +39,9 @@ function refreshErrorMessage(error: unknown): string {
 }
 
 function SidebarRefreshControls() {
-  const queryClient = useQueryClient();
   const refreshStatus = useRefreshStatus();
   const startRefresh = useStartRefresh();
   const cancelRefresh = useCancelRefresh();
-  const [forceRedownload, setForceRedownload] = useState(false);
-  const [forceExtract, setForceExtract] = useState(false);
-  const [skipSenate, setSkipSenate] = useState(false);
 
   const status = refreshStatus.data?.status ?? "idle";
   const isRunning = status === "running" || startRefresh.isPending;
@@ -64,11 +58,8 @@ function SidebarRefreshControls() {
   const showLogPanel =
     isRunning || (status !== "idle" && (logLines.length > 0 || Boolean(refreshStatus.data?.started_at)));
 
-  useEffect(() => {
-    if (status === "succeeded") {
-      void queryClient.invalidateQueries();
-    }
-  }, [status, queryClient]);
+  // useStartRefresh already drops the cache in onMutate, so no separate
+  // status effect is needed here.
 
   const primaryLabel = isRunning
     ? `Restart (${progress}%${currentStep ? ` — ${currentStep}` : ""})`
@@ -88,7 +79,7 @@ function SidebarRefreshControls() {
 
   return (
     <Tooltip
-      label="Download House FD metadata from the Clerk, then re-ingest House + Senate disclosures. 'Force re-download' re-fetches the yearly zip. 'Wipe + re-extract FD' is the nuclear option when local FD metadata look aligned but are actually stale."
+      label="Re-run the full ingest pipeline: pull House FD metadata from the Clerk, re-parse every PDF on disk (force re-parse), then ingest Senate. Use this when the dashboard is missing recent filings or after a parser/ticker update."
       multiline
       w={260}
     >
@@ -99,41 +90,11 @@ function SidebarRefreshControls() {
           size="compact-sm"
           loading={isRunning}
           disabled={cancelRefresh.isPending}
-          onClick={() =>
-            startRefresh.mutate({
-              overwrite: forceRedownload,
-              force_extract: forceExtract,
-              skip_senate: skipSenate,
-            })
-          }
+          onClick={() => startRefresh.mutate()}
           data-testid="sidebar-refresh"
         >
           {isRunning ? `Refreshing… ${progress}%` : primaryLabel}
         </Button>
-        <Checkbox
-          size="xs"
-          label="Force re-download from Clerk"
-          checked={forceRedownload}
-          onChange={(event) => setForceRedownload(event.currentTarget.checked)}
-          disabled={isRunning}
-          data-testid="sidebar-refresh-overwrite"
-        />
-        <Checkbox
-          size="xs"
-          label="Wipe + re-extract FD metadata"
-          checked={forceExtract}
-          onChange={(event) => setForceExtract(event.currentTarget.checked)}
-          disabled={isRunning}
-          data-testid="sidebar-refresh-force-extract"
-        />
-        <Checkbox
-          size="xs"
-          label="Skip Senate"
-          checked={skipSenate}
-          onChange={(event) => setSkipSenate(event.currentTarget.checked)}
-          disabled={isRunning}
-          data-testid="sidebar-refresh-skip-senate"
-        />
         {isRunning ? (
           <>
             <Progress value={progress} size="sm" color="navy" data-testid="sidebar-refresh-progress" />
@@ -168,11 +129,6 @@ function SidebarRefreshControls() {
               <Text size="xs" c="teal">
                 {resultSummary.rowsPtr} PTR rows seen across FD metadata
                 {resultSummary.rowsTotal != null ? ` (${resultSummary.rowsTotal} total)` : ""}
-              </Text>
-            ) : null}
-            {resultSummary.senate && resultSummary.senate.pdfs === 0 ? (
-              <Text size="xs" c="orange">
-                Senate: 0 PDF in data/raw/senate/ (drop files there and re-run without 'Skip Senate').
               </Text>
             ) : null}
           </Stack>

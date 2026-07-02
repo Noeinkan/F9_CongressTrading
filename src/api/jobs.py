@@ -1,6 +1,7 @@
 """In-process background job runner for admin ingest tasks."""
 from __future__ import annotations
 
+import os
 import sys
 import threading
 from collections import deque
@@ -115,12 +116,17 @@ def run_ingest_all(
     state: JobState,
     cancel_event: threading.Event,
     *,
+    force_reparse: bool = True,
     overwrite: bool = False,
     force_extract: bool = False,
     skip_senate: bool = False,
 ) -> None:
     """Download House FD metadata, then run House + Senate ingest.
 
+    force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the ingest
+    subprocess so every PDF is re-parsed even if its sha256 is already in
+    ingested_files. Required to surface parser/ticker/date fixes across
+    refreshes (otherwise the dedup table masks every previously-ingested PDF).
     overwrite=True: riscarica gli zip FD dal Clerk anche se gia presenti.
     force_extract=True: dopo l'estrazione, wipe + re-estrazione completa delle dir FD House
     (sicurezza contro metadata locali vecchi non rilevati dal check basato sulla dimensione).
@@ -165,6 +171,7 @@ def run_ingest_all(
 
         state.result = {
             "download_years": completed_years,
+            "force_reparse": force_reparse,
             "overwrite": overwrite,
             "force_extract": force_extract,
             "skip_senate": skip_senate,
@@ -178,6 +185,13 @@ def run_ingest_all(
         _check_cancel(cancel_event)
 
         from ..ingest_house import ingest_house
+
+        if force_reparse:
+            # Bypass the (path, sha256) dedup so parser/ticker/date improvements
+            # are applied on every refresh; the user clicked "Refresh data"
+            # expecting new ingestion work, not a no-op.
+            os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
+            print("ingest-house: HOUSE_INGEST_FORCE_REPARSE_PDFS=1 — re-parsing every PDF on disk.")
 
         ingest_house()
 
@@ -228,6 +242,7 @@ class JobManager:
     def start_or_restart(
         self,
         *,
+        force_reparse: bool = True,
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,
@@ -251,6 +266,7 @@ class JobManager:
                 run_id,
                 new_state,
                 cancel_event,
+                force_reparse,
                 overwrite,
                 force_extract,
                 skip_senate,
@@ -282,6 +298,7 @@ class JobManager:
         run_id: int,
         state: JobState,
         cancel_event: threading.Event,
+        force_reparse: bool = True,
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,
@@ -290,6 +307,7 @@ class JobManager:
             run_ingest_all(
                 state,
                 cancel_event,
+                force_reparse=force_reparse,
                 overwrite=overwrite,
                 force_extract=force_extract,
                 skip_senate=skip_senate,

@@ -143,4 +143,27 @@ describe("Tickers route", () => {
     const cell = screen.getByTestId("tickers-trade-history-return");
     expect(cell).toHaveTextContent("n/a");
   });
+
+  it("links to the SearchForAlpha Lab dashboard with the active ticker", async () => {
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    const link = screen.getByTestId("tickers-open-searchforalpha");
+    expect(link).toHaveAttribute("href", "http://127.0.0.1:8060/?ticker=AAPL");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("disables the SearchForAlpha button when no ticker is selected", async () => {
+    useTickersList.mockReturnValueOnce({
+      data: { ready: true, rows: [], total: 0, page: 1, page_size: 200, total_pages: 1, sort: { column: "trades", order: "desc" }, search: "", source: "sqlite" },
+      isLoading: false,
+      isError: false,
+    });
+    renderTickers(["/"]);
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    const link = screen.getByTestId("tickers-open-searchforalpha");
+    expect(link).toHaveAttribute("href", "http://127.0.0.1:8060/");
+    expect(link).toHaveAttribute("data-disabled", "true");
+    expect(link).toHaveAttribute("aria-disabled", "true");
+  });
 });

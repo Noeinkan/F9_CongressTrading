@@ -49,7 +49,9 @@ def download_house_fd_bulk(
 
     Verifica i termini d'uso del sito disclosures-clerk.house.gov prima di automatizzare download ripetuti.
 
-    - overwrite=True: riscarica lo zip anche se esiste gia localmente.
+    - overwrite=True: riscarica lo zip anche se esiste gia localmente. Forza inoltre la re-estrazione
+      completa dei file top-level (equivalente a force_extract=True) perche l'utente ha esplicitamente
+      chiesto di rinfrescare.
     - force_extract=True: dopo l'estrazione, wipe completo dei file top-level dello zip nella dest_dir
       e ri-estrai. Sicuro ma piu lento: utile quando i metadata locali sembrano allineati ma in realta
       sono vecchi (succede se la detection basata sulla dimensione del TXT matcha con la dimensione di
@@ -58,6 +60,11 @@ def download_house_fd_bulk(
     ensure_dirs([HOUSE_RAW_DIR])
     headers = {"User-Agent": USER_AGENT}
     completed: list[int] = []
+
+    # Quando l'utente chiede overwrite=True, vogliamo garantire che i TXT/XML sul disco siano
+    # effettivamente aggiornati: zipfile.extractall su Windows a volte non sovrascrive file aperti
+    # da altri processi, quindi forziamo la cancellazione + re-estrazione. Costo: ~ms.
+    effective_force_extract = bool(force_extract or overwrite)
 
     for year in sorted(set(years)):
         url = _fd_bulk_url(year)
@@ -76,13 +83,13 @@ def download_house_fd_bulk(
                 f"House FD {year}: metadata su disco non coincide con {dest_zip.name}; "
                 f"ri-estraggo senza riscaricare."
             )
-            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=force_extract)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=effective_force_extract)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
             continue
 
-        if force_extract and extract and dest_zip.exists():
-            print(f"House FD {year}: force_extract=True, wipe + re-estrazione di {dest_dir}.")
+        if effective_force_extract and extract and dest_zip.exists():
+            print(f"House FD {year}: force_extract attivo, wipe + re-estrazione di {dest_dir}.")
             extract_house_fd_bulk_zip(dest_zip, dest_dir, force=True)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
@@ -111,7 +118,7 @@ def download_house_fd_bulk(
             print(f"Uso zip esistente per {year}: {dest_zip}")
 
         if extract:
-            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=force_extract)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=effective_force_extract)
             print(f"Estratto in {dest_dir}")
 
         completed.append(year)

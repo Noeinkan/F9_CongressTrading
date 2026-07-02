@@ -106,24 +106,21 @@ describe("SidebarFilters", () => {
     expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refresh data");
   });
 
-  it("clicking refresh triggers start mutation with overwrite=false by default", async () => {
+  it("clicking refresh triggers start mutation with no arguments", async () => {
     const user = userEvent.setup();
     const mutate = vi.fn();
     useStartRefresh.mockReturnValue({ mutate, isPending: false });
     renderSidebar();
     await user.click(screen.getByTestId("sidebar-refresh"));
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate).toHaveBeenCalledWith({ overwrite: false });
+    expect(mutate).toHaveBeenCalledWith();
   });
 
-  it("ticking the force re-download checkbox passes overwrite=true", async () => {
-    const user = userEvent.setup();
-    const mutate = vi.fn();
-    useStartRefresh.mockReturnValue({ mutate, isPending: false });
+  it("does not render the legacy refresh option checkboxes", () => {
     renderSidebar();
-    await user.click(screen.getByTestId("sidebar-refresh-overwrite"));
-    await user.click(screen.getByTestId("sidebar-refresh"));
-    expect(mutate).toHaveBeenCalledWith({ overwrite: true });
+    expect(screen.queryByTestId("sidebar-refresh-overwrite")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-refresh-force-extract")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-refresh-skip-senate")).not.toBeInTheDocument();
   });
 
   it("shows progress and cancel while refresh is running", () => {

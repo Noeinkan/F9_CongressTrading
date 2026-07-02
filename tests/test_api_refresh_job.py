@@ -1,6 +1,7 @@
 """Tests for admin refresh-data background ingest job."""
 from __future__ import annotations
 
+import os
 import threading
 import time
 
@@ -65,6 +66,29 @@ def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     assert calls[-2:] == ["house", "senate"]
     # default behaviour: overwrite=False, force_extract=False
     assert ":False:False" in calls[0]
+
+
+def test_refresh_default_enables_force_reparse(monkeypatch):
+    """The admin refresh button must default to force_reparse=True so that
+    every PDF on disk is re-parsed; otherwise the (path, sha256) dedup in
+    ingested_files silently masks every previously-ingested PTR."""
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
+    monkeypatch.setattr("src.ingest_house.ingest_house", lambda: None)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda: None)
+
+    manager = JobManager()
+    manager.start_or_restart()
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if manager.get_state()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+
+    final = manager.get_state()
+    assert final["status"] == "succeeded"
+    assert final["result"]["force_reparse"] is True
+    assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") == "1"
 
 
 def test_job_manager_propagates_overwrite_true(monkeypatch):

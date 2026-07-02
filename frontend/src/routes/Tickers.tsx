@@ -1,6 +1,7 @@
 import {
   Anchor,
   Badge,
+  Button,
   Card,
   Group,
   Select,
@@ -38,6 +39,7 @@ import {
   formatSignedPercent,
   msnMoneyQuoteUrl,
   returnColor,
+  searchForAlphaUrl,
   yahooFinanceQuoteUrl,
 } from "@/utils/format";
 import { rangeOpacity } from "@/utils/transactions";
@@ -104,11 +106,39 @@ export function Tickers() {
       ready={listQuery.data?.ready ?? false}
     >
       <Stack gap="md" data-testid="tickers-page">
-        <SectionIntro
-          kicker={COPY.tickers.kicker}
-          title={COPY.tickers.title}
-          copy={COPY.tickers.copy}
-        />
+        <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+          <SectionIntro
+            kicker={COPY.tickers.kicker}
+            title={COPY.tickers.title}
+            copy={COPY.tickers.copy}
+          />
+          <Tooltip
+            label={
+              tickerForView
+                ? `Open ${tickerForView} in SearchForAlpha Lab (new tab)`
+                : "Pick a ticker first"
+            }
+            withArrow
+          >
+            <Button
+              component="a"
+              href={searchForAlphaUrl(tickerForView)}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="light"
+              color="orange"
+              data-disabled={!tickerForView}
+              aria-disabled={!tickerForView}
+              onClick={(event) => {
+                if (!tickerForView) event.preventDefault();
+              }}
+              data-testid="tickers-open-searchforalpha"
+              style={{ flexShrink: 0 }}
+            >
+              Open in SearchForAlpha
+            </Button>
+          </Tooltip>
+        </Group>
 
         <Group grow align="flex-end">
           <Select

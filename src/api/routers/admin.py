@@ -12,6 +12,12 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 class RefreshDataRequest(BaseModel):
     restart: bool = True
+    # Re-parse every PDF already on disk, ignoring the (path, sha256) dedup in
+    # ingested_files. Required because the dedup skips 99% of PTRs on a normal
+    # refresh, hiding any parser/ticker/date fixes shipped since the first ingest.
+    force_reparse: bool = True
+    # Legacy knobs retained for backward compat with older frontends; the
+    # current sidebar UI no longer surfaces them. Safe to drop from new clients.
     overwrite: bool = False
     force_extract: bool = False
     skip_senate: bool = False
@@ -28,6 +34,7 @@ def refresh_data_start(
     _user: str = Depends(require_admin),
 ) -> dict[str, object]:
     return job_manager.start_or_restart(
+        force_reparse=payload.force_reparse,
         overwrite=payload.overwrite,
         force_extract=payload.force_extract,
         skip_senate=payload.skip_senate,

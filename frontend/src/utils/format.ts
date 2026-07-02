@@ -1,7 +1,18 @@
+/**
+ * Render a date as DD/MM/YYYY. Input is the ISO `YYYY-MM-DD` string the API
+ * returns (timestamps may include a time suffix — slice the first 10 chars).
+ * Falls back to the raw value if it doesn't look like an ISO date so callers
+ * never crash on unexpected shapes.
+ */
 export function formatDate(value: unknown): string {
   if (value == null || value === "") return "—";
   const s = String(value);
-  return s.length >= 10 ? s.slice(0, 10) : s;
+  if (s.length < 10 || s[4] !== "-" || s[7] !== "-") return s;
+  const yyyy = s.slice(0, 4);
+  const mm = s.slice(5, 7);
+  const dd = s.slice(8, 10);
+  if (!/^\d{4}$/.test(yyyy) || !/^\d{2}$/.test(mm) || !/^\d{2}$/.test(dd)) return s;
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 export function formatCurrency(value: unknown): string {
@@ -74,4 +85,17 @@ export function yahooFinanceQuoteUrl(ticker: string): string {
 
 export function msnMoneyQuoteUrl(ticker: string): string {
   return `https://www.msn.com/en-us/money/stockdetails/fi-${encodeURIComponent(ticker.trim().toUpperCase())}`;
+}
+
+/**
+ * Build the SearchForAlpha Lab (F2) dashboard URL for a ticker. The external
+ * Dash app runs locally at http://127.0.0.1:8060/ and currently reads the
+ * ticker from a `?ticker=` query param (the F2 app may opt to consume it).
+ * If the ticker is empty, returns the bare dashboard URL.
+ */
+export function searchForAlphaUrl(ticker: string): string {
+  const base = "http://127.0.0.1:8060/";
+  const symbol = ticker.trim().toUpperCase();
+  if (!symbol) return base;
+  return `${base}?ticker=${encodeURIComponent(symbol)}`;
 }

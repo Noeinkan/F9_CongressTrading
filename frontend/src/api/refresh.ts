@@ -34,24 +34,31 @@ export function useRefreshStatus() {
 export function useStartRefresh() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (
-      variables: { overwrite?: boolean; force_extract?: boolean; skip_senate?: boolean } = {},
-    ) =>
+    mutationFn: () =>
       apiFetch<RefreshStatusResponse>("/api/admin/refresh-data", {
         method: "POST",
-        body: {
-          restart: true,
-          overwrite: Boolean(variables.overwrite),
-          force_extract: Boolean(variables.force_extract),
-          skip_senate: Boolean(variables.skip_senate),
-        },
+        body: { restart: true },
       }),
+    onMutate: () => {
+      // Drop every cached query so the next mount refetches immediately,
+      // regardless of staleTime. Prevents the "clicked Refresh but the table
+      // still shows April" window caused by stale cache surviving across
+      // tab switches while the job runs.
+      queryClient.removeQueries();
+      queryClient.setQueryData(refreshStatusQueryKey, {
+        status: "running",
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        current_step: "Queued",
+        progress: 0,
+        log_tail: [],
+        log_lines: [],
+        result: {},
+      } satisfies RefreshStatusResponse);
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(refreshStatusQueryKey, data);
-      void queryClient.invalidateQueries({ queryKey: refreshStatusQueryKey });
-      if (data.status === "succeeded") {
-        void queryClient.invalidateQueries();
-      }
+      void queryClient.invalidateQueries();
     },
   });
 }
