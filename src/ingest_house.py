@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -59,6 +60,12 @@ from .utils import (
     sha256_file,
     split_state_district,
 )
+from .api.jobs import CancelledError  # noqa: E402 — single source of truth, no circular import
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError()
 
 
 def _lookup_house_ptr_filing_date(conn, doc_id: str) -> str | None:
@@ -774,7 +781,10 @@ def _download_house_ptr_pdf(year: int, doc_id: str, dest: Path) -> bool:
         return False
 
 
-def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
+def _download_house_ptr_pdfs(
+    fd_rows: Iterable[dict[str, str | None]],
+    cancel_event: threading.Event | None = None,
+) -> int:
     if not house_ptr_auto_download_enabled():
         return 0
 
@@ -805,6 +815,8 @@ def _download_house_ptr_pdfs(fd_rows: Iterable[dict[str, str | None]]) -> int:
     interval = house_ptr_download_min_interval_seconds()
     downloaded = 0
     for i, (year, doc_id, dest) in enumerate(targets):
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError()
         if i > 0 and interval > 0:
             time.sleep(interval)
         if _download_house_ptr_pdf(year, doc_id, dest):
@@ -1022,10 +1034,11 @@ def _extract_local_zip_files() -> None:
             extract_zip(zip_path, dest_dir)
 
 
-def ingest_house() -> None:
+def ingest_house(cancel_event: threading.Event | None = None) -> None:
     ensure_dirs([HOUSE_RAW_DIR])
     conn = get_connection()
     init_db(conn)
+    _check_cancel(cancel_event)
     merged_filings = _merge_duplicate_house_ptr_filings(conn)
     if merged_filings:
         print(f"Consolidati {merged_filings} filing PTR House duplicati.")
@@ -1043,6 +1056,7 @@ def ingest_house() -> None:
         print(f"Rimosse {deleted_invalid_rows} righe PTR House non valide residue.")
 
     _extract_local_zip_files()
+    _check_cancel(cancel_event)
 
     fd_rows: list[dict[str, str | None]] = []
     new_fd_rows: list[dict[str, str | None]] = []
@@ -1083,7 +1097,7 @@ def ingest_house() -> None:
                 source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
             )
 
-    downloaded_count = _download_house_ptr_pdfs(fd_rows)
+    downloaded_count = _download_house_ptr_pdfs(fd_rows, cancel_event=cancel_event)
     if downloaded_count:
         print(f"Scaricati {downloaded_count} PTR House automaticamente.")
     elif not house_ptr_auto_download_enabled():
@@ -1139,6 +1153,11 @@ def ingest_house() -> None:
     else:
         chunk = max(1, HOUSE_INGEST_DB_COMMIT_CHUNK)
         for batch_start in range(0, len(pending), chunk):
+            # Check cancel between batches: in-flight ProcessPoolExecutor work
+            # in `_process_pdf_batch` cannot be interrupted cleanly, but we can
+            # bail out before submitting the next batch so the job ends within
+            # at most one chunk's worth of latency after the user clicks Cancel.
+            _check_cancel(cancel_event)
             batch = pending[batch_start : batch_start + chunk]
             batch_paths = [p for _idx, p in batch]
             batch_start_index = batch[0][0]

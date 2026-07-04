@@ -165,6 +165,7 @@ def run_ingest_all(
             overwrite=overwrite,
             extract=True,
             force_extract=force_extract,
+            cancel_event=cancel_event,
         )
 
         # Validazione post-estrazione: conferma quanti PTR sono effettivamente nei metadata.
@@ -207,7 +208,7 @@ def run_ingest_all(
             os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
             print("ingest-house: HOUSE_INGEST_FORCE_REPARSE_PDFS=1 — re-parsing every PDF on disk.")
 
-        ingest_house()
+        ingest_house(cancel_event=cancel_event)
 
         if skip_senate:
             state.progress = 100
@@ -227,7 +228,7 @@ def run_ingest_all(
         else:
             print(f"Senate: trovati {senate_summary['pdfs']} PDF in {senate_summary['dir']}.")
 
-        ingest_senate()
+        ingest_senate(cancel_event=cancel_event)
         state.result["senate"] = senate_summary
 
         if skip_oge:
@@ -258,6 +259,8 @@ def run_ingest_all(
             print(
                 f"OGE download: {downloaded} scaricati, {already_present} gia presenti su disco."
             )
+        except CancelledError:
+            raise
         except Exception as exc:
             # 404 dal registry: fail loud (politica del downloader), ma non
             # blocchiamo l'intero refresh — lasciamo che l'ingest tenti
@@ -278,7 +281,9 @@ def run_ingest_all(
         _check_cancel(cancel_event)
 
         try:
-            ingest_oge()
+            ingest_oge(cancel_event=cancel_event)
+        except CancelledError:
+            raise
         except Exception as exc:
             print(f"OGE ingest error: {exc}")
             state.result["oge_ingest_error"] = str(exc)

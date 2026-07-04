@@ -17,14 +17,14 @@ from src.api.jobs import CancelledError, JobManager, run_ingest_all
 def _patch_house_senate(monkeypatch, calls: list[str]) -> None:
     """Patch the original three pipeline entrypoints to record call order."""
 
-    def fake_download(years, *, overwrite=False, extract=True, force_extract=False):
+    def fake_download(years, *, overwrite=False, extract=True, force_extract=False, cancel_event=None):
         calls.append(f"download:{years}:{overwrite}:{force_extract}")
         return years
 
-    def fake_house() -> None:
+    def fake_house(cancel_event=None) -> None:
         calls.append("house")
 
-    def fake_senate() -> None:
+    def fake_senate(cancel_event=None) -> None:
         calls.append("senate")
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", fake_download)
@@ -39,7 +39,7 @@ def _patch_oge(monkeypatch, calls: list[str], *, download_returns: tuple[int, in
         calls.append(f"oge_download:overwrite={overwrite}")
         return download_returns
 
-    def fake_oge_ingest(filer_name=None):
+    def fake_oge_ingest(filer_name=None, cancel_event=None):
         calls.append("oge_ingest")
 
     monkeypatch.setattr("src.download_oge.download_oge_filings", fake_oge_download)
@@ -235,7 +235,7 @@ def test_job_manager_oge_download_error_does_not_fail_job(monkeypatch):
     def exploding_oge_download(*, filer_name=None, dest_dir=None, min_interval_seconds=None, overwrite=False):
         raise RuntimeError("OGE doc_id XYZ returned 404")
 
-    def fake_oge_ingest(filer_name=None):
+    def fake_oge_ingest(filer_name=None, cancel_event=None):
         calls.append("oge_ingest")
 
     monkeypatch.setattr("src.download_oge.download_oge_filings", exploding_oge_download)
@@ -261,11 +261,11 @@ def test_job_manager_cancel_between_steps(monkeypatch):
     entered_house = threading.Event()
     release_house = threading.Event()
 
-    def slow_house() -> None:
+    def slow_house(cancel_event=None) -> None:
         entered_house.set()
         assert release_house.wait(timeout=5)
 
-    def fake_senate() -> None:
+    def fake_senate(cancel_event=None) -> None:
         pytest.fail("senate should not run after cancel")
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
@@ -334,15 +334,15 @@ def test_refresh_restart_while_running(client, monkeypatch):
     started = threading.Event()
     gate = threading.Event()
 
-    def slow_house() -> None:
+    def slow_house(cancel_event=None) -> None:
         started.set()
         assert gate.wait(timeout=5)
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
-    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda: None)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None: None)
 
     _login(client)
 
@@ -369,15 +369,15 @@ def test_refresh_cancel_endpoint(client, monkeypatch):
     started = threading.Event()
     gate = threading.Event()
 
-    def slow_house() -> None:
+    def slow_house(cancel_event=None) -> None:
         started.set()
         assert gate.wait(timeout=5)
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
-    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda: None)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None: None)
 
     _login(client)
     client.post("/api/admin/refresh-data", json={"restart": True})
@@ -393,3 +393,126 @@ def test_refresh_cancel_endpoint(client, monkeypatch):
             break
         time.sleep(0.05)
     assert client.get("/api/admin/refresh-data/status").json()["status"] == "cancelled"
+
+
+def test_job_manager_cancelled_when_ingest_house_raises_cancelled(monkeypatch):
+    """Regression: if ingest_house observes the cancel_event mid-run and raises
+    CancelledError, the job status must end as 'cancelled' — not 'succeeded'
+    and not 'failed'. This is the dashboard 'Cancel' button bug fix.
+    """
+    from src.api.jobs import CancelledError
+
+    started = threading.Event()
+
+    def canceling_house(cancel_event=None):
+        started.set()
+        # Mimic the real behavior: house loop notices the cancel signal and
+        # raises immediately. Real ingest_house raises CancelledError from
+        # _check_cancel between batches.
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError()
+        assert cancel_event is not None
+        cancel_event.wait(timeout=5)
+        raise CancelledError()
+
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
+    monkeypatch.setattr("src.ingest_house.ingest_house", canceling_house)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda *a, **k: pytest.fail("senate"))
+    monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda *a, **k: pytest.fail("oge"))
+
+    manager = JobManager()
+    manager.start_or_restart()
+    assert started.wait(timeout=5)
+    manager.cancel()
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        snap = manager.get_state()
+        if snap["status"] in {"cancelled", "failed", "succeeded"}:
+            break
+        time.sleep(0.05)
+
+    final = manager.get_state()
+    assert final["status"] == "cancelled", (
+        f"expected cancelled, got {final['status']!r} "
+        f"(this is the dashboard Cancel-button bug)"
+    )
+
+
+def test_cancel_event_is_passed_to_ingest_callables(monkeypatch):
+    """Regression: cancel_event must be forwarded to the long-running ingest
+    callables so their internal _check_cancel() calls can observe it. Without
+    this the 'Cancel' button is a no-op for the heavy phases (House FD
+    bulk download + re-parse, Senate PDF parsing, OGE PDF parsing).
+    """
+    captured: dict[str, threading.Event | None] = {}
+
+    def record(name, fn):
+        def wrapper(*args, **kwargs):
+            cancel = kwargs.get("cancel_event")
+            if cancel is None and args:
+                cancel = args[0]
+            captured[name] = cancel
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk",
+                        record("download_house_fd_bulk", lambda *a, **k: []))
+    monkeypatch.setattr("src.ingest_house.ingest_house",
+                        record("ingest_house", lambda cancel_event=None: None))
+    monkeypatch.setattr("src.ingest_senate.ingest_senate",
+                        record("ingest_senate", lambda cancel_event=None: None))
+    monkeypatch.setattr("src.download_oge.download_oge_filings",
+                        record("download_oge_filings", lambda *a, **k: (0, 0)))
+    monkeypatch.setattr("src.ingest_oge.ingest_oge",
+                        record("ingest_oge", lambda cancel_event=None, filer_name=None: None))
+
+    manager = JobManager()
+    manager.start_or_restart()
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if manager.get_state()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+
+    # All long-running ingest callables must receive a cancel_event. The OGE
+    # downloader (download_oge_filings) is a fast registry fetch with
+    # ~few-second latency — not currently plumbed through the cancel signal,
+    # by design.
+    for name in (
+        "download_house_fd_bulk",
+        "ingest_house",
+        "ingest_senate",
+        "ingest_oge",
+    ):
+        assert name in captured, f"{name} was never called"
+        assert captured[name] is not None, (
+            f"{name} did not receive a cancel_event — Cancel button will be a no-op"
+        )
+
+
+def test_run_ingest_all_propagates_cancelled_from_ingest(monkeypatch):
+    """If a downstream ingest function (e.g. ingest_house) raises CancelledError,
+    run_ingest_all must propagate it so the job wrapper records 'cancelled'
+    instead of swallowing it as 'succeeded'.
+    """
+    from src.api.jobs import CancelledError
+
+    state = __import__("src.api.jobs", fromlist=["JobState"]).JobState()
+    cancel = threading.Event()
+    cancel.set()  # cancel signal is already present
+
+    def fake_house(cancel_event=None):
+        # Real ingest_house would raise CancelledError before doing any work
+        # because _check_cancel fires at the top of the function.
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError()
+
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
+    monkeypatch.setattr("src.ingest_house.ingest_house", fake_house)
+
+    with pytest.raises(CancelledError):
+        run_ingest_all(state, cancel)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import requests
@@ -7,6 +8,12 @@ from tqdm import tqdm
 
 from .config import HOUSE_FD_BULK_ZIP_URL, HOUSE_RAW_DIR, START_YEAR, USER_AGENT
 from .utils import ensure_dirs, extract_house_fd_bulk_zip, house_fd_bulk_zip_needs_extract
+from .api.jobs import CancelledError  # noqa: E402 — single source of truth, no circular import
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError()
 
 
 def _fd_bulk_url(year: int) -> str:
@@ -42,6 +49,7 @@ def download_house_fd_bulk(
     overwrite: bool = False,
     extract: bool = True,
     force_extract: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> list[int]:
     """
     Scarica gli zip annuali FD del Clerk della House (bulk metadata) e opzionalmente li estrae in
@@ -56,6 +64,8 @@ def download_house_fd_bulk(
       e ri-estrai. Sicuro ma piu lento: utile quando i metadata locali sembrano allineati ma in realta
       sono vecchi (succede se la detection basata sulla dimensione del TXT matcha con la dimensione di
       un TXT precedente; raro ma lo abbiamo visto).
+    - cancel_event: opzionale threading.Event osservato tra un anno e l'altro; quando
+      viene settato dal background runner la funzione solleva CancelledError.
     """
     ensure_dirs([HOUSE_RAW_DIR])
     headers = {"User-Agent": USER_AGENT}
@@ -67,6 +77,7 @@ def download_house_fd_bulk(
     effective_force_extract = bool(force_extract or overwrite)
 
     for year in sorted(set(years)):
+        _check_cancel(cancel_event)
         url = _fd_bulk_url(year)
         dest_zip = fd_bulk_zip_path(year)
         dest_dir = fd_bulk_extract_dir(year)

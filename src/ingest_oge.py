@@ -17,6 +17,7 @@ are idempotent — the same PDF gets reparsed only when the file changes.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -44,6 +45,12 @@ from .utils import (
     sanitize_transaction_date,
     sha256_file,
 )
+from .api.jobs import CancelledError  # noqa: E402 — single source of truth, no circular import
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError()
 
 
 def _iter_oge_pdfs(root: Path) -> Iterable[Path]:
@@ -269,7 +276,10 @@ def _ingest_one(
     return form_type, n_transactions, n_holdings
 
 
-def ingest_oge(filer_name: str | None = None) -> None:
+def ingest_oge(
+    filer_name: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Ingest every PDF under ``data/raw/oge/`` into the normalized SQLite.
 
     Parameters
@@ -279,64 +289,69 @@ def ingest_oge(filer_name: str | None = None) -> None:
         hint for the parsed header.  All PDFs on disk are processed
         regardless; this just changes what name we record if the PDF
         header is illegible.
+    cancel_event:
+        Optional threading.Event observed between PDFs. When set, raises
+        CancelledError so the API background job runner can flip the job
+        status to "cancelled" instead of "succeeded".
     """
     OGE_RAW_DIR.mkdir(parents=True, exist_ok=True)
     conn = get_connection()
     init_db(conn)
-
-    pdf_paths = list(_iter_oge_pdfs(OGE_RAW_DIR))
-    if not pdf_paths:
-        print(
-            f"OGE: 0 PDF in {OGE_RAW_DIR}. "
-            "Esegui `python -m src.main download-oge` per scaricare i filing.",
-            flush=True,
-        )
-        conn.close()
-        return
-
-    print(f"OGE: trovati {len(pdf_paths)} PDF in {OGE_RAW_DIR}; avvio parsing...", flush=True)
-
-    parsed = 0
-    skipped = 0
-    errors: list[tuple[Path, str]] = []
-    tx_total = 0
-    holdings_total = 0
-
-    for pdf_path in pdf_paths:
-        sha = sha256_file(pdf_path)
-        if is_file_ingested(conn, str(pdf_path), sha):
-            skipped += 1
-            continue
-        try:
-            form_type, n_tx, n_hold = _ingest_one(
-                conn,
-                pdf_path,
-                filer_name_override=filer_name,
+    try:
+        pdf_paths = list(_iter_oge_pdfs(OGE_RAW_DIR))
+        if not pdf_paths:
+            print(
+                f"OGE: 0 PDF in {OGE_RAW_DIR}. "
+                "Esegui `python -m src.main download-oge` per scaricare i filing.",
+                flush=True,
             )
-        except Exception as exc:  # noqa: BLE001 — surface failures but keep going.
-            errors.append((pdf_path, str(exc)))
-            print(f"  SKIP {pdf_path.name}: {exc}", flush=True)
-            # Still mark as ingested so a broken file doesn't loop forever;
-            # operator can remove the entry from files_ingested if they want
-            # to retry after fixing the parser.
-            mark_file_ingested(conn, str(pdf_path), sha)
-            continue
-        parsed += 1
-        tx_total += n_tx
-        holdings_total += n_hold
-        print(
-            f"  PDF {parsed + skipped}/{len(pdf_paths)}: {pdf_path.name} | "
-            f"{form_type} | {n_tx} txn, {n_hold} holdings",
-            flush=True,
-        )
+            return
 
-    summary = (
-        f"OGE completato: {parsed} PDF parsati, {skipped} gia ingeriti (skip), "
-        f"{tx_total} transazioni, {holdings_total} holdings, "
-        f"{len(errors)} errori."
-    )
-    print(summary, flush=True)
-    conn.close()
+        print(f"OGE: trovati {len(pdf_paths)} PDF in {OGE_RAW_DIR}; avvio parsing...", flush=True)
+
+        parsed = 0
+        skipped = 0
+        errors: list[tuple[Path, str]] = []
+        tx_total = 0
+        holdings_total = 0
+
+        for pdf_path in pdf_paths:
+            _check_cancel(cancel_event)
+            sha = sha256_file(pdf_path)
+            if is_file_ingested(conn, str(pdf_path), sha):
+                skipped += 1
+                continue
+            try:
+                form_type, n_tx, n_hold = _ingest_one(
+                    conn,
+                    pdf_path,
+                    filer_name_override=filer_name,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface failures but keep going.
+                errors.append((pdf_path, str(exc)))
+                print(f"  SKIP {pdf_path.name}: {exc}", flush=True)
+                # Still mark as ingested so a broken file doesn't loop forever;
+                # operator can remove the entry from files_ingested if they want
+                # to retry after fixing the parser.
+                mark_file_ingested(conn, str(pdf_path), sha)
+                continue
+            parsed += 1
+            tx_total += n_tx
+            holdings_total += n_hold
+            print(
+                f"  PDF {parsed + skipped}/{len(pdf_paths)}: {pdf_path.name} | "
+                f"{form_type} | {n_tx} txn, {n_hold} holdings",
+                flush=True,
+            )
+
+        summary = (
+            f"OGE completato: {parsed} PDF parsati, {skipped} gia ingeriti (skip), "
+            f"{tx_total} transazioni, {holdings_total} holdings, "
+            f"{len(errors)} errori."
+        )
+        print(summary, flush=True)
+    finally:
+        conn.close()
 
 
 # Keep a reference to TRUMP_OGE_FILINGS so static analyzers see it as used;
