@@ -85,7 +85,7 @@ export function Review() {
             />
           </SimpleGrid>
 
-          <ChartCard title={COPY.review.recordsCard} testId="review-records-card">
+          <ChartCard collapsible title={COPY.review.recordsCard} testId="review-records-card">
             {data.kpis.total_count === 0 ? (
               <Text c="dimmed">No records currently require review for the selected filter.</Text>
             ) : (

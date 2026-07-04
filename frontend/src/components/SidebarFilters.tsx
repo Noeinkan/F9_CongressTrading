@@ -1,9 +1,17 @@
-import { Button, Divider, Group, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { Button, Divider, Group, Popover, Progress, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { useCancelRefresh, useRefreshStatus, useStartRefresh } from "@/api/refresh";
-import { RefreshLogPanel } from "@/components/RefreshLogPanel";
+import {
+  readRefreshExpanded,
+  useCancelRefresh,
+  useRefreshStatus,
+  useStartRefresh,
+  writeRefreshExpanded,
+  type RefreshStatusResponse,
+} from "@/api/refresh";
+import { RefreshProgressPanel } from "@/components/RefreshProgressPanel";
 
 import {
   LOOKBACK_OPTIONS,
@@ -38,6 +46,39 @@ function refreshErrorMessage(error: unknown): string {
   return "Refresh request failed";
 }
 
+function buildResultSummary(result: Record<string, unknown> | undefined) {
+  if (!result || typeof result !== "object") return null;
+  const rowsPtr = typeof result.house_fd_rows_ptr === "number" ? result.house_fd_rows_ptr : null;
+  const rowsTotal = typeof result.house_fd_rows_total === "number" ? result.house_fd_rows_total : null;
+  const senate = (result as { senate?: { pdfs?: number; reason?: string } }).senate;
+  if (rowsPtr == null && rowsTotal == null && !senate) return null;
+  return { rowsPtr, rowsTotal, senate };
+}
+
+function normalizeRefreshStatus(
+  data: Partial<RefreshStatusResponse> | undefined,
+): RefreshStatusResponse {
+  return {
+    status: data?.status ?? "idle",
+    started_at: data?.started_at ?? null,
+    finished_at: data?.finished_at ?? null,
+    current_step: data?.current_step ?? "",
+    progress: data?.progress ?? 0,
+    phase_label: data?.phase_label ?? "",
+    phase_index: data?.phase_index ?? 0,
+    phase_total: data?.phase_total ?? 5,
+    sub_progress: data?.sub_progress ?? 0,
+    sub_done: data?.sub_done ?? 0,
+    sub_total: data?.sub_total ?? 0,
+    sub_unit: data?.sub_unit ?? "",
+    eta_seconds: data?.eta_seconds ?? null,
+    step_started_at: data?.step_started_at ?? null,
+    log_tail: data?.log_tail ?? [],
+    log_lines: data?.log_lines ?? data?.log_tail ?? [],
+    result: data?.result ?? {},
+  };
+}
+
 function SidebarRefreshControls() {
   const refreshStatus = useRefreshStatus();
   const startRefresh = useStartRefresh();
@@ -45,37 +86,33 @@ function SidebarRefreshControls() {
 
   const status = refreshStatus.data?.status ?? "idle";
   const isRunning = status === "running" || startRefresh.isPending;
-  const progress = refreshStatus.data?.progress ?? 0;
-  const currentStep = refreshStatus.data?.current_step ?? "";
+  const refreshData = normalizeRefreshStatus(refreshStatus.data);
+  const progress = refreshData.progress;
+  const currentStep = refreshData.current_step;
   const failedMessage =
-    typeof refreshStatus.data?.result?.error === "string"
-      ? refreshStatus.data.result.error
-      : null;
-  const logLines =
-    refreshStatus.data?.log_lines ??
-    refreshStatus.data?.log_tail ??
-    [];
+    typeof refreshData.result?.error === "string" ? refreshData.result.error : null;
   const showLogPanel =
-    isRunning || (status !== "idle" && (logLines.length > 0 || Boolean(refreshStatus.data?.started_at)));
+    isRunning ||
+    (status !== "idle" && (refreshData.log_lines.length > 0 || Boolean(refreshData.started_at)));
+  const resultSummary = buildResultSummary(refreshData.result);
 
-  // useStartRefresh already drops the cache in onMutate, so no separate
-  // status effect is needed here.
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!refreshData.started_at) return;
+    setExpanded(readRefreshExpanded(refreshData.started_at));
+  }, [refreshData.started_at]);
+
+  const setExpandedPersisted = (next: boolean) => {
+    setExpanded(next);
+    writeRefreshExpanded(refreshData.started_at, next);
+  };
 
   const primaryLabel = isRunning
     ? `Restart (${progress}%${currentStep ? ` — ${currentStep}` : ""})`
     : status === "failed" || status === "cancelled"
       ? "Retry refresh"
       : "Refresh data";
-
-  const resultSummary = (() => {
-    const result = refreshStatus.data?.result;
-    if (!result || typeof result !== "object") return null;
-    const rowsPtr = typeof result.house_fd_rows_ptr === "number" ? result.house_fd_rows_ptr : null;
-    const rowsTotal = typeof result.house_fd_rows_total === "number" ? result.house_fd_rows_total : null;
-    const senate = (result as { senate?: { pdfs?: number; reason?: string } }).senate;
-    if (rowsPtr == null && rowsTotal == null && !senate) return null;
-    return { rowsPtr, rowsTotal, senate };
-  })();
 
   return (
     <Tooltip
@@ -98,9 +135,9 @@ function SidebarRefreshControls() {
         {isRunning ? (
           <>
             <Progress value={progress} size="sm" color="navy" data-testid="sidebar-refresh-progress" />
-            {currentStep ? (
+            {currentStep || refreshData.phase_label ? (
               <Text size="xs" c="dimmed">
-                {currentStep}
+                {refreshData.phase_label || currentStep}
               </Text>
             ) : null}
             <Button
@@ -117,13 +154,45 @@ function SidebarRefreshControls() {
           </>
         ) : null}
         {showLogPanel ? (
-          <RefreshLogPanel
-            lines={logLines}
-            startedAt={refreshStatus.data?.started_at ?? null}
-            isLive={isRunning}
-          />
+          <>
+            <Group justify="flex-end">
+              <Popover
+                opened={expanded}
+                onChange={setExpandedPersisted}
+                position="right-start"
+                width={520}
+                withArrow
+                shadow="md"
+                trapFocus={false}
+              >
+                <Popover.Target>
+                  <Button
+                    variant="subtle"
+                    size="compact-xs"
+                    color="navy"
+                    onClick={() => setExpandedPersisted(!expanded)}
+                    data-testid="sidebar-refresh-expand"
+                  >
+                    {expanded ? "Collapse" : "Expand"}
+                  </Button>
+                </Popover.Target>
+                <Popover.Dropdown p="sm">
+                  <RefreshProgressPanel
+                    status={refreshData}
+                    isLive={isRunning}
+                    variant="expanded"
+                    showStepper
+                    showTerminalFooter
+                    failedMessage={failedMessage}
+                    resultSummary={resultSummary}
+                  />
+                </Popover.Dropdown>
+              </Popover>
+            </Group>
+            <RefreshProgressPanel status={refreshData} isLive={isRunning} variant="compact" />
+          </>
         ) : null}
-        {!isRunning && status === "succeeded" && resultSummary ? (
+        {!expanded && !isRunning && status === "succeeded" && resultSummary ? (
           <Stack gap={2} data-testid="sidebar-refresh-summary">
             {resultSummary.rowsPtr != null ? (
               <Text size="xs" c="teal">
@@ -133,17 +202,17 @@ function SidebarRefreshControls() {
             ) : null}
           </Stack>
         ) : null}
-        {!isRunning && status === "succeeded" ? (
+        {!expanded && !isRunning && status === "succeeded" ? (
           <Text size="xs" c="teal" data-testid="sidebar-refresh-success">
             Refresh completed
           </Text>
         ) : null}
-        {!isRunning && status === "failed" ? (
+        {!expanded && !isRunning && status === "failed" ? (
           <Text size="xs" c="red" data-testid="sidebar-refresh-error">
             {failedMessage ?? "Refresh failed — check server logs"}
           </Text>
         ) : null}
-        {!isRunning && status === "cancelled" ? (
+        {!expanded && !isRunning && status === "cancelled" ? (
           <Text size="xs" c="dimmed" data-testid="sidebar-refresh-cancelled">
             Refresh cancelled
           </Text>

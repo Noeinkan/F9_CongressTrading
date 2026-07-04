@@ -17,15 +17,31 @@ from src.api.jobs import CancelledError, JobManager, run_ingest_all
 def _patch_house_senate(monkeypatch, calls: list[str]) -> None:
     """Patch the original three pipeline entrypoints to record call order."""
 
-    def fake_download(years, *, overwrite=False, extract=True, force_extract=False, cancel_event=None):
+    def fake_download(
+        years,
+        *,
+        overwrite=False,
+        extract=True,
+        force_extract=False,
+        cancel_event=None,
+        progress_hook=None,
+    ):
         calls.append(f"download:{years}:{overwrite}:{force_extract}")
+        if progress_hook is not None:
+            progress_hook("Downloading House FD metadata", 0, len(years), unit="years")
+            for i, _year in enumerate(years):
+                progress_hook(f"House FD {_year}", i + 1, len(years), unit="years")
         return years
 
-    def fake_house(cancel_event=None) -> None:
+    def fake_house(cancel_event=None, progress_hook=None) -> None:
         calls.append("house")
+        if progress_hook is not None:
+            progress_hook("Parsing House PTR PDFs", 3, 10, unit="PDFs")
 
-    def fake_senate(cancel_event=None) -> None:
+    def fake_senate(cancel_event=None, progress_hook=None) -> None:
         calls.append("senate")
+        if progress_hook is not None:
+            progress_hook("Parsing Senate PTR PDFs", 1, 2, unit="PDFs")
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", fake_download)
     monkeypatch.setattr("src.ingest_house.ingest_house", fake_house)
@@ -35,12 +51,23 @@ def _patch_house_senate(monkeypatch, calls: list[str]) -> None:
 def _patch_oge(monkeypatch, calls: list[str], *, download_returns: tuple[int, int] = (0, 0)) -> None:
     """Patch the two OGE entrypoints to record call order."""
 
-    def fake_oge_download(*, filer_name=None, dest_dir=None, min_interval_seconds=None, overwrite=False):
+    def fake_oge_download(
+        *,
+        filer_name=None,
+        dest_dir=None,
+        min_interval_seconds=None,
+        overwrite=False,
+        progress_hook=None,
+    ):
         calls.append(f"oge_download:overwrite={overwrite}")
+        if progress_hook is not None:
+            progress_hook("Downloading OGE filings", 1, 1, unit="filings")
         return download_returns
 
-    def fake_oge_ingest(filer_name=None, cancel_event=None):
+    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None):
         calls.append("oge_ingest")
+        if progress_hook is not None:
+            progress_hook("Parsing OGE PDFs", 1, 1, unit="PDFs")
 
     monkeypatch.setattr("src.download_oge.download_oge_filings", fake_oge_download)
     monkeypatch.setattr("src.ingest_oge.ingest_oge", fake_oge_ingest)
@@ -232,10 +259,10 @@ def test_job_manager_oge_download_error_does_not_fail_job(monkeypatch):
     calls: list[str] = []
     _patch_house_senate(monkeypatch, calls)
 
-    def exploding_oge_download(*, filer_name=None, dest_dir=None, min_interval_seconds=None, overwrite=False):
+    def exploding_oge_download(*, filer_name=None, dest_dir=None, min_interval_seconds=None, overwrite=False, progress_hook=None):
         raise RuntimeError("OGE doc_id XYZ returned 404")
 
-    def fake_oge_ingest(filer_name=None, cancel_event=None):
+    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None):
         calls.append("oge_ingest")
 
     monkeypatch.setattr("src.download_oge.download_oge_filings", exploding_oge_download)
@@ -261,11 +288,11 @@ def test_job_manager_cancel_between_steps(monkeypatch):
     entered_house = threading.Event()
     release_house = threading.Event()
 
-    def slow_house(cancel_event=None) -> None:
+    def slow_house(cancel_event=None, progress_hook=None) -> None:
         entered_house.set()
         assert release_house.wait(timeout=5)
 
-    def fake_senate(cancel_event=None) -> None:
+    def fake_senate(cancel_event=None, progress_hook=None) -> None:
         pytest.fail("senate should not run after cancel")
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
@@ -301,6 +328,75 @@ def test_run_ingest_all_raises_on_cancel_before_house(monkeypatch):
         run_ingest_all(state, cancel)
 
 
+def test_progress_emits_sub_counts(monkeypatch):
+    """Progress hooks must surface sub_done/sub_total on the job snapshot."""
+    calls: list[str] = []
+    _patch_house_senate(monkeypatch, calls)
+    _patch_oge(monkeypatch, calls)
+
+    manager = JobManager()
+    manager.start_or_restart()
+
+    saw_sub_counts = False
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        snap = manager.get_state()
+        if snap.get("sub_total", 0) > 0 and snap.get("sub_done", 0) > 0:
+            saw_sub_counts = True
+        if snap["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.02)
+
+    final = manager.get_state()
+    assert final["status"] == "succeeded"
+    assert saw_sub_counts, "expected sub_done/sub_total to be populated during the run"
+    assert final["phase_total"] == 5
+    assert final["sub_unit"] in {"years", "PDFs", "filings", "PTR files", "batches", ""}
+
+
+def test_eta_is_computed_when_progress_advances(monkeypatch):
+    """ETA should be set once enough elapsed time and partial progress exist."""
+    from datetime import datetime, timedelta, timezone
+
+    import src.api.jobs as jobs_mod
+
+    fixed_now = datetime(2026, 1, 1, 12, 0, 10, tzinfo=timezone.utc)
+    step_started = (fixed_now - timedelta(seconds=5)).isoformat()
+
+    state = jobs_mod.JobState(
+        current_step="ingest-house",
+        step_started_at=step_started,
+        phase_index=1,
+        phase_total=5,
+    )
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now if tz else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(jobs_mod, "datetime", _FixedDateTime)
+
+    jobs_mod._emit_progress(
+        state,
+        phase="ingest-house",
+        phase_label="Ingesting House PTRs",
+        phase_index=1,
+        phase_total=5,
+        progress_start=15,
+        progress_span=50,
+        label="Parsing House PTR PDFs",
+        done=5,
+        total=10,
+        unit="PDFs",
+    )
+
+    assert state.sub_done == 5
+    assert state.sub_total == 10
+    assert state.eta_seconds is not None
+    assert state.eta_seconds > 0
+
+
 def test_refresh_status_requires_auth(client):
     assert client.get("/api/admin/refresh-data/status").status_code == 401
     assert client.post("/api/admin/refresh-data", json={"restart": True}).status_code == 401
@@ -322,7 +418,24 @@ def test_refresh_start_and_status(client, monkeypatch):
     assert start.status_code == 200
     data = start.json()
     assert data["status"] in {"running", "succeeded"}
-    for key in ("started_at", "finished_at", "current_step", "progress", "log_tail", "log_lines", "result"):
+    for key in (
+        "started_at",
+        "finished_at",
+        "current_step",
+        "progress",
+        "phase_label",
+        "phase_index",
+        "phase_total",
+        "sub_progress",
+        "sub_done",
+        "sub_total",
+        "sub_unit",
+        "eta_seconds",
+        "step_started_at",
+        "log_tail",
+        "log_lines",
+        "result",
+    ):
         assert key in data
 
     status = client.get("/api/admin/refresh-data/status")
@@ -334,15 +447,15 @@ def test_refresh_restart_while_running(client, monkeypatch):
     started = threading.Event()
     gate = threading.Event()
 
-    def slow_house(cancel_event=None) -> None:
+    def slow_house(cancel_event=None, progress_hook=None) -> None:
         started.set()
         assert gate.wait(timeout=5)
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
-    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None: None)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None, progress_hook=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None)
 
     _login(client)
 
@@ -369,15 +482,15 @@ def test_refresh_cancel_endpoint(client, monkeypatch):
     started = threading.Event()
     gate = threading.Event()
 
-    def slow_house(cancel_event=None) -> None:
+    def slow_house(cancel_event=None, progress_hook=None) -> None:
         started.set()
         assert gate.wait(timeout=5)
 
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", lambda *a, **k: [])
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
-    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None: None)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None, progress_hook=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None)
 
     _login(client)
     client.post("/api/admin/refresh-data", json={"restart": True})
@@ -404,7 +517,7 @@ def test_job_manager_cancelled_when_ingest_house_raises_cancelled(monkeypatch):
 
     started = threading.Event()
 
-    def canceling_house(cancel_event=None):
+    def canceling_house(cancel_event=None, progress_hook=None):
         started.set()
         # Mimic the real behavior: house loop notices the cancel signal and
         # raises immediately. Real ingest_house raises CancelledError from
@@ -461,13 +574,13 @@ def test_cancel_event_is_passed_to_ingest_callables(monkeypatch):
     monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk",
                         record("download_house_fd_bulk", lambda *a, **k: []))
     monkeypatch.setattr("src.ingest_house.ingest_house",
-                        record("ingest_house", lambda cancel_event=None: None))
+                        record("ingest_house", lambda cancel_event=None, progress_hook=None: None))
     monkeypatch.setattr("src.ingest_senate.ingest_senate",
-                        record("ingest_senate", lambda cancel_event=None: None))
+                        record("ingest_senate", lambda cancel_event=None, progress_hook=None: None))
     monkeypatch.setattr("src.download_oge.download_oge_filings",
                         record("download_oge_filings", lambda *a, **k: (0, 0)))
     monkeypatch.setattr("src.ingest_oge.ingest_oge",
-                        record("ingest_oge", lambda cancel_event=None, filer_name=None: None))
+                        record("ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None))
 
     manager = JobManager()
     manager.start_or_restart()
@@ -505,7 +618,7 @@ def test_run_ingest_all_propagates_cancelled_from_ingest(monkeypatch):
     cancel = threading.Event()
     cancel.set()  # cancel signal is already present
 
-    def fake_house(cancel_event=None):
+    def fake_house(cancel_event=None, progress_hook=None):
         # Real ingest_house would raise CancelledError before doing any work
         # because _check_cancel fires at the top of the function.
         if cancel_event is not None and cancel_event.is_set():

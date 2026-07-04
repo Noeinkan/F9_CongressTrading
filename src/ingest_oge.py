@@ -18,6 +18,7 @@ are idempotent — the same PDF gets reparsed only when the file changes.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Iterable
 
@@ -279,6 +280,7 @@ def _ingest_one(
 def ingest_oge(
     filer_name: str | None = None,
     cancel_event: threading.Event | None = None,
+    progress_hook: Callable[[str, int, int], None] | None = None,
 ) -> None:
     """Ingest every PDF under ``data/raw/oge/`` into the normalized SQLite.
 
@@ -308,6 +310,8 @@ def ingest_oge(
             return
 
         print(f"OGE: trovati {len(pdf_paths)} PDF in {OGE_RAW_DIR}; avvio parsing...", flush=True)
+        if progress_hook is not None:
+            progress_hook("Parsing OGE PDFs", 0, len(pdf_paths), unit="PDFs")
 
         parsed = 0
         skipped = 0
@@ -315,11 +319,18 @@ def ingest_oge(
         tx_total = 0
         holdings_total = 0
 
-        for pdf_path in pdf_paths:
+        for pdf_index, pdf_path in enumerate(pdf_paths):
             _check_cancel(cancel_event)
             sha = sha256_file(pdf_path)
             if is_file_ingested(conn, str(pdf_path), sha):
                 skipped += 1
+                if progress_hook is not None:
+                    progress_hook(
+                        f"OGE {pdf_path.name} (skip)",
+                        pdf_index + 1,
+                        len(pdf_paths),
+                        unit="PDFs",
+                    )
                 continue
             try:
                 form_type, n_tx, n_hold = _ingest_one(
@@ -334,6 +345,13 @@ def ingest_oge(
                 # operator can remove the entry from files_ingested if they want
                 # to retry after fixing the parser.
                 mark_file_ingested(conn, str(pdf_path), sha)
+                if progress_hook is not None:
+                    progress_hook(
+                        f"OGE {pdf_path.name} (error)",
+                        pdf_index + 1,
+                        len(pdf_paths),
+                        unit="PDFs",
+                    )
                 continue
             parsed += 1
             tx_total += n_tx
@@ -343,6 +361,13 @@ def ingest_oge(
                 f"{form_type} | {n_tx} txn, {n_hold} holdings",
                 flush=True,
             )
+            if progress_hook is not None:
+                progress_hook(
+                    f"OGE {pdf_path.name}",
+                    pdf_index + 1,
+                    len(pdf_paths),
+                    unit="PDFs",
+                )
 
         summary = (
             f"OGE completato: {parsed} PDF parsati, {skipped} gia ingeriti (skip), "

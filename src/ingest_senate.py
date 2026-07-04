@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 from .config import RAW_DIR, SENATE_RAW_DIR
 from .db import (
@@ -39,7 +40,10 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
         raise CancelledError()
 
 
-def ingest_senate(cancel_event: threading.Event | None = None) -> None:
+def ingest_senate(
+    cancel_event: threading.Event | None = None,
+    progress_hook: Callable[[str, int, int], None] | None = None,
+) -> None:
     """
     Senate eFD richiede accettazione dei termini; qui si usa una modalità manuale:
     inserisci i PDF dei PTR in data/raw/senate/ (es. dal 2022+)
@@ -111,6 +115,8 @@ def ingest_senate(cancel_event: threading.Event | None = None) -> None:
 
         total_pdfs = len(senate_pdfs)
         print(f"Trovati {total_pdfs} PDF PTR in {SENATE_RAW_DIR}; avvio parsing...", flush=True)
+        if progress_hook is not None:
+            progress_hook("Parsing Senate PTR PDFs", 0, total_pdfs, unit="PDFs")
 
         skipped = 0
         parsed_count = 0
@@ -122,6 +128,13 @@ def ingest_senate(cancel_event: threading.Event | None = None) -> None:
             sha = sha256_file(pdf_path)
             if is_file_ingested(conn, str(pdf_path), sha):
                 skipped += 1
+                if progress_hook is not None:
+                    progress_hook(
+                        f"Senate {pdf_path.name} (skip)",
+                        pdf_index + 1,
+                        total_pdfs,
+                        unit="PDFs",
+                    )
                 continue
             header, rows = parse_ptr_pdf_safe(pdf_path)
             parsed_count += 1
@@ -249,6 +262,13 @@ def ingest_senate(cancel_event: threading.Event | None = None) -> None:
                 )
             insert_trades(conn, to_insert)
             mark_file_ingested(conn, str(pdf_path), sha)
+            if progress_hook is not None:
+                progress_hook(
+                    f"Senate {pdf_path.name}",
+                    pdf_index + 1,
+                    total_pdfs,
+                    unit="PDFs",
+                )
 
         print(
             f"Senate PTR completato: {parsed_count} PDF parsati, {skipped} gia ingeriti (skip), "

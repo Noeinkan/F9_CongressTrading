@@ -308,6 +308,7 @@ export function Executive() {
             </Card>
 
             <ChartCard
+              collapsible
               title="Filings"
               caption="Click a filing to filter the transactions table below by document ID."
               testId="executive-filings-card"
@@ -426,7 +427,7 @@ export function Executive() {
               </Group>
             </Group>
 
-            <ChartCard title="Periodic transactions" testId="executive-tx-card">
+            <ChartCard collapsible title="Periodic transactions" testId="executive-tx-card">
               <Table.ScrollContainer minWidth={1000}>
                 <Table striped highlightOnHover data-testid="executive-tx-table">
                   <Table.Thead>

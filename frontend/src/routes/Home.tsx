@@ -218,6 +218,7 @@ export function Home() {
           </SimpleGrid>
 
           <ChartCard
+            collapsible
             title="Latest activity"
             caption="Most recent disclosures in the slice (preview). Click a ticker to open its profile."
             headerRight={
@@ -357,6 +358,7 @@ export function Home() {
           </Stack>
 
           <ChartCard
+            collapsible
             title="Net trade amount"
             caption="Net signed dollar flow per ticker — green is net buying, red is net selling."
             testId="home-net-trade"
@@ -414,12 +416,12 @@ export function Home() {
             )}
           </ChartCard>
 
-          <ChartCard title="Monthly activity">
+          <ChartCard collapsible title="Monthly activity">
             <MonthlyActivityChart rows={data.monthly_activity} />
           </ChartCard>
 
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <ChartCard title="Top members">
+            <ChartCard collapsible title="Top members">
               <RankBars
                 testId="home-top-members"
                 color="#20344a"
@@ -429,7 +431,7 @@ export function Home() {
                 }))}
               />
             </ChartCard>
-            <ChartCard title="Top tickers">
+            <ChartCard collapsible title="Top tickers">
               <RankBars
                 testId="home-top-tickers"
                 color="#c6922b"
@@ -442,6 +444,7 @@ export function Home() {
           </SimpleGrid>
 
           <ChartCard
+            collapsible
             title="Members leaderboard"
             caption="Full per-filer ranking for the active period slice. Click a row to open the profile on the Members page."
             testId="home-leaderboard"
@@ -496,7 +499,7 @@ export function Home() {
             )}
           </ChartCard>
 
-          <ChartCard title="Ticker drill-down" testId="home-drilldown">
+          <ChartCard collapsible title="Ticker drill-down" testId="home-drilldown">
             {data.tickers_available.length === 0 ? (
               <Text c="dimmed">No resolved tickers in the current slice.</Text>
             ) : (

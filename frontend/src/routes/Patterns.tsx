@@ -137,7 +137,7 @@ export function Patterns() {
             </Stack>
           </SimpleGrid>
 
-          <ChartCard title={COPY.patterns.committee} testId="patterns-committee">
+          <ChartCard collapsible title={COPY.patterns.committee} testId="patterns-committee">
             <Text size="sm" c="dimmed" mb="sm">
               {data.committee.coverage.members_mapped} members mapped ·{" "}
               {formatNumber(data.committee.coverage.member_coverage_pct, 1)}% member coverage ·{" "}
@@ -232,7 +232,7 @@ export function Patterns() {
             ) : null}
           </ChartCard>
 
-          <ChartCard title={COPY.patterns.coordinated} testId="patterns-coordinated">
+          <ChartCard collapsible title={COPY.patterns.coordinated} testId="patterns-coordinated">
             <Table.ScrollContainer minWidth={800}>
               <Table striped data-testid="patterns-coordinated-table">
                 <Table.Thead>
@@ -310,7 +310,7 @@ export function Patterns() {
             ) : null}
           </ChartCard>
 
-          <ChartCard title={COPY.patterns.callPut} testId="patterns-call-put">
+          <ChartCard collapsible title={COPY.patterns.callPut} testId="patterns-call-put">
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
               <CallPutAreaChart rows={data.call_put.monthly} />
               <Stack gap="xs">
@@ -338,7 +338,7 @@ export function Patterns() {
             ) : null}
           </ChartCard>
 
-          <ChartCard title={COPY.patterns.volumeSpikes} testId="patterns-volume">
+          <ChartCard collapsible title={COPY.patterns.volumeSpikes} testId="patterns-volume">
             <Text size="sm" c="dimmed" mb="sm">
               {COPY.patterns.volumeCaption}
             </Text>
@@ -376,7 +376,7 @@ export function Patterns() {
             </Table.ScrollContainer>
           </ChartCard>
 
-          <ChartCard title={COPY.patterns.bipartisan} testId="patterns-bipartisan">
+          <ChartCard collapsible title={COPY.patterns.bipartisan} testId="patterns-bipartisan">
             <Table.ScrollContainer minWidth={800}>
               <Table striped data-testid="patterns-bipartisan-table">
                 <Table.Thead>

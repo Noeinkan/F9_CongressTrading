@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import requests
@@ -50,6 +51,7 @@ def download_house_fd_bulk(
     extract: bool = True,
     force_extract: bool = False,
     cancel_event: threading.Event | None = None,
+    progress_hook: Callable[[str, int, int], None] | None = None,
 ) -> list[int]:
     """
     Scarica gli zip annuali FD del Clerk della House (bulk metadata) e opzionalmente li estrae in
@@ -76,7 +78,21 @@ def download_house_fd_bulk(
     # da altri processi, quindi forziamo la cancellazione + re-estrazione. Costo: ~ms.
     effective_force_extract = bool(force_extract or overwrite)
 
-    for year in sorted(set(years)):
+    sorted_years = sorted(set(years))
+    total_years = len(sorted_years)
+    if progress_hook is not None:
+        progress_hook("Downloading House FD metadata", 0, total_years, unit="years")
+
+    for year_index, year in enumerate(sorted_years):
+        def _report_year_progress() -> None:
+            if progress_hook is not None:
+                progress_hook(
+                    f"House FD {year}",
+                    year_index + 1,
+                    total_years,
+                    unit="years",
+                )
+
         _check_cancel(cancel_event)
         url = _fd_bulk_url(year)
         dest_zip = fd_bulk_zip_path(year)
@@ -97,6 +113,7 @@ def download_house_fd_bulk(
             extract_house_fd_bulk_zip(dest_zip, dest_dir, force=effective_force_extract)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
+            _report_year_progress()
             continue
 
         if effective_force_extract and extract and dest_zip.exists():
@@ -104,10 +121,12 @@ def download_house_fd_bulk(
             extract_house_fd_bulk_zip(dest_zip, dest_dir, force=True)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
+            _report_year_progress()
             continue
 
         if not overwrite and dest_txt.exists() and dest_zip.exists() and not stale_vs_zip:
             print(f"Salto {year}: presente {dest_txt} e allineato allo zip")
+            _report_year_progress()
             continue
 
         need_download = overwrite or not dest_zip.exists()
@@ -119,11 +138,13 @@ def download_house_fd_bulk(
                 print(f"Errore HTTP per anno {year}: {exc}")
                 if dest_zip.exists():
                     dest_zip.unlink(missing_ok=True)
+                _report_year_progress()
                 continue
             except Exception as exc:
                 print(f"Errore download anno {year}: {exc}")
                 if dest_zip.exists():
                     dest_zip.unlink(missing_ok=True)
+                _report_year_progress()
                 continue
         elif extract and not dest_txt.exists():
             print(f"Uso zip esistente per {year}: {dest_zip}")
@@ -133,5 +154,6 @@ def download_house_fd_bulk(
             print(f"Estratto in {dest_dir}")
 
         completed.append(year)
+        _report_year_progress()
 
     return completed

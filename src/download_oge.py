@@ -7,6 +7,7 @@ already present on disk, and fails loudly on a 404 — OGE URLs are stable so a
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import requests
@@ -50,6 +51,7 @@ def download_oge_filings(
     dest_dir: Path = OGE_RAW_DIR,
     min_interval_seconds: float = OGE_DOWNLOAD_MIN_INTERVAL_SECONDS,
     overwrite: bool = False,
+    progress_hook: Callable[[str, int, int], None] | None = None,
 ) -> tuple[int, int]:
     """Download every OGE filing in the registry (or filtered by filer).
 
@@ -71,11 +73,22 @@ def download_oge_filings(
 
     downloaded = 0
     already_present = 0
+    total_filings = len(filings)
+    if progress_hook is not None:
+        progress_hook("Downloading OGE filings", 0, total_filings, unit="filings")
+
     for index, filing in enumerate(filings):
         dest = _local_path(filing, dest_dir)
         if dest.exists() and not overwrite:
             already_present += 1
             print(f"  [{index + 1}/{len(filings)}] skip (esiste): {dest.name}")
+            if progress_hook is not None:
+                progress_hook(
+                    f"OGE {filing.doc_id} (skip)",
+                    index + 1,
+                    total_filings,
+                    unit="filings",
+                )
             continue
         # Enforce the conservative interval between network calls.
         if index > 0:
@@ -86,5 +99,12 @@ def download_oge_filings(
         )
         _download_one(filing, dest, headers=headers)
         downloaded += 1
+        if progress_hook is not None:
+            progress_hook(
+                f"OGE {filing.doc_id}",
+                index + 1,
+                total_filings,
+                unit="filings",
+            )
 
     return downloaded, already_present

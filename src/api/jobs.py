@@ -8,12 +8,23 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 JobStatus = Literal["idle", "running", "succeeded", "failed", "cancelled"]
 
+ProgressHook = Callable[[str, int, int], None]
+
 _LOG_MAX_LINES = 500
 _LOG_TAIL_SIZE = 50
+
+# (step_id, human label, progress_start, progress_span)
+_PIPELINE_PHASES: tuple[tuple[str, str, int, int], ...] = (
+    ("download-house-fd", "Downloading House FD", 0, 15),
+    ("ingest-house", "Ingesting House PTRs", 15, 50),
+    ("ingest-senate", "Ingesting Senate PTRs", 65, 15),
+    ("download-oge", "Downloading OGE filings", 80, 10),
+    ("ingest-oge", "Ingesting OGE filings", 90, 10),
+)
 
 
 class CancelledError(Exception):
@@ -27,6 +38,15 @@ class JobState:
     finished_at: str | None = None
     current_step: str = ""
     progress: int = 0
+    phase_label: str = ""
+    phase_index: int = 0
+    phase_total: int = len(_PIPELINE_PHASES)
+    sub_progress: int = 0
+    sub_done: int = 0
+    sub_total: int = 0
+    sub_unit: str = ""
+    eta_seconds: float | None = None
+    step_started_at: str | None = None
     log_lines: deque[str] = field(default_factory=lambda: deque(maxlen=_LOG_MAX_LINES))
     result: dict[str, Any] = field(default_factory=dict)
 
@@ -62,6 +82,108 @@ def _utc_now_iso() -> str:
 def _check_cancel(cancel_event: threading.Event) -> None:
     if cancel_event.is_set():
         raise CancelledError()
+
+
+def _begin_phase(
+    state: JobState,
+    *,
+    phase: str,
+    phase_label: str,
+    phase_index: int,
+    phase_total: int,
+    progress_start: int,
+) -> None:
+    state.current_step = phase
+    state.phase_label = phase_label
+    state.phase_index = phase_index
+    state.phase_total = phase_total
+    state.step_started_at = _utc_now_iso()
+    state.sub_done = 0
+    state.sub_total = 0
+    state.sub_unit = ""
+    state.sub_progress = 0
+    state.eta_seconds = None
+    state.progress = progress_start
+
+
+def _emit_progress(
+    state: JobState,
+    *,
+    phase: str,
+    phase_label: str,
+    phase_index: int,
+    phase_total: int,
+    progress_start: int,
+    progress_span: int,
+    label: str,
+    done: int,
+    total: int,
+    unit: str = "",
+) -> None:
+    if state.current_step != phase:
+        _begin_phase(
+            state,
+            phase=phase,
+            phase_label=phase_label,
+            phase_index=phase_index,
+            phase_total=phase_total,
+            progress_start=progress_start,
+        )
+
+    state.phase_label = label or phase_label
+    state.sub_done = done
+    state.sub_total = total
+    state.sub_unit = unit
+
+    if total > 0:
+        state.sub_progress = min(100, max(0, round(100 * done / total)))
+        state.progress = min(
+            progress_start + progress_span - 1,
+            progress_start + int(progress_span * done / total),
+        )
+    else:
+        state.sub_progress = 0
+
+    if state.step_started_at and done > 0 and total > done:
+        try:
+            started = datetime.fromisoformat(state.step_started_at)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+            if elapsed > 2:
+                state.eta_seconds = elapsed * (total - done) / done
+            else:
+                state.eta_seconds = None
+        except (TypeError, ValueError):
+            state.eta_seconds = None
+    else:
+        state.eta_seconds = None
+
+
+def _make_progress_hook(
+    state: JobState,
+    *,
+    phase: str,
+    phase_label: str,
+    phase_index: int,
+    phase_total: int,
+    progress_start: int,
+    progress_span: int,
+) -> ProgressHook:
+    def hook(label: str, done: int, total: int, *, unit: str = "") -> None:
+        _emit_progress(
+            state,
+            phase=phase,
+            phase_label=phase_label,
+            phase_index=phase_index,
+            phase_total=phase_total,
+            progress_start=progress_start,
+            progress_span=progress_span,
+            label=label,
+            done=done,
+            total=total,
+            unit=unit,
+        )
+
+    return hook
 
 
 def _summarize_house_fd_extract(year: int) -> dict[str, int]:
@@ -155,17 +277,34 @@ def run_ingest_all(
         from ..config import START_YEAR
         from ..download_house_fd import download_house_fd_bulk
 
-        state.current_step = "download-house-fd"
-        state.progress = 5
+        phase_total = len(_PIPELINE_PHASES)
+        _begin_phase(
+            state,
+            phase="download-house-fd",
+            phase_label="Downloading House FD",
+            phase_index=0,
+            phase_total=phase_total,
+            progress_start=0,
+        )
         _check_cancel(cancel_event)
 
         years = list(range(START_YEAR, datetime.now().year + 1))
+        fd_hook = _make_progress_hook(
+            state,
+            phase="download-house-fd",
+            phase_label="Downloading House FD",
+            phase_index=0,
+            phase_total=phase_total,
+            progress_start=0,
+            progress_span=15,
+        )
         completed_years = download_house_fd_bulk(
             years,
             overwrite=overwrite,
             extract=True,
             force_extract=force_extract,
             cancel_event=cancel_event,
+            progress_hook=fd_hook,
         )
 
         # Validazione post-estrazione: conferma quanti PTR sono effettivamente nei metadata.
@@ -196,7 +335,14 @@ def run_ingest_all(
         }
 
         state.progress = 15
-        state.current_step = "ingest-house"
+        _begin_phase(
+            state,
+            phase="ingest-house",
+            phase_label="Ingesting House PTRs",
+            phase_index=1,
+            phase_total=phase_total,
+            progress_start=15,
+        )
         _check_cancel(cancel_event)
 
         from ..ingest_house import ingest_house
@@ -208,7 +354,16 @@ def run_ingest_all(
             os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
             print("ingest-house: HOUSE_INGEST_FORCE_REPARSE_PDFS=1 — re-parsing every PDF on disk.")
 
-        ingest_house(cancel_event=cancel_event)
+        house_hook = _make_progress_hook(
+            state,
+            phase="ingest-house",
+            phase_label="Ingesting House PTRs",
+            phase_index=1,
+            phase_total=phase_total,
+            progress_start=15,
+            progress_span=50,
+        )
+        ingest_house(cancel_event=cancel_event, progress_hook=house_hook)
 
         if skip_senate:
             state.progress = 100
@@ -217,7 +372,14 @@ def run_ingest_all(
             return
 
         state.progress = 65
-        state.current_step = "ingest-senate"
+        _begin_phase(
+            state,
+            phase="ingest-senate",
+            phase_label="Ingesting Senate PTRs",
+            phase_index=2,
+            phase_total=phase_total,
+            progress_start=65,
+        )
         _check_cancel(cancel_event)
 
         from ..ingest_senate import ingest_senate
@@ -228,7 +390,16 @@ def run_ingest_all(
         else:
             print(f"Senate: trovati {senate_summary['pdfs']} PDF in {senate_summary['dir']}.")
 
-        ingest_senate(cancel_event=cancel_event)
+        senate_hook = _make_progress_hook(
+            state,
+            phase="ingest-senate",
+            phase_label="Ingesting Senate PTRs",
+            phase_index=2,
+            phase_total=phase_total,
+            progress_start=65,
+            progress_span=15,
+        )
+        ingest_senate(cancel_event=cancel_event, progress_hook=senate_hook)
         state.result["senate"] = senate_summary
 
         if skip_oge:
@@ -239,7 +410,14 @@ def run_ingest_all(
             return
 
         state.progress = 80
-        state.current_step = "download-oge"
+        _begin_phase(
+            state,
+            phase="download-oge",
+            phase_label="Downloading OGE filings",
+            phase_index=3,
+            phase_total=phase_total,
+            progress_start=80,
+        )
         _check_cancel(cancel_event)
 
         from ..download_oge import download_oge_filings
@@ -254,8 +432,20 @@ def run_ingest_all(
         # hard-coded, quindi un refresh normale non dovrebbe ri-hammerare
         # extapps2.oge.gov per file già presenti.
         oge_download_error: str | None = None
+        oge_download_hook = _make_progress_hook(
+            state,
+            phase="download-oge",
+            phase_label="Downloading OGE filings",
+            phase_index=3,
+            phase_total=phase_total,
+            progress_start=80,
+            progress_span=10,
+        )
         try:
-            downloaded, already_present = download_oge_filings(overwrite=False)
+            downloaded, already_present = download_oge_filings(
+                overwrite=False,
+                progress_hook=oge_download_hook,
+            )
             print(
                 f"OGE download: {downloaded} scaricati, {already_present} gia presenti su disco."
             )
@@ -277,11 +467,27 @@ def run_ingest_all(
         }
 
         state.progress = 90
-        state.current_step = "ingest-oge"
+        _begin_phase(
+            state,
+            phase="ingest-oge",
+            phase_label="Ingesting OGE filings",
+            phase_index=4,
+            phase_total=phase_total,
+            progress_start=90,
+        )
         _check_cancel(cancel_event)
 
+        oge_ingest_hook = _make_progress_hook(
+            state,
+            phase="ingest-oge",
+            phase_label="Ingesting OGE filings",
+            phase_index=4,
+            phase_total=phase_total,
+            progress_start=90,
+            progress_span=10,
+        )
         try:
-            ingest_oge(cancel_event=cancel_event)
+            ingest_oge(cancel_event=cancel_event, progress_hook=oge_ingest_hook)
         except CancelledError:
             raise
         except Exception as exc:
@@ -290,6 +496,9 @@ def run_ingest_all(
 
         state.progress = 100
         state.current_step = "done"
+        state.phase_label = "Done"
+        state.sub_progress = 100
+        state.eta_seconds = None
         state.result["scope"] = "ingest-all"
     finally:
         sys.stdout = original_stdout
@@ -362,6 +571,15 @@ class JobManager:
             "finished_at": state.finished_at,
             "current_step": state.current_step,
             "progress": state.progress,
+            "phase_label": state.phase_label,
+            "phase_index": state.phase_index,
+            "phase_total": state.phase_total,
+            "sub_progress": state.sub_progress,
+            "sub_done": state.sub_done,
+            "sub_total": state.sub_total,
+            "sub_unit": state.sub_unit,
+            "eta_seconds": state.eta_seconds,
+            "step_started_at": state.step_started_at,
             "log_tail": list(state.log_lines)[-_LOG_TAIL_SIZE:],
             "log_lines": list(state.log_lines),
             "result": dict(state.result),

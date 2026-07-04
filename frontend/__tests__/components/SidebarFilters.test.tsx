@@ -12,11 +12,17 @@ const useRefreshStatus = vi.fn();
 const useStartRefresh = vi.fn();
 const useCancelRefresh = vi.fn();
 
-vi.mock("@/api/refresh", () => ({
-  useRefreshStatus: (...args: unknown[]) => useRefreshStatus(...args),
-  useStartRefresh: (...args: unknown[]) => useStartRefresh(...args),
-  useCancelRefresh: (...args: unknown[]) => useCancelRefresh(...args),
-}));
+vi.mock("@/api/refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/refresh")>();
+  return {
+    ...actual,
+    useRefreshStatus: (...args: unknown[]) => useRefreshStatus(...args),
+    useStartRefresh: (...args: unknown[]) => useStartRefresh(...args),
+    useCancelRefresh: (...args: unknown[]) => useCancelRefresh(...args),
+    readRefreshExpanded: () => false,
+    writeRefreshExpanded: vi.fn(),
+  };
+});
 
 function Probe() {
   const { lookback, quarters } = useFilters();
@@ -129,6 +135,15 @@ describe("SidebarFilters", () => {
         status: "running",
         progress: 42,
         current_step: "ingest-house",
+        phase_label: "Parsing House PTR PDFs",
+        phase_index: 1,
+        phase_total: 5,
+        sub_progress: 30,
+        sub_done: 3,
+        sub_total: 10,
+        sub_unit: "PDFs",
+        eta_seconds: 90,
+        started_at: "2026-06-08T21:00:00+00:00",
         log_lines: ["Scarico 2024 da https://example.com", "Trovati 120 PDF PTR"],
       },
     });
@@ -137,9 +152,38 @@ describe("SidebarFilters", () => {
     expect(screen.getByTestId("sidebar-refresh-progress")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh-cancel")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh")).toHaveTextContent("Refreshing… 42%");
-    expect(screen.getByText("ingest-house")).toBeInTheDocument();
+    expect(screen.getByText("Parsing House PTR PDFs")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-refresh-log")).toBeInTheDocument();
     expect(screen.getByText("Scarico 2024 da https://example.com")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh-eta")).toHaveTextContent("ETA");
+  });
+
+  it("expand button opens the popover panel", async () => {
+    const user = userEvent.setup();
+    useRefreshStatus.mockReturnValue({
+      data: {
+        status: "running",
+        progress: 20,
+        current_step: "download-house-fd",
+        phase_label: "Downloading House FD",
+        phase_index: 0,
+        phase_total: 5,
+        sub_progress: 40,
+        sub_done: 2,
+        sub_total: 5,
+        sub_unit: "years",
+        eta_seconds: 30,
+        started_at: "2026-06-08T21:00:00+00:00",
+        log_lines: ["Scarico 2024 da https://example.com"],
+      },
+    });
+    useStartRefresh.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderSidebar();
+
+    expect(screen.queryByTestId("sidebar-refresh-popover")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("sidebar-refresh-expand"));
+    expect(screen.getByTestId("sidebar-refresh-popover")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-refresh-phase-0")).toBeInTheDocument();
   });
 
   it("shows success message after refresh completes", () => {

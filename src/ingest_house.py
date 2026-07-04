@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
-from collections import defaultdict
 
 import requests
 from tqdm import tqdm
@@ -784,6 +785,7 @@ def _download_house_ptr_pdf(year: int, doc_id: str, dest: Path) -> bool:
 def _download_house_ptr_pdfs(
     fd_rows: Iterable[dict[str, str | None]],
     cancel_event: threading.Event | None = None,
+    progress_hook: Callable[[str, int, int], None] | None = None,
 ) -> int:
     if not house_ptr_auto_download_enabled():
         return 0
@@ -814,6 +816,9 @@ def _download_house_ptr_pdfs(
 
     interval = house_ptr_download_min_interval_seconds()
     downloaded = 0
+    total_targets = len(targets)
+    if progress_hook is not None:
+        progress_hook("Downloading House PTR PDFs", 0, total_targets, unit="PTR files")
     for i, (year, doc_id, dest) in enumerate(targets):
         if cancel_event is not None and cancel_event.is_set():
             raise CancelledError()
@@ -823,6 +828,13 @@ def _download_house_ptr_pdfs(
             downloaded += 1
             if downloaded % 50 == 0:
                 print(f"PTR scaricati finora: {downloaded}...", flush=True)
+        if progress_hook is not None:
+            progress_hook(
+                f"PTR {year}/{doc_id}",
+                i + 1,
+                total_targets,
+                unit="PTR files",
+            )
     return downloaded
 
 
@@ -1034,7 +1046,10 @@ def _extract_local_zip_files() -> None:
             extract_zip(zip_path, dest_dir)
 
 
-def ingest_house(cancel_event: threading.Event | None = None) -> None:
+def ingest_house(
+    cancel_event: threading.Event | None = None,
+    progress_hook: Callable[[str, int, int], None] | None = None,
+) -> None:
     ensure_dirs([HOUSE_RAW_DIR])
     conn = get_connection()
     init_db(conn)
@@ -1097,7 +1112,11 @@ def ingest_house(cancel_event: threading.Event | None = None) -> None:
                 source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
             )
 
-    downloaded_count = _download_house_ptr_pdfs(fd_rows, cancel_event=cancel_event)
+    downloaded_count = _download_house_ptr_pdfs(
+        fd_rows,
+        cancel_event=cancel_event,
+        progress_hook=progress_hook,
+    )
     if downloaded_count:
         print(f"Scaricati {downloaded_count} PTR House automaticamente.")
     elif not house_ptr_auto_download_enabled():
@@ -1152,7 +1171,10 @@ def ingest_house(cancel_event: threading.Event | None = None) -> None:
         print("Nessun PDF da processare.", flush=True)
     else:
         chunk = max(1, HOUSE_INGEST_DB_COMMIT_CHUNK)
-        for batch_start in range(0, len(pending), chunk):
+        batches_total = (len(pending) + chunk - 1) // chunk
+        if progress_hook is not None:
+            progress_hook("Parsing House PTR PDFs", 0, len(pending), unit="PDFs")
+        for batch_num, batch_start in enumerate(range(0, len(pending), chunk), start=1):
             # Check cancel between batches: in-flight ProcessPoolExecutor work
             # in `_process_pdf_batch` cannot be interrupted cleanly, but we can
             # bail out before submitting the next batch so the job ends within
@@ -1178,6 +1200,19 @@ def ingest_house(cancel_event: threading.Event | None = None) -> None:
                 f"in {elapsed:.1f}s — commit eseguito, dati visibili al dashboard.",
                 flush=True,
             )
+            if progress_hook is not None:
+                progress_hook(
+                    f"House PTR batch {batch_num}/{batches_total}",
+                    batch_num,
+                    batches_total,
+                    unit="batches",
+                )
+                progress_hook(
+                    "Parsing House PTR PDFs",
+                    done,
+                    len(pending),
+                    unit="PDFs",
+                )
 
     print(
         f"House PTR completato: {parsed_count} PDF parsati, {persisted_count} persistiti, "

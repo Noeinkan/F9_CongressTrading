@@ -121,6 +121,7 @@ export function Members() {
           />
 
           <ChartCard
+            collapsible
             title={COPY.members.browse}
             caption="Quick scan of the most active filers in the active slice. The full leaderboard lives on the Home page."
             testId="members-browse"
@@ -208,7 +209,7 @@ export function Members() {
               </SimpleGrid>
 
               {tradeView === COMMITTEE_VIEW ? (
-                <ChartCard title={COPY.members.committeeCard} testId="members-committee-card">
+                <ChartCard collapsible title={COPY.members.committeeCard} testId="members-committee-card">
                   {!committeeData.data?.assignments_loaded ? (
                     <Text c="dimmed">Committee assignments not loaded.</Text>
                   ) : committeeData.data.rows.length === 0 ? (
@@ -262,7 +263,7 @@ export function Members() {
                 </ChartCard>
               ) : null}
 
-              <ChartCard title={COPY.members.byTicker} testId="members-by-ticker">
+              <ChartCard collapsible title={COPY.members.byTicker} testId="members-by-ticker">
                 <Table.ScrollContainer minWidth={820}>
                   <Table striped data-testid="members-by-ticker-table">
                     <Table.Thead>
@@ -355,7 +356,7 @@ export function Members() {
                 </Table.ScrollContainer>
               </ChartCard>
 
-              <ChartCard title={COPY.members.activity} testId="members-activity">
+              <ChartCard collapsible title={COPY.members.activity} testId="members-activity">
                 {activityData.data?.truncated ? (
                   <Alert color="gray" variant="light" mb="sm" data-testid="members-activity-truncate">
                     {activityData.data.truncate_note}
@@ -369,7 +370,7 @@ export function Members() {
                 />
               </ChartCard>
 
-              <ChartCard title={COPY.members.topTickers}>
+              <ChartCard collapsible title={COPY.members.topTickers}>
                 <RankBars testId="members-top-tickers" color="#c6922b" rows={topTickerRows} />
               </ChartCard>
             </Stack>

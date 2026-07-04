@@ -231,7 +231,7 @@ export function Tickers() {
               </SimpleGrid>
             ) : null}
 
-            <ChartCard title={COPY.tickers.whoTraded} testId="tickers-members-table">
+            <ChartCard collapsible title={COPY.tickers.whoTraded} testId="tickers-members-table">
               <Table.ScrollContainer minWidth={900}>
                 <Table striped data-testid="tickers-who-traded">
                   <Table.Thead>
@@ -299,6 +299,7 @@ export function Tickers() {
             </ChartCard>
 
             <ChartCard
+              collapsible
               title="Trade history"
               caption="Most recent disclosures on this ticker. The Return column shows the market move from the trade date to today, using the local Polygon daily-bar cache."
               testId="tickers-trade-history"
@@ -393,7 +394,7 @@ export function Tickers() {
               )}
             </ChartCard>
 
-            <ChartCard title={COPY.tickers.priceOverlay} testId="tickers-price-overlay">
+            <ChartCard collapsible title={COPY.tickers.priceOverlay} testId="tickers-price-overlay">
               {priceOverlay.data?.ready && priceOverlay.data.bars.length > 0 ? (
                 <PriceOverlayChart
                   bars={priceOverlay.data.bars}
@@ -406,7 +407,7 @@ export function Tickers() {
               )}
             </ChartCard>
 
-            <ChartCard title={COPY.tickers.memberTimeline} testId="tickers-member-timeline">
+            <ChartCard collapsible title={COPY.tickers.memberTimeline} testId="tickers-member-timeline">
               {timelineTypes.length ? (
                 <PillStrip
                   testId="tickers-timeline-pills"
@@ -426,7 +427,7 @@ export function Tickers() {
               />
             </ChartCard>
 
-            <ChartCard title={COPY.tickers.cumulativeExposure} testId="tickers-cumulative">
+            <ChartCard collapsible title={COPY.tickers.cumulativeExposure} testId="tickers-cumulative">
               <CumulativeExposurePerMember
                 ticker={tickerForView}
                 members={cumulative.data?.members ?? []}
