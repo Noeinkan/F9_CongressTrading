@@ -1,6 +1,7 @@
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -165,5 +166,98 @@ describe("Tickers route", () => {
     expect(link).toHaveAttribute("href", "http://127.0.0.1:8060/");
     expect(link).toHaveAttribute("data-disabled", "true");
     expect(link).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("filters the trade history table by amount-range bucket", async () => {
+    useTickerProfile.mockReturnValue({
+      data: {
+        ready: true,
+        ticker: "AAPL",
+        issuer: { issuer_name: "Apple Inc", ticker: "AAPL", sector: "Tech", industry: "", asset_type: "" },
+        kpis: { trades: 3, members: 2, buy: 2, sell: 1, disclosed_range: "$1K – $1M" },
+        disclosed_range: "$1K – $1M",
+        members: [],
+        transactions: [
+          {
+            member: "Alice",
+            chamber: "House",
+            party: "D",
+            ticker: "AAPL",
+            transaction_type: "P",
+            transaction_type_label: "Buy",
+            transaction_date: "2026-01-10",
+            filing_date: "2026-01-20",
+            amount_low: 1000,
+            amount_high: 15000,
+            amount_range_raw: "$1K – $15K",
+            issuer_name: "Apple Inc",
+            return_pct: 0.05,
+            est_pnl_usd: 250,
+            is_non_equity: false,
+          },
+          {
+            member: "Bob",
+            chamber: "Senate",
+            party: "R",
+            ticker: "AAPL",
+            transaction_type: "S",
+            transaction_type_label: "Sell",
+            transaction_date: "2026-02-05",
+            filing_date: "2026-02-15",
+            amount_low: 500001,
+            amount_high: 1000000,
+            amount_range_raw: "$500K – $1M",
+            issuer_name: "Apple Inc",
+            return_pct: 0.12,
+            est_pnl_usd: 90000,
+            is_non_equity: false,
+          },
+          {
+            member: "Carol",
+            chamber: "House",
+            party: "D",
+            ticker: "AAPL",
+            transaction_type: "P",
+            transaction_type_label: "Buy",
+            transaction_date: "2026-03-01",
+            filing_date: "2026-03-12",
+            amount_low: 250001,
+            amount_high: 500000,
+            amount_range_raw: "$250K – $500K",
+            issuer_name: "Apple Inc",
+            return_pct: -0.02,
+            est_pnl_usd: -8000,
+            is_non_equity: false,
+          },
+        ],
+        transactions_total: 3,
+        transactions_limit: 200,
+        source: "sqlite",
+      },
+      isLoading: false,
+      isError: false,
+    });
+    const user = userEvent.setup();
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-trade-history-table"));
+    expect(screen.getAllByTestId("tickers-trade-history-row")).toHaveLength(3);
+
+    // Open the filter accordion and pick the $500K – $1M bucket.
+    await user.click(
+      screen.getByRole("button", { name: /Filter by disclosed amount range/i }),
+    );
+    await user.click(
+      screen.getByTestId("tickers-amount-range-filter-item-500k-1m"),
+    );
+
+    const rows = screen.getAllByTestId("tickers-trade-history-row");
+    expect(rows).toHaveLength(1);
+    const onlyRow = rows[0]!;
+    expect(within(onlyRow).getByText("Bob")).toBeInTheDocument();
+    expect(within(onlyRow).getByText("$500K – $1M")).toBeInTheDocument();
+
+    // Clear filter -> all rows return.
+    await user.click(screen.getByTestId("tickers-amount-range-filter-reset"));
+    expect(screen.getAllByTestId("tickers-trade-history-row")).toHaveLength(3);
   });
 });

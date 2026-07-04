@@ -13,7 +13,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import {
@@ -23,6 +23,7 @@ import {
   useTickerProfile,
   useTickersList,
 } from "@/api/tickers";
+import { AmountRangeFilter, type AmountRangeFilterValue } from "@/components/AmountRangeFilter";
 import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerMember";
 import { DirectionBadge } from "@/components/DirectionBadge";
@@ -42,7 +43,7 @@ import {
   searchForAlphaUrl,
   yahooFinanceQuoteUrl,
 } from "@/utils/format";
-import { rangeOpacity } from "@/utils/transactions";
+import { classifyAmountRange, rangeOpacity } from "@/utils/transactions";
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -53,6 +54,7 @@ export function Tickers() {
   const { lookback, quarters } = useFilters();
   const [searchParams, setSearchParams] = useSearchParams();
   const [manualTicker, setManualTicker] = useState(searchParams.get("ticker_override") ?? "");
+  const [amountRange, setAmountRange] = useState<AmountRangeFilterValue>(null);
 
   const periodParams = useMemo(
     () => ({ lookback, quarters: quartersParam(quarters) }),
@@ -62,6 +64,12 @@ export function Tickers() {
   const listQuery = useTickersList({ ...periodParams, page: 1, page_size: 200 });
   const selectedTicker = searchParams.get("ticker") ?? listQuery.data?.rows[0]?.ticker ?? "";
   const tickerForView = manualTicker.trim().toUpperCase() || selectedTicker;
+  // Reset the amount-range filter whenever the active ticker changes; a
+  // bucket that has rows for one ticker may be empty for another, and
+  // there's no signal more obvious than a switcher going silent.
+  useEffect(() => {
+    setAmountRange(null);
+  }, [tickerForView]);
 
   const profile = useTickerProfile(tickerForView || null, periodParams);
   const priceOverlay = useTickerPriceOverlay(tickerForView || null, periodParams);
@@ -98,6 +106,17 @@ export function Tickers() {
 
   const kpis = profile.data?.kpis;
   const issuer = profile.data?.issuer;
+
+  const allTransactions = useMemo(
+    () => profile.data?.transactions ?? [],
+    [profile.data?.transactions],
+  );
+  const filteredTransactions = useMemo(() => {
+    if (!amountRange) return allTransactions;
+    return allTransactions.filter(
+      (row) => classifyAmountRange(row) === amountRange,
+    );
+  }, [allTransactions, amountRange]);
 
   return (
     <PageState
@@ -304,7 +323,13 @@ export function Tickers() {
               caption="Most recent disclosures on this ticker. The Return column shows the market move from the trade date to today, using the local Polygon daily-bar cache."
               testId="tickers-trade-history"
             >
-              {profile.data?.transactions && profile.data.transactions.length > 0 ? (
+              <AmountRangeFilter
+                rows={allTransactions}
+                value={amountRange}
+                onChange={setAmountRange}
+                testId="tickers-amount-range-filter"
+              />
+              {filteredTransactions.length > 0 ? (
                 <Table.ScrollContainer minWidth={1100}>
                   <Table striped data-testid="tickers-trade-history-table">
                     <Table.Thead>
@@ -320,7 +345,7 @@ export function Tickers() {
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {profile.data.transactions.map((row, i) => (
+                      {filteredTransactions.map((row, i) => (
                         <Table.Tr
                           key={`${row.member}-${row.transaction_date}-${i}`}
                           data-testid="tickers-trade-history-row"
@@ -390,7 +415,11 @@ export function Tickers() {
                   </Table>
                 </Table.ScrollContainer>
               ) : (
-                <Text c="dimmed">No disclosures in the active slice for this ticker.</Text>
+                <Text c="dimmed">
+                  {amountRange
+                    ? `No disclosures in the selected range (${amountRange}).`
+                    : "No disclosures in the active slice for this ticker."}
+                </Text>
               )}
             </ChartCard>
 

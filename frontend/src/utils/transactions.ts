@@ -85,3 +85,54 @@ export function directionTint(
   if (direction === "sell") return `rgba(240, 82, 82, ${(0.08 + op * 0.18).toFixed(3)})`;
   return undefined;
 }
+
+/**
+ * Canonical House / Senate PTR disclosure bands. These mirror the brackets
+ * the Clerk of the House and Senate eFD systems actually print, so an
+ * `amount_range_raw` like "$15,001 - $50,000" maps cleanly to its bucket.
+ * `hi` is `null` for the open-ended top band (>$50M).
+ */
+export type DisclosedRangeBucket = {
+  key: string;
+  label: string;
+  lo: number;
+  hi: number | null;
+};
+
+export const DISCLOSED_RANGE_BUCKETS: DisclosedRangeBucket[] = [
+  { key: "1k-15k", label: "$1K – $15K", lo: 1_000, hi: 15_000 },
+  { key: "15k-50k", label: "$15K – $50K", lo: 15_000, hi: 50_000 },
+  { key: "50k-100k", label: "$50K – $100K", lo: 50_000, hi: 100_000 },
+  { key: "100k-250k", label: "$100K – $250K", lo: 100_000, hi: 250_000 },
+  { key: "250k-500k", label: "$250K – $500K", lo: 250_000, hi: 500_000 },
+  { key: "500k-1m", label: "$500K – $1M", lo: 500_000, hi: 1_000_000 },
+  { key: "1m-5m", label: "$1M – $5M", lo: 1_000_000, hi: 5_000_000 },
+  { key: "5m-25m", label: "$5M – $25M", lo: 5_000_000, hi: 25_000_000 },
+  { key: "25m-50m", label: "$25M – $50M", lo: 25_000_000, hi: 50_000_000 },
+  { key: "over-50m", label: "Over $50M", lo: 50_000_000, hi: null },
+];
+
+/**
+ * Map a transaction row to a bucket key using its `amount_high` (falling back
+ * to `amount_low` when the high end is missing). Rows with no usable numeric
+ * value return `null` so callers can render an "unknown" affordance instead
+ * of silently dropping them.
+ */
+export function classifyAmountRange(
+  range: { amount_low?: number | null; amount_high?: number | null; amount_range_raw?: string | null } | null
+  | undefined,
+): string | null {
+  if (!range) return null;
+  const high = range.amount_high ?? range.amount_low ?? null;
+  const fallback = range.amount_range_raw ? parseRangeHigh(range.amount_range_raw) : 0;
+  const value = typeof high === "number" && Number.isFinite(high) && high > 0 ? high : fallback;
+  if (!value) return null;
+  for (const bucket of DISCLOSED_RANGE_BUCKETS) {
+    if (bucket.hi == null) {
+      if (value >= bucket.lo) return bucket.key;
+    } else if (value >= bucket.lo && value <= bucket.hi) {
+      return bucket.key;
+    }
+  }
+  return null;
+}
