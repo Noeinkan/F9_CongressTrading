@@ -118,11 +118,11 @@ export function CumulativeExposurePerMember({
 
       <Stack gap={2} mb="xs">
         <Text size="xs" c="dimmed">
-          Each tinted band is one member's swimlane, ordered by absolute net
-          exposure (largest at the top). Step up = buy, step down = sell, flat
-          = no new trades. The x-axis is the transaction date. The dashed line
-          in every lane marks the $0 break-even; y-ticks are in disclosed
-          dollars.
+          Each tinted band (with a colored left stripe and matching name pill)
+          is one member's swimlane, ordered by absolute net exposure (largest
+          at the top). Step up = buy, step down = sell, flat = no new trades.
+          The x-axis is the transaction date. The dashed line in every lane
+          marks the $0 break-even; y-ticks are in disclosed dollars.
         </Text>
       </Stack>
 

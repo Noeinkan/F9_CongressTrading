@@ -24,17 +24,26 @@ import { useHealth } from "@/api/health";
 import { rawExportCsvUrl, useRawTransactions } from "@/api/raw";
 import type { ColumnMeta, RawParams } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
+import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
 import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
+import {
+  classifyTransaction,
+  directionTint,
+} from "@/utils/transactions";
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
   return quarters.join(",");
 }
 
-function cellContent(col: ColumnMeta, value: unknown): React.ReactNode {
+function cellContent(
+  col: ColumnMeta,
+  value: unknown,
+  row: Record<string, unknown>,
+): React.ReactNode {
   if (value == null || value === "") return "—";
   switch (col.type) {
     case "date":
@@ -49,6 +58,21 @@ function cellContent(col: ColumnMeta, value: unknown): React.ReactNode {
           <Anchor component={Link} to={`/tickers?ticker=${encodeURIComponent(value)}`} size="sm">
             {value}
           </Anchor>
+        );
+      }
+      if (col.key === "member" && typeof value === "string" && value) {
+        return (
+          <Anchor component={Link} to={`/members?member=${encodeURIComponent(value)}`} size="sm">
+            {value}
+          </Anchor>
+        );
+      }
+      if (col.key === "type" && typeof value === "string" && value) {
+        return (
+          <DirectionBadge
+            label={value}
+            amountRangeRaw={(row.amount_range_raw as string | null | undefined) ?? null}
+          />
         );
       }
       if (col.key === "disclosure_url" && typeof value === "string" && value) {
@@ -223,18 +247,34 @@ export function Raw() {
               </Table.Thead>
               <Table.Tbody>
                 {table.getRowModel().rows.length ? (
-                  table.getRowModel().rows.map((row) => (
-                    <Table.Tr key={row.id} data-testid="raw-row">
-                      {row.getVisibleCells().map((cell) => {
-                        const col = cell.column.columnDef.meta as ColumnMeta;
-                        return (
-                          <Table.Td key={cell.id}>
-                            {cellContent(col, cell.getValue())}
-                          </Table.Td>
-                        );
-                      })}
-                    </Table.Tr>
-                  ))
+                  table.getRowModel().rows.map((row) => {
+                    const typed = typeof row.original.type === "string" ? row.original.type : "";
+                    const tint = directionTint(
+                      classifyTransaction(typed),
+                      (row.original.amount_range_raw as string | null | undefined) ?? null,
+                    );
+                    return (
+                      <Table.Tr
+                        key={row.id}
+                        data-testid="raw-row"
+                        data-direction={classifyTransaction(typed)}
+                        style={tint ? { background: tint } : undefined}
+                      >
+                        {row.getVisibleCells().map((cell) => {
+                          const col = cell.column.columnDef.meta as ColumnMeta;
+                          return (
+                            <Table.Td key={cell.id}>
+                              {cellContent(
+                                col,
+                                cell.getValue(),
+                                row.original as Record<string, unknown>,
+                              )}
+                            </Table.Td>
+                          );
+                        })}
+                      </Table.Tr>
+                    );
+                  })
                 ) : (
                   <Table.Tr>
                     <Table.Td colSpan={columns.length || 1}>

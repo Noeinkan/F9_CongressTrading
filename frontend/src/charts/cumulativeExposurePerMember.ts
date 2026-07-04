@@ -169,18 +169,29 @@ export function buildCumulativeExposurePerMemberOption(
     const isFirst = i === 0;
     const isLast = i === n - 1;
 
-    // Swimlane: paint the panel background with a faint tint of the member
-    // accent. Alternating rows also get a slightly different base so the
-    // lanes read as distinct rows even when the data is sparse.
-    const laneFill = i % 2 === 0 ? `${accent}1a` : "#f8fafc";
+    // Swimlane: tint each lane with the member accent so the row *reads* as
+    // belonging to that member before you even look at the line. Per-side
+    // borders draw a fat accent stripe down the left edge of each lane and a
+    // thin separator between lanes — three independent cues (color, stripe,
+    // divider) that combine into one unmistakable lane identity.
+    const laneFill = i % 2 === 0 ? `${accent}33` : `${accent}1f`;
     grids.push({
-      left: 168,
+      // Left padding holds the member-name pill (see yAxis.name below); right
+      // padding holds the trailing end-of-row value label.
+      left: 200,
       right: 124,
       top,
       height,
       containLabel: false,
       backgroundStyle: {
         color: laneFill,
+        borderColor: [
+          i === 0 ? "transparent" : `${accent}80`, // top — accent divider (no line on first panel; chart edge handles it)
+          "transparent",                            // right
+          i === n - 1 ? "transparent" : `${accent}80`, // bottom — accent divider (skip on last; x-axis line)
+          accent,                                   // left — full-accent stripe, the strongest per-member cue
+        ],
+        borderWidth: [1, 0, 1, 4],
       },
     });
 
@@ -220,14 +231,25 @@ export function buildCumulativeExposurePerMemberOption(
       type: "value",
       gridIndex: i,
       name: shortName(member, 22),
+      // Render the lane label as a horizontal pill anchored just left of the
+      // y-axis tick labels, not a rotated 90° strip. We reserve enough space
+      // in `grid.left` so the pill never overflows the chart canvas, force
+      // the text to render horizontally via `nameRotate: 0`, and right-align
+      // so the pill hugs the tick-label area on its right edge.
       nameLocation: "middle",
-      nameGap: 92,
+      nameGap: 24,
+      nameRotate: 0,
       nameTextStyle: {
         color: accent,
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: 600,
-        align: "left",
-        padding: [0, 0, 0, 4],
+        align: "right",
+        verticalAlign: "middle",
+        backgroundColor: `${accent}26`,
+        borderColor: `${accent}88`,
+        borderWidth: 1,
+        borderRadius: 4,
+        padding: [4, 10, 4, 8],
       },
       min: sharedYDomain.min,
       max: sharedYDomain.max,
@@ -364,8 +386,10 @@ export function buildCumulativeExposurePerMemberOption(
     });
   });
 
-  // Panel dividers are implied by grid alignment + the member-color band on
-  // the y-axis name; drawing explicit lines per panel would crowd the view.
+  // Panel dividers are drawn per-grid via backgroundStyle borderColor
+  // (1px top + bottom accent line and a 4px left accent stripe). The lane
+  // tint + accent stripes + colored y-axis pill combine into one unmistakable
+  // per-member identity without any extra shapes per panel.
 
   return {
     grid: grids,

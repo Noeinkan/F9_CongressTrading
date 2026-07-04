@@ -66,3 +66,22 @@ export function directionColor(direction: TransactionDirection): string {
   if (direction === "sell") return "red";
   return "gray";
 }
+
+/**
+ * Background tint for a row, scaled by amount-range magnitude. Used by the
+ * Raw Data table to make big trades visually pop without overwhelming small
+ * ones. Returns `undefined` for non-buy/sell directions so callers can pass
+ * it straight to a `style` prop.
+ */
+export function directionTint(
+  direction: TransactionDirection,
+  range: string | null | undefined,
+): string | undefined {
+  const op = rangeOpacity(range);
+  // Floor at 0.08 keeps the smallest traded bucket faintly visible; the
+  // ceiling (`0.08 + 0.18 = 0.26`) prevents a $1M row from becoming a
+  // solid color block in a striped table.
+  if (direction === "buy") return `rgba(45, 212, 191, ${(0.08 + op * 0.18).toFixed(3)})`;
+  if (direction === "sell") return `rgba(240, 82, 82, ${(0.08 + op * 0.18).toFixed(3)})`;
+  return undefined;
+}
