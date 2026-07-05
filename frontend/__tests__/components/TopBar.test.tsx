@@ -70,4 +70,13 @@ describe("TopBar", () => {
       "page",
     );
   });
+
+  it("renders the Donate CTA as an external link to Ko-fi", () => {
+    renderTopBar();
+    const link = screen.getByTestId("topbar-donate");
+    expect(link).toHaveTextContent("Donate");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.getAttribute("href")).toMatch(/^https:\/\/ko-fi\.com\//);
+  });
 });

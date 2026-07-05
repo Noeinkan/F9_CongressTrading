@@ -1,6 +1,7 @@
 import { Group, Text } from "@mantine/core";
 import { Link, useLocation } from "react-router-dom";
 
+import { DonateButton } from "./DonateButton";
 import { UserMenu } from "./UserMenu";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
@@ -67,6 +68,7 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
         </Group>
       ) : null}
       <Group gap="sm" wrap="nowrap">
+        <DonateButton />
         <UserMenu />
       </Group>
     </Group>

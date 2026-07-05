@@ -149,7 +149,7 @@ describe("Tickers route", () => {
     renderTickers();
     await waitFor(() => screen.getByTestId("tickers-page"));
     const link = screen.getByTestId("tickers-open-searchforalpha");
-    expect(link).toHaveAttribute("href", "http://127.0.0.1:8060/?ticker=AAPL");
+    expect(link).toHaveAttribute("href", "http://77.42.70.26:8060/ticker/AAPL");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
@@ -163,7 +163,7 @@ describe("Tickers route", () => {
     renderTickers(["/"]);
     await waitFor(() => screen.getByTestId("tickers-page"));
     const link = screen.getByTestId("tickers-open-searchforalpha");
-    expect(link).toHaveAttribute("href", "http://127.0.0.1:8060/");
+    expect(link).toHaveAttribute("href", "http://77.42.70.26:8060/ticker/");
     expect(link).toHaveAttribute("data-disabled", "true");
     expect(link).toHaveAttribute("aria-disabled", "true");
   });
