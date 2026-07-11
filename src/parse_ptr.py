@@ -207,3 +207,105 @@ def parse_ptr_pdf_safe(
 def iter_ptr_pdfs(root: Path) -> Iterable[Path]:
     for path in root.rglob("*.pdf"):
         yield path
+
+
+# --------------------------------------------------------------------------- #
+# Senate electronic PTR (HTML) — same (header, rows) contract as parse_ptr_pdf.
+# efdsearch.senate.gov renders electronic PTRs as a single transactions <table>;
+# paper PTRs are scanned GIFs and are not handled here (the downloader skips them).
+# --------------------------------------------------------------------------- #
+_SENATE_FILED_RE = re.compile(r"Filed\s+(\d{1,2}/\d{1,2}/\d{2,4})", re.IGNORECASE)
+_SENATE_FOR_RE = re.compile(r"for\s+(\d{1,2}/\d{1,2}/\d{2,4})", re.IGNORECASE)
+_HONORIFIC_RE = re.compile(r"^(?:the\s+)?(?:honorable|hon\.?)\s+", re.IGNORECASE)
+_NO_TICKER = {"", "--", "—", "n/a", "na"}
+
+
+def _senate_transaction_type(raw: str | None) -> str:
+    """Map the Senate 'Type' cell to the P/S/E vocabulary the rest of the app expects."""
+    s = normalize_whitespace(raw or "")
+    low = s.lower()
+    if low.startswith("purchase"):
+        return "P"
+    if low.startswith("sale"):
+        return "S (partial)" if "partial" in low else "S"
+    if low.startswith("exchange"):
+        return "E"
+    return s
+
+
+def _senate_member_name(soup) -> str | None:
+    node = soup.find(class_="filedReport") or soup.find("h2")
+    if not node:
+        return None
+    text = normalize_whitespace(node.get_text(" ", strip=True))
+    text = re.sub(r"\(.*?\)", "", text)  # drop the "(Last, First)" parenthetical
+    text = _HONORIFIC_RE.sub("", text)
+    return normalize_whitespace(text) or None
+
+
+def _senate_transactions_table(soup):
+    for table in soup.find_all("table"):
+        headers = " ".join(th.get_text(" ", strip=True).lower() for th in table.find_all("th"))
+        if "transaction date" in headers and "amount" in headers:
+            return table
+    return None
+
+
+def parse_senate_ptr_html(html_path: Path) -> tuple[dict[str, str | None], list[dict[str, str | None]]]:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html_path.read_text(encoding="utf-8", errors="replace"), "html.parser")
+
+    header: dict[str, str | None] = {"member": _senate_member_name(soup), "filing_date": None}
+    page_text = soup.get_text(" ", strip=True)
+    filed = _SENATE_FILED_RE.search(page_text)
+    if not filed:
+        h1 = soup.find("h1")
+        filed = _SENATE_FOR_RE.search(h1.get_text(" ", strip=True)) if h1 else None
+    if filed:
+        header["filing_date"] = parse_date(filed.group(1))
+
+    rows: list[dict[str, str | None]] = []
+    table = _senate_transactions_table(soup)
+    if table is None:
+        return header, rows
+
+    # Column index by header name, so we survive column reordering.
+    col_headers = [th.get_text(" ", strip=True).lower() for th in table.find_all("th")]
+    idx = {name: i for i, name in enumerate(col_headers)}
+
+    def cell(cells: list, name: str) -> str:
+        i = idx.get(name)
+        if i is None or i >= len(cells):
+            return ""
+        return _clean_cell(cells[i].get_text(" ", strip=True))
+
+    body_rows = table.select("tbody tr") or [tr for tr in table.find_all("tr") if not tr.find("th")]
+    for tr in body_rows:
+        cells = tr.find_all("td")
+        if not cells:
+            continue
+        asset = cell(cells, "asset name")
+        ticker = cell(cells, "ticker")
+        if ticker.lower() in _NO_TICKER:
+            ticker = ""
+        if not asset and not ticker:
+            continue
+        # Embed the explicit ticker so resolve_asset's disclosure-paren path resolves it,
+        # keeping the row shape identical to the PDF parser (which never sets `ticker`).
+        asset_for_resolution = f"{asset} ({ticker})" if ticker and asset else (asset or ticker)
+        transaction_date = parse_date(cell(cells, "transaction date"))
+        rows.append(
+            {
+                "transaction_date": transaction_date,
+                "asset": _normalize_asset_name(asset_for_resolution),
+                "ticker": None,
+                "transaction_type": _senate_transaction_type(cell(cells, "type")),
+                "amount_range": cell(cells, "amount") or None,
+                "owner_type": _extract_owner_type(cell(cells, "owner")),
+                "source_page": None,
+                "parse_warning": None if transaction_date else "missing_transaction_date",
+            }
+        )
+
+    return header, _dedupe_rows(rows)

@@ -250,7 +250,7 @@ def run_ingest_all(
     state: JobState,
     cancel_event: threading.Event,
     *,
-    force_reparse: bool = True,
+    force_reparse: bool = False,
     overwrite: bool = False,
     force_extract: bool = False,
     skip_senate: bool = False,
@@ -260,8 +260,11 @@ def run_ingest_all(
 
     force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the ingest
     subprocess so every PDF is re-parsed even if its sha256 is already in
-    ingested_files. Required to surface parser/ticker/date fixes across
-    refreshes (otherwise the dedup table masks every previously-ingested PDF).
+    ingested_files. OFF by default — a normal "Refresh data" only ingests
+    PDFs that are new or whose sha256 changed (the dedup table already covers
+    that). Enable it explicitly (CLI flag / explicit job option) when you
+    want parser/ticker/date fixes to be re-applied to every PDF on disk
+    without manually clearing the dedup table.
     overwrite=True: riscarica gli zip FD dal Clerk anche se gia presenti.
     force_extract=True: dopo l'estrazione, wipe + re-estrazione completa delle dir FD House
     (sicurezza contro metadata locali vecchi non rilevati dal check basato sulla dimensione).
@@ -348,9 +351,10 @@ def run_ingest_all(
         from ..ingest_house import ingest_house
 
         if force_reparse:
-            # Bypass the (path, sha256) dedup so parser/ticker/date improvements
-            # are applied on every refresh; the user clicked "Refresh data"
-            # expecting new ingestion work, not a no-op.
+            # Opt-in only: re-parse every PDF on disk and update transactions
+            # via ON CONFLICT upsert. The default Refresh flow relies on the
+            # (path, sha256) dedup so it only touches new/changed PDFs and
+            # therefore stays cheap when nothing changed since last run.
             os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
             print("ingest-house: HOUSE_INGEST_FORCE_REPARSE_PDFS=1 — re-parsing every PDF on disk.")
 
@@ -523,7 +527,7 @@ class JobManager:
     def start_or_restart(
         self,
         *,
-        force_reparse: bool = True,
+        force_reparse: bool = False,
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,
@@ -590,7 +594,7 @@ class JobManager:
         run_id: int,
         state: JobState,
         cancel_event: threading.Event,
-        force_reparse: bool = True,
+        force_reparse: bool = False,
         overwrite: bool = False,
         force_extract: bool = False,
         skip_senate: bool = False,

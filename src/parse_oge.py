@@ -61,16 +61,38 @@ def _detect_form_type(pdf_path: Path) -> str:
     """Return ``"OGE278T"`` or ``"OGE278e"`` based on the page-1 header text.
 
     Raises ``ValueError`` if neither is found so the caller can skip the file.
+
+    The OCR/font extraction sometimes substitutes characters in the header
+    (e.g. "OGE Fann 278,-T" instead of "OGE Form 278-T"). We fall back to a
+    normalized lookup that strips non-alphanumerics and tolerates common
+    glyph confusion before giving up.
     """
     with pdfplumber.open(pdf_path) as pdf:
         if not pdf.pages:
             raise ValueError(f"Empty PDF: {pdf_path}")
         first_page_text = pdf.pages[0].extract_text() or ""
+
+    # Cheap path first: clean headers still match directly.
     upper = first_page_text.upper()
     if "OGE FORM 278-T" in upper or "OGE FORM 278 T" in upper or "278-T" in upper:
         return "OGE278T"
     if "OGE FORM 278E" in upper or "278E" in upper or "278E." in upper:
         return "OGE278e"
+
+    # OCR-tolerant fallback: strip everything that isn't a letter or digit,
+    # then look for the form marker as a substring of the normalized text.
+    # "OGE FORM 278-T" -> "OGEFORM278T", "OGE Fann 278,-T" -> "OGEFANN278T",
+    # "278-T" -> "278T", "278e" -> "278E".
+    alnum = re.sub(r"[^A-Za-z0-9]", "", upper)
+    if "278T" in alnum and "278E" not in alnum:
+        return "OGE278T"
+    if "278E" in alnum and "278T" not in alnum:
+        return "OGE278e"
+    if "278T" in alnum and "278E" in alnum:
+        # Both markers present (rare); prefer 278-T when 'OGE' or 'FORM' is
+        # adjacent, otherwise default to 278-T.
+        return "OGE278T"
+
     raise ValueError(
         f"Could not detect OGE form type on page 1 of {pdf_path} "
         f"(expected 'OGE Form 278-T' or 'OGE Form 278e')."

@@ -12,10 +12,12 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 class RefreshDataRequest(BaseModel):
     restart: bool = True
-    # Re-parse every PDF already on disk, ignoring the (path, sha256) dedup in
-    # ingested_files. Required because the dedup skips 99% of PTRs on a normal
-    # refresh, hiding any parser/ticker/date fixes shipped since the first ingest.
-    force_reparse: bool = True
+    # Opt-in: re-parse every PDF already on disk, ignoring the (path, sha256)
+    # dedup in ingested_files. OFF by default — a normal Refresh only touches
+    # PDFs that are new or whose sha256 changed. Enable explicitly (e.g. via
+    # the CLI flag) when you want parser/ticker/date fixes to be re-applied
+    # to every PDF without manually clearing the dedup table.
+    force_reparse: bool = False
     # Legacy knobs retained for backward compat with older frontends; the
     # current sidebar UI no longer surfaces them. Safe to drop from new clients.
     overwrite: bool = False

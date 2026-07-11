@@ -12,7 +12,7 @@ Imposta le variabili d’ambiente:
 - `OPENFIGI_API_KEY` (opzionale)
 - (Opzionale, House PTR) `HOUSE_PTR_AUTO_DOWNLOAD`, `HOUSE_PTR_AUTO_DOWNLOAD_MIN_YEAR`, `HOUSE_PTR_AUTO_DOWNLOAD_MAX_YEAR`, `HOUSE_PTR_DOWNLOAD_MIN_INTERVAL_SECONDS` — vedi sezione House (PTR).
 - (Opzionale, ingest veloce) `HOUSE_INGEST_SKIP_EXTERNAL_ASSET_LOOKUP=1` — durante `ingest-house` non chiama Polygon/OpenFIGI per asset non in cache (solo `manual_review` locale); utile con molti PDF; poi puoi rilanciare senza per arricchire i ticker dove serve.
-- (Opzionale, re-parse) `HOUSE_INGEST_FORCE_REPARSE_PDFS=1` — ignora `files_ingested` e riparsa tutti i PDF House (aggiorna righe `transactions` esistenti grazie a `ON CONFLICT`); usalo dopo un ingest veloce per applicare Polygon/OpenFIGI senza cancellare il DB.
+- (Opzionale, re-parse) `HOUSE_INGEST_FORCE_REPARSE_PDFS=1` — ignora `files_ingested` e riparsa tutti i PDF House (aggiorna righe `transactions` esistenti grazie a `ON CONFLICT`); **disattivato di default**. Equivalente CLI: `python -m src.main ingest-house --force-reparse`. Da usare solo se vuoi riapplicare fix di parser/ticker a tutti i PDF senza cancellare il DB.
 
 ## Struttura
 - `src/` codice

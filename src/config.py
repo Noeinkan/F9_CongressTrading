@@ -54,6 +54,37 @@ OGE_DOWNLOAD_MIN_INTERVAL_SECONDS = float(
 )
 
 
+# Senate eFD (efdsearch.senate.gov) downloader — conservative; runs LOCALLY by
+# default (see AGENTS.md). The site sits behind Akamai, which blocks plain
+# `requests` on a TLS fingerprint; we impersonate a browser via curl_cffi.
+SENATE_EFD_DOWNLOAD_MIN_INTERVAL_SECONDS = float(
+    os.getenv("SENATE_EFD_DOWNLOAD_MIN_INTERVAL_SECONDS", "2.0")
+)
+
+
+def senate_efd_impersonate() -> str:
+    """curl_cffi impersonation profile for efdsearch requests (env SENATE_EFD_IMPERSONATE)."""
+    return (os.getenv("SENATE_EFD_IMPERSONATE") or "chrome").strip() or "chrome"
+
+
+def senate_efd_auto_download_enabled() -> bool:
+    """
+    SENATE_EFD_AUTO_DOWNLOAD=1|true|yes|on abilita il download da efdsearch dentro
+    ingest-senate. Default OFF: lo scraping Senate gira in locale via `download-senate`
+    (IP residenziale), non sul VPS (IP datacenter, spesso bloccato da Akamai).
+    """
+    v = (os.getenv("SENATE_EFD_AUTO_DOWNLOAD") or "0").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def senate_efd_download_min_year() -> int:
+    """Primo anno (data di deposito) incluso nel download PTR Senate. Env SENATE_EFD_DOWNLOAD_MIN_YEAR."""
+    raw = (os.getenv("SENATE_EFD_DOWNLOAD_MIN_YEAR") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return HOUSE_PTR_AUTO_DOWNLOAD_MIN_FILING_YEAR_DEFAULT
+
+
 def house_ingest_force_reparse_pdfs() -> bool:
     """Se true, riesegue il parsing di ogni PDF PTR anche se gia in files_ingested (aggiorna transazioni via upsert)."""
     v = (os.getenv("HOUSE_INGEST_FORCE_REPARSE_PDFS") or "").strip().lower()
@@ -107,6 +138,17 @@ USER_AGENT = (
 HOUSE_DISCLOSURE_URL = "https://disclosures-clerk.house.gov/PublicDisclosure/FinancialDisclosure"
 HOUSE_FD_BULK_ZIP_URL = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.zip"
 HOUSE_PTR_PDF_URL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}/{doc_id}.pdf"
+
+# Senate eFD endpoints (Django app + DataTables JSON search).
+SENATE_EFD_BASE = "https://efdsearch.senate.gov"
+SENATE_EFD_LANDING_URL = f"{SENATE_EFD_BASE}/search/"
+SENATE_EFD_HOME_URL = f"{SENATE_EFD_BASE}/search/home/"
+SENATE_EFD_REPORT_DATA_URL = f"{SENATE_EFD_BASE}/search/report/data/"
+SENATE_EFD_PTR_VIEW_URL = f"{SENATE_EFD_BASE}/search/view/ptr/{{uuid}}/"
+SENATE_EFD_PAPER_VIEW_URL = f"{SENATE_EFD_BASE}/search/view/paper/{{uuid}}/"
+# DataTables report-type / filer-type codes (verified via live probe 2026-07).
+SENATE_EFD_REPORT_TYPE_PTR = 11
+SENATE_EFD_FILER_TYPE_SENATOR = 1
 
 POLYGON_TICKER_SEARCH = "https://api.polygon.io/v3/reference/tickers"
 POLYGON_TICKER_DETAILS = "https://api.polygon.io/v3/reference/tickers/{ticker}"

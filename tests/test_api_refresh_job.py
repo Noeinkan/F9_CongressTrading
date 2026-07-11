@@ -127,16 +127,43 @@ def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     assert "registered" in final["result"]["oge_download"]["registry"]
 
 
-def test_refresh_default_enables_force_reparse(monkeypatch):
-    """The admin refresh button must default to force_reparse=True so that
-    every PDF on disk is re-parsed; otherwise the (path, sha256) dedup in
-    ingested_files silently masks every previously-ingested PTR."""
+def test_refresh_default_skips_force_reparse(monkeypatch):
+    """The admin refresh button must default to force_reparse=False so that
+    a normal Refresh only touches new/changed PDFs (the (path, sha256)
+    dedup in ingested_files skips everything else). Setting force_reparse
+    re-processes every PDF; that's an explicit, opt-in choice."""
+    # Ensure no leftover env var from a previous test in the same process.
+    monkeypatch.delenv("HOUSE_INGEST_FORCE_REPARSE_PDFS", raising=False)
     calls: list[str] = []
     _patch_house_senate(monkeypatch, calls)
     _patch_oge(monkeypatch, calls)
 
     manager = JobManager()
     manager.start_or_restart()
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if manager.get_state()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+
+    final = manager.get_state()
+    assert final["status"] == "succeeded"
+    assert final["result"]["force_reparse"] is False
+    assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") != "1"
+
+
+def test_refresh_force_reparse_true_sets_env_var(monkeypatch):
+    """Opt-in force_reparse=True must set HOUSE_INGEST_FORCE_REPARSE_PDFS=1
+    so the ingest subprocess re-parses every PDF on disk. This covers the
+    branch that previously was the default."""
+    monkeypatch.delenv("HOUSE_INGEST_FORCE_REPARSE_PDFS", raising=False)
+    calls: list[str] = []
+    _patch_house_senate(monkeypatch, calls)
+    _patch_oge(monkeypatch, calls)
+
+    manager = JobManager()
+    manager.start_or_restart(force_reparse=True)
 
     deadline = time.time() + 10
     while time.time() < deadline:

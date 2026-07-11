@@ -16,7 +16,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Congress public-disclosure tracker")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("ingest-house", help="Scarica e ingesta PTR House (2022+)")
+    ingest_house_p = sub.add_parser(
+        "ingest-house", help="Scarica e ingesta PTR House (2022+)"
+    )
+    ingest_house_p.add_argument(
+        "--force-reparse",
+        action="store_true",
+        help=(
+            "Ri-parsa ogni PDF PTR su disco ignorando la dedup (path, sha256). "
+            "Di default ingest-house riprocessa solo i PDF nuovi o modificati."
+        ),
+    )
     sub.add_parser(
         "verify-house-coverage",
         help="Verifica metadata FD House su disco e freshness fd_filings (anni da HOUSE_COVERAGE_MIN_YEAR)",
@@ -40,6 +50,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         help="Riscarica anche se il PDF è già presente su disco.",
+    )
+
+    dl_senate = sub.add_parser(
+        "download-senate",
+        help="Scarica i PTR elettronici del Senato da efdsearch.senate.gov in data/raw/senate/ (esegui in locale)",
+    )
+    dl_senate.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY",
+        help="Anno di deposito minimo (default: SENATE_EFD_DOWNLOAD_MIN_YEAR / config).",
+    )
+    dl_senate.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Scarica al massimo N PTR elettronici (utile per test).",
+    )
+    dl_senate.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Riscarica anche se l'HTML è già presente su disco.",
     )
 
     dl = sub.add_parser(
@@ -178,6 +212,23 @@ def main() -> None:
         )
         return
 
+    if args.command == "download-senate":
+        from .download_senate_efd import download_senate_efd
+
+        min_year = None
+        if getattr(args, "since", None):
+            raw = str(args.since).strip()[:4]
+            if not raw.isdigit():
+                raise SystemExit("Argomento --since non valido (usa un anno YYYY).")
+            min_year = int(raw)
+        downloaded, already_present = download_senate_efd(
+            min_year=min_year,
+            limit=getattr(args, "limit", None),
+            overwrite=bool(getattr(args, "overwrite", False)),
+        )
+        print(f"download-senate: {downloaded} downloaded, {already_present} already present.")
+        return
+
     if args.command == "download-house-fd":
         from .download_house_fd import download_house_fd_bulk
 
@@ -189,6 +240,10 @@ def main() -> None:
         return
 
     if args.command == "ingest-house":
+        # --force-reparse: shortcut for HOUSE_INGEST_FORCE_REPARSE_PDFS=1.
+        # Default is to only ingest new/changed PDFs (relies on files_ingested).
+        if getattr(args, "force_reparse", False):
+            os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
         ingest_house()
     elif args.command == "verify-house-coverage":
         from .db import get_connection, init_db
