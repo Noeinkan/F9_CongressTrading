@@ -1,56 +1,93 @@
 #!/usr/bin/env bash
-# Deploy latest main on the VPS. Run on the server as root or a user with repo access.
+# deploy.sh - One-shot deploy of the F9_CongressTrading stack on the VPS.
+# Idempotent: re-running on an already-deployed box is safe.
+#
+# What it does:
+#   1. git pull --ff-only (refuses to merge/rebase; manual intervention required otherwise)
+#   2. pip install -r requirements.txt into the project venv
+#   3. npm ci && npm run build for the React frontend
+#   4. Restart congress-api + congress-web via systemctl (only if systemd is available)
+#
+# Run from the repo root on the VPS:
+#   bash deploy.sh
+#
+# Override the repo location:
+#   REPO_DIR=/srv/F9_CongressTrading bash deploy.sh
+#
+# Skip the frontend rebuild (faster, e.g. backend-only change):
+#   SKIP_FRONTEND=1 bash deploy.sh
+#
+# Skip the service restart (e.g. you're restarting by hand):
+#   SKIP_RESTART=1 bash deploy.sh
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/opt/F9_CongressTrading}"
-API_SERVICE="${API_SERVICE:-congress-api}"
-WEB_SERVICE="${WEB_SERVICE:-congress-web}"
 
-cd "$REPO_DIR"
-
-if [[ ! -d .git ]]; then
-  echo "Not a git repo: $REPO_DIR" >&2
+if [[ ! -d "$REPO_DIR/.git" ]]; then
+  echo "Repo not found at $REPO_DIR (no .git directory)." >&2
+  echo "Override with: REPO_DIR=/path/to/repo bash deploy.sh" >&2
   exit 1
 fi
 
-git fetch origin
-# --autostash stashes any local modifications (e.g. from a hook or stray edit),
-# pulls, then pops the stash. If the pop conflicts, the stash is preserved and
-# the operator can resolve it. This avoids the "Your local changes would be
-# overwritten by merge" abort on a fast-forward pull.
-git pull --ff-only --autostash origin main
-git stash list || true
+cd "$REPO_DIR"
 
-if [[ ! -d .venv ]]; then
-  python3 -m venv .venv
+echo "=== git pull (ff-only) ==="
+if ! git pull --ff-only origin "${BRANCH:-main}"; then
+  echo "git pull --ff-only failed." >&2
+  echo "Likely local commits or non-ff remote history on '$REPO_DIR'." >&2
+  echo "Inspect with 'git status' and resolve manually, then rerun." >&2
+  exit 1
 fi
 
+echo "=== python deps ==="
+if [[ ! -x ".venv/bin/python" ]]; then
+  echo "Missing venv at $REPO_DIR/.venv. Create it first:" >&2
+  echo "  python3 -m venv .venv && .venv/bin/pip install -U pip" >&2
+  exit 1
+fi
 .venv/bin/pip install -q -r requirements.txt
 
-if command -v npm >/dev/null 2>&1; then
+if [[ "${SKIP_FRONTEND:-0}" != "1" ]]; then
+  echo "=== frontend build ==="
+  if [[ ! -d frontend ]]; then
+    echo "Missing frontend/ directory in $REPO_DIR." >&2
+    exit 1
+  fi
   pushd frontend >/dev/null
-  npm ci
+  if [[ ! -d node_modules ]]; then
+    npm ci
+  else
+    npm ci
+  fi
   npm run build
   popd >/dev/null
 else
-  echo "npm not found — skipping frontend build (install Node.js 20+ on the VPS)" >&2
+  echo "=== frontend build: SKIPPED (SKIP_FRONTEND=1) ==="
 fi
 
-if systemctl is-active --quiet "$API_SERVICE" 2>/dev/null; then
-  systemctl restart "$API_SERVICE"
-  echo "Restarted $API_SERVICE"
-  systemctl --no-pager status "$API_SERVICE" | head -12
+if [[ "${SKIP_RESTART:-0}" != "1" ]]; then
+  echo "=== restart services ==="
+  if command -v systemctl >/dev/null 2>&1 && systemctl --no-pager list-unit-files congress-api.service >/dev/null 2>&1; then
+    sudo systemctl restart congress-api congress-web
+    echo "Restarted congress-api + congress-web."
+  else
+    echo "systemd / congress-api.service not present; skipping service restart." >&2
+    echo "Restart your API and Caddy by hand (see deploy/README.md)." >&2
+  fi
 else
-  echo "Service $API_SERVICE not installed; start manually:"
-  echo "  cd $REPO_DIR && .venv/bin/python -m src.api"
+  echo "=== restart services: SKIPPED (SKIP_RESTART=1) ==="
 fi
 
-if systemctl is-active --quiet "$WEB_SERVICE" 2>/dev/null; then
-  systemctl restart "$WEB_SERVICE"
-  echo "Restarted $WEB_SERVICE"
-  systemctl --no-pager status "$WEB_SERVICE" | head -12
-else
-  echo "Service $WEB_SERVICE not installed; install Caddy and deploy/congress.caddy first."
+echo
+echo "=== status ==="
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --no-pager status congress-api | head -12 || true
+  systemctl --no-pager status congress-web | head -12 || true
 fi
+echo
+echo "Smoke tests:"
+curl -sS -o /dev/null -w "  http 80  -> %{http_code}\n" --max-time 5 http://127.0.0.1/ || true
+curl -sS -o /dev/null -w "  api 9001 -> %{http_code}\n" --max-time 5 http://127.0.0.1:9001/api/health || true
 
-echo "Deployed: $(git rev-parse --short HEAD)"
+echo
+echo "Deploy complete."
