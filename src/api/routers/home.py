@@ -285,7 +285,8 @@ def home_summary(
         return _empty_summary(s)
 
     hero = _hero(s)
-    latest = s.filtered.head(30)
+    # Cap matches the Home "Rows" selector max (25/50/75/100); the client slices.
+    latest = s.filtered.head(100)
     return {
         "ready": True,
         "hero": hero,

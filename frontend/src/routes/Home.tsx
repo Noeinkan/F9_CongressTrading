@@ -326,7 +326,20 @@ export function Home() {
                         </Table.Td>
                         <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
                         <Table.Td>
-                          <Text size="sm" style={{ opacity }}>
+                          <Text
+                            size="sm"
+                            style={{
+                              opacity,
+                              color:
+                                direction === "buy"
+                                  ? "var(--mantine-color-teal-7)"
+                                  : direction === "sell"
+                                    ? "var(--mantine-color-red-7)"
+                                    : undefined,
+                            }}
+                            data-testid="home-latest-range"
+                            data-direction={direction}
+                          >
                             {row.amount_range_raw}
                           </Text>
                         </Table.Td>

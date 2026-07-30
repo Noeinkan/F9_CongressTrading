@@ -283,17 +283,52 @@ describe("Home route", () => {
   });
 
   it("respects the Rows size selector", async () => {
-    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    const manyRows = Array.from({ length: 100 }, (_, i) => ({
+      member: `Member ${i}`,
+      chamber: "House",
+      party: "D",
+      ticker: "AAPL",
+      issuer_name: "Apple Inc.",
+      transaction_type_label: i % 2 === 0 ? "Buy" : "Sell",
+      transaction_date: `2024-06-${String((i % 28) + 1).padStart(2, "0")}`,
+      amount_range_raw: "$1K – $15K",
+      filing_date: "2024-06-15",
+      disclosure_url: "",
+    }));
+    useHomeSummary.mockReturnValue({
+      data: { ...sampleData, latest_transactions: manyRows },
+      isLoading: false,
+      isError: false,
+    });
     renderHome();
     const user = userEvent.setup();
     await waitFor(() => {
       expect(screen.getByTestId("home-latest-table")).toBeInTheDocument();
     });
-    // 4 rows in the fixture, default size is 25, so all 4 should render.
-    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(4);
-    // Click "100" — still 4 rows.
+    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(25);
+    await user.click(screen.getByRole("radio", { name: "50" }));
+    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(50);
+    await user.click(screen.getByRole("radio", { name: "75" }));
+    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(75);
     await user.click(screen.getByRole("radio", { name: "100" }));
-    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(4);
+    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(100);
+    await user.click(screen.getByRole("radio", { name: "25" }));
+    expect(screen.getAllByTestId("home-latest-row")).toHaveLength(25);
+  });
+
+  it("colors the Range cell by trade direction", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-latest-table")).toBeInTheDocument();
+    });
+    const ranges = screen.getAllByTestId("home-latest-range");
+    const buyRange = ranges.find((el) => el.getAttribute("data-direction") === "buy");
+    const sellRange = ranges.find((el) => el.getAttribute("data-direction") === "sell");
+    expect(buyRange).toBeDefined();
+    expect(sellRange).toBeDefined();
+    expect(buyRange!.style.color).toContain("teal");
+    expect(sellRange!.style.color).toContain("red");
   });
 
   it("sorts the latest table by member when the Member header is clicked", async () => {
