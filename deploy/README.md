@@ -40,6 +40,18 @@ ssh root@77.42.70.26 'cd /opt/F9_CongressTrading && git pull --ff-only origin ma
 - Caddy 2.x (`apt install caddy` or official install script)
 - Ingested data under `data/db/` on the VPS
 - `.env` with API keys and app settings (see repo `.env.example`)
+- **OGE OCR** (Executive 278-T scanned PDFs): Tesseract + Poppler system packages, plus the Python deps in `requirements.txt` (`pdf2image`, `pytesseract`, `Pillow`)
+
+```bash
+# Debian/Ubuntu VPS
+sudo apt install -y tesseract-ocr poppler-utils
+```
+
+Windows (local ingest): install [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) and [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases), then add both `bin/` folders to `PATH`. Re-ingest with:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.main ingest-oge --force-reparse
+```
 
 ## `.env` on the VPS
 

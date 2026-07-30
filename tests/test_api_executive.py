@@ -298,10 +298,8 @@ def test_executive_transactions_shape_and_isolation(client):
         assert key in summary, f"missing summary.{key}"
     assert summary["transaction_count"] == 3
     assert summary["filer_count"] == 1
-    # filing_count is derived from the unique `filing_type` column on the
-    # filtered transactions; both 278-T rows share the same type, so the
-    # distinct count is 1 (pre-existing analytics behavior).
-    assert summary["filing_count"] == 1
+    # Two distinct 278-T doc_ids in the fixture (annual 278e has no transactions).
+    assert summary["filing_count"] == 2
     assert summary["buy_count"] == 1
     assert summary["sell_count"] == 2
     assert summary["exchange_count"] == 0
@@ -327,6 +325,23 @@ def test_executive_transactions_filter_by_transaction_type(client):
     data = r.json()
     assert data["total"] == 1
     assert data["rows"][0]["transaction_type"] == "P (Buy)"
+
+
+def test_executive_transactions_filter_by_display_label(client):
+    _login(client)
+    r = client.get("/api/executive/transactions?transaction_type=Buy&page_size=50")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 1
+    assert data["rows"][0]["transaction_type"] == "P (Buy)"
+
+
+def test_executive_transactions_filter_multi_type(client):
+    _login(client)
+    r = client.get("/api/executive/transactions?transaction_type=Buy,Sell&page_size=50")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 3
 
 
 def test_executive_transactions_pagination_math(client):

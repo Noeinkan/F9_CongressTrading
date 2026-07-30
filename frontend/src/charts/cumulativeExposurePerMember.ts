@@ -50,9 +50,9 @@ function compactCurrency(v: number): string {
 function formatXDate(value: number): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
-  // "Mar 2024" is the sweet spot — fits without crowding when the x-axis is
-  // shared across 5+ panels.
-  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  // Prefer local calendar components so UTC midnight epoch ms does not shift
+  // the month label west of UTC.
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 function shortName(name: string, max = 26): string {

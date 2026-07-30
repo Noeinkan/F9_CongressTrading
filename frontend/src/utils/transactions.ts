@@ -11,7 +11,7 @@
 export type TransactionDirection = "buy" | "sell" | "other";
 
 const BUY_PATTERN = /\b(buy|purchase|acquire|received|received (?:partial )?gift)\b/i;
-const SELL_PATTERN = /\b(sell|sale|sold|exchange|dispose|divest|gift)\b/i;
+const SELL_PATTERN = /\b(sell|sale|sold|dispose|divest|gift)\b/i;
 
 export function classifyTransaction(label: string | null | undefined): TransactionDirection {
   const text = (label ?? "").toLowerCase();

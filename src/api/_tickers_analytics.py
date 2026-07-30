@@ -32,7 +32,13 @@ from ..utils import is_non_equity_asset
 from ._format import format_cumulative_net_label
 from ._home_analytics import _dedupe_cumulative_trades
 from ._patterns_analytics import add_trade_categories, signed_trade_notional, ticker_member_breakdown
-from .repository import _data_cache_key, transaction_type_display_label
+from .repository import (
+    _data_cache_key,
+    is_buy_transaction_type,
+    is_exchange_transaction_type,
+    is_sell_transaction_type,
+    transaction_type_display_label,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -344,10 +350,9 @@ def _signed_return(
     ret_pct = mkt_ret * 100.0
     if median_notional is None or median_notional <= 0:
         return ret_pct, None
-    tt = (transaction_type or "").strip()
-    if tt == "P":
+    if is_buy_transaction_type(transaction_type):
         return ret_pct, median_notional * mkt_ret
-    if tt.startswith("S"):
+    if is_sell_transaction_type(transaction_type):
         return ret_pct, -median_notional * mkt_ret
     return ret_pct, None
 
@@ -465,7 +470,11 @@ def weighted_aggregate_return(metrics: list[dict[str, Any]]) -> dict[str, Any] |
     Returns ``None`` when no trade had both prices; otherwise returns a dict
     with ``return_pct`` (weighted) and ``trade_count``.
     """
-    usable = [m for m in metrics if m.get("return_pct") is not None]
+    usable = [
+        m
+        for m in metrics
+        if m.get("return_pct") is not None and not m.get("is_non_equity")
+    ]
     if not usable:
         return None
     weights = [abs(m["est_pnl_usd"]) if m.get("est_pnl_usd") else 1.0 for m in usable]
@@ -510,7 +519,7 @@ def ticker_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
             sell=("is_sell", "sum"),
             call=("option_side", lambda s: int((s == "Call").sum())),
             put=("option_side", lambda s: int((s == "Put").sum())),
-            exchange=("transaction_type", lambda s: int((s.astype(str).str.strip() == "E").sum())),
+            exchange=("transaction_type", lambda s: int(s.map(is_exchange_transaction_type).sum())),
             amount_low=("amount_low", lambda s: float(pd.to_numeric(s, errors="coerce").sum(skipna=True))),
             amount_high=("amount_high", lambda s: float(pd.to_numeric(s, errors="coerce").sum(skipna=True))),
             first_trade=("transaction_date", "min"),
@@ -674,7 +683,7 @@ def ticker_profile(frame: pd.DataFrame, ticker: str) -> dict[str, Any]:
     sells = int(sub["is_sell"].sum())
     calls = int((sub["option_side"] == "Call").sum())
     puts = int((sub["option_side"] == "Put").sum())
-    exchanges = int((sub["transaction_type"].astype(str).str.strip() == "E").sum())
+    exchanges = int(sub["transaction_type"].map(is_exchange_transaction_type).sum())
     amount_low_total = float(pd.to_numeric(sub["amount_low"], errors="coerce").sum(skipna=True))
     amount_high_total = float(pd.to_numeric(sub["amount_high"], errors="coerce").sum(skipna=True))
     first_trade = sub["transaction_date"].min()

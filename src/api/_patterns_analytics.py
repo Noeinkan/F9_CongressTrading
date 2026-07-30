@@ -7,7 +7,12 @@ import pandas as pd
 
 from ..utils import normalize_key
 from ._constants import COMMITTEES_JSON_PATH
-from .repository import transaction_type_display_label
+from .repository import (
+    is_buy_transaction_type,
+    is_exchange_transaction_type,
+    is_sell_transaction_type,
+    transaction_type_display_label,
+)
 
 
 def _signed_amount_median(row: pd.Series) -> float:
@@ -22,10 +27,10 @@ def signed_trade_notional(row: pd.Series) -> float:
     med = _signed_amount_median(row)
     if med == 0:
         return 0.0
-    tt = str(row.get("transaction_type", "")).strip()
-    if tt == "P":
+    tt = row.get("transaction_type", "")
+    if is_buy_transaction_type(tt):
         return med
-    if tt == "S" or tt.startswith("S"):
+    if is_sell_transaction_type(tt):
         return -med
     return 0.0
 
@@ -61,9 +66,9 @@ def classify_option_side(row: pd.Series) -> str:
 def add_trade_categories(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
     out["option_side"] = out.apply(classify_option_side, axis=1)
-    tt = out["transaction_type"].astype(str).str.strip()
-    out["is_buy"] = tt.eq("P")
-    out["is_sell"] = tt.str.startswith("S")
+    tt = out["transaction_type"]
+    out["is_buy"] = tt.map(is_buy_transaction_type)
+    out["is_sell"] = tt.map(is_sell_transaction_type)
     out["party_label"] = out["party"].map(normalize_party) if "party" in out.columns else "Unknown"
     return out
 
@@ -128,7 +133,7 @@ def member_ticker_breakdown(frame: pd.DataFrame, member: str) -> pd.DataFrame:
                 "sell": int(g["is_sell"].sum()),
                 "call": int((g["option_side"] == "Call").sum()),
                 "put": int((g["option_side"] == "Put").sum()),
-                "exchange": int((g["transaction_type"].astype(str).str.strip() == "E").sum()),
+                "exchange": int(g["transaction_type"].map(is_exchange_transaction_type).sum()),
                 "trades": len(g),
                 "amount_low_sum": float(g["amount_low"].sum(skipna=True)),
                 "amount_high_sum": float(g["amount_high"].sum(skipna=True)),
@@ -229,7 +234,7 @@ def ticker_member_breakdown(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:
                 "sell": int(g["is_sell"].sum()),
                 "call": int((g["option_side"] == "Call").sum()),
                 "put": int((g["option_side"] == "Put").sum()),
-                "exchange": int((g["transaction_type"].astype(str).str.strip() == "E").sum()),
+                "exchange": int(g["transaction_type"].map(is_exchange_transaction_type).sum()),
                 "trades": len(g),
                 "amount_low_sum": float(g["amount_low"].sum(skipna=True)),
                 "amount_high_sum": float(g["amount_high"].sum(skipna=True)),
@@ -544,10 +549,25 @@ def member_committee_relevant_transactions(
     relevant = committee_relevant_trades(scored)
     if relevant.empty:
         return pd.DataFrame()
-    merge_keys = ["member", "ticker", "transaction_date"]
+    merge_keys = [
+        c
+        for c in (
+            "member",
+            "ticker",
+            "transaction_date",
+            "transaction_type",
+            "amount_low",
+            "amount_high",
+            "asset_name_raw",
+            "doc_id",
+        )
+        if c in member_frame.columns and c in relevant.columns
+    ]
+    if not merge_keys:
+        merge_keys = ["member", "ticker", "transaction_date"]
     overlap_cols = [c for c in ("matching_committees",) if c in relevant.columns]
     return member_frame.merge(
-        relevant[merge_keys + overlap_cols],
+        relevant[merge_keys + overlap_cols].drop_duplicates(subset=merge_keys),
         on=merge_keys,
         how="inner",
         suffixes=("", "_overlap"),

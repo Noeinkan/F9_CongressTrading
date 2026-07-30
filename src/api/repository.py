@@ -6,6 +6,7 @@ not re-read the database.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -15,7 +16,8 @@ from typing import Optional
 import pandas as pd
 
 from ..config import DB_PATH, HOUSE_PTR_PDF_URL
-from ..db import get_connection, init_db
+from ..db import get_connection, init_db, upsert_asset_resolution, upsert_issuer
+from ..utils import normalize_whitespace
 from ._constants import (
     NORMALIZED_EXPORT_PATH,
     REVIEW_COLUMNS,
@@ -95,8 +97,45 @@ def _compute_disclosure_url_row(row: pd.Series) -> str:
     return HOUSE_PTR_PDF_URL.format(year=year, doc_id=doc_id)
 
 
+def _normalize_transaction_type(raw: object) -> str:
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return ""
+    return str(raw).strip()
+
+
+def is_buy_transaction_type(raw: object) -> bool:
+    """True for House ``P`` and OGE ``P (Buy)`` (and similar purchase labels)."""
+    tt = _normalize_transaction_type(raw)
+    if not tt:
+        return False
+    upper = tt.upper()
+    if upper == "P" or upper.startswith("P ") or upper.startswith("P("):
+        return True
+    return "BUY" in upper or "PURCHASE" in upper
+
+
+def is_sell_transaction_type(raw: object) -> bool:
+    """True for House ``S`` / ``S (partial)`` and OGE ``S (Sell)``."""
+    tt = _normalize_transaction_type(raw)
+    if not tt:
+        return False
+    upper = tt.upper()
+    return upper == "S" or upper.startswith("S ") or upper.startswith("S(") or "SELL" in upper
+
+
+def is_exchange_transaction_type(raw: object) -> bool:
+    """True for House ``E`` and OGE ``E (Exchange)``."""
+    tt = _normalize_transaction_type(raw)
+    if not tt:
+        return False
+    upper = tt.upper()
+    if upper == "E" or upper.startswith("E ") or upper.startswith("E("):
+        return True
+    return "EXCHANGE" in upper
+
+
 def transaction_type_display_label(raw: object) -> str:
-    s = "" if raw is None or (isinstance(raw, float) and pd.isna(raw)) else str(raw).strip()
+    s = _normalize_transaction_type(raw)
     if not s or s.lower() == "unknown":
         return "Unknown"
     mapping = {
@@ -104,8 +143,22 @@ def transaction_type_display_label(raw: object) -> str:
         "S": "Sell",
         "S (partial)": "Sell (partial)",
         "E": "Exchange",
+        "P (Buy)": "Buy",
+        "S (Sell)": "Sell",
+        "E (Exchange)": "Exchange",
     }
-    return mapping.get(s, s)
+    if s in mapping:
+        return mapping[s]
+    # OGE / free-text variants: classify then map to a short label.
+    if is_buy_transaction_type(s):
+        return "Buy"
+    if is_sell_transaction_type(s):
+        if "partial" in s.lower():
+            return "Sell (partial)"
+        return "Sell"
+    if is_exchange_transaction_type(s):
+        return "Exchange"
+    return s
 
 
 def _load_ticker_sector_fallback(conn: sqlite3.Connection) -> dict[str, tuple[str, str]]:
@@ -201,6 +254,11 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     data["owner_type"] = data["owner_type"].fillna("unspecified")
     data["review_status"] = data["review_status"].fillna("pending")
     data["asset_type"] = data["asset_type"].fillna("unknown")
+    # Annuities (RILA / VA) are sometimes fuzzy-matched onto the insurer's
+    # equity ticker; strip that so they cannot appear on ticker flow charts.
+    annuity_mask = data["asset_type"].astype(str).str.strip().str.lower().eq("annuity")
+    if annuity_mask.any():
+        data.loc[annuity_mask, "ticker"] = ""
     data["transaction_type"] = data["transaction_type"].fillna("unknown")
     data["transaction_type_label"] = data["transaction_type"].map(transaction_type_display_label)
     data["month"] = data["transaction_date"].dt.to_period("M").dt.to_timestamp()
@@ -223,6 +281,7 @@ def _prepare_review(frame: pd.DataFrame) -> pd.DataFrame:
     data["filing_date"] = pd.to_datetime(data["filing_date"], errors="coerce")
     data["transaction_date"] = pd.to_datetime(data["transaction_date"], errors="coerce")
     data["confidence_score"] = pd.to_numeric(data["confidence_score"], errors="coerce").fillna(0.0)
+    data["transaction_id"] = pd.to_numeric(data["transaction_id"], errors="coerce")
     data["status"] = data["status"].fillna("open")
     data["reason"] = data["reason"].fillna("review")
     data["notes"] = data["notes"].fillna("")
@@ -295,6 +354,19 @@ _cache_lock = Lock()
 _cache_key: Optional[str] = None
 _cache_transactions: Optional[tuple[pd.DataFrame, str]] = None
 _cache_review: Optional[tuple[pd.DataFrame, str]] = None
+
+
+def invalidate_data_cache() -> None:
+    """Drop in-process transaction/review memo after SQLite mutations.
+
+    Needed because WAL writes may not bump the main DB file mtime that
+    :func:`_data_cache_key` watches.
+    """
+    global _cache_key, _cache_transactions, _cache_review
+    with _cache_lock:
+        _cache_key = None
+        _cache_transactions = None
+        _cache_review = None
 
 
 def load_transactions() -> tuple[pd.DataFrame, str]:
@@ -435,3 +507,212 @@ def filter_review_to_slice(
     review_keys = _key(review_queue)
     filtered_keys = set(_key(filtered_transactions))
     return review_queue[review_keys.isin(filtered_keys)].copy()
+
+
+# --------------------------------------------------------------------------- #
+# Review-queue triage mutations (manual resolve / dismiss)
+# --------------------------------------------------------------------------- #
+_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,15}$")
+
+
+def normalize_manual_ticker(ticker: str | None) -> str:
+    """Uppercase/trim a manual ticker; empty string when missing."""
+    return normalize_whitespace(ticker or "").upper()
+
+
+def _assert_sqlite_review_source() -> None:
+    """Mutations only work against the live SQLite review_queue."""
+    _, source = load_review_queue(load_transactions()[0])
+    if not str(source).startswith("sqlite:"):
+        raise RuntimeError(
+            f"Review triage requires a SQLite review_queue (current source: {source})"
+        )
+
+
+def _apply_resolved_ticker(
+    conn: sqlite3.Connection,
+    *,
+    transaction_id: int,
+    ticker: str,
+    asset_name_raw: str,
+    asset_name_normalized: str,
+    asset_type: str,
+    apply_to_asset: bool,
+) -> int:
+    """Update one transaction (+ optional same-asset siblings) and clear queue rows.
+
+    Returns the number of transactions updated.
+    """
+    issuer_name = asset_name_normalized or asset_name_raw or ticker
+    issuer_id = upsert_issuer(
+        conn,
+        issuer_name=issuer_name,
+        ticker=ticker,
+        asset_type=asset_type or "",
+        commit=False,
+    )
+
+    target_ids = [transaction_id]
+    if apply_to_asset and asset_name_raw:
+        sibling_rows = conn.execute(
+            """
+            SELECT t.id
+            FROM transactions t
+            JOIN review_queue rq ON rq.transaction_id = t.id
+            WHERE t.asset_name_raw = ? AND t.id <> ?
+            """,
+            (asset_name_raw, transaction_id),
+        ).fetchall()
+        target_ids.extend(int(r["id"]) for r in sibling_rows)
+
+    for tid in target_ids:
+        conn.execute(
+            """
+            UPDATE transactions
+            SET ticker = ?,
+                issuer_id = ?,
+                confidence_score = 1.0,
+                review_status = 'exact_match',
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (ticker, issuer_id, tid),
+        )
+        conn.execute("DELETE FROM review_queue WHERE transaction_id = ?", (tid,))
+
+    if apply_to_asset and asset_name_raw:
+        upsert_asset_resolution(
+            conn,
+            asset_name_raw=asset_name_raw,
+            asset_name_normalized=asset_name_normalized or asset_name_raw,
+            issuer_name=issuer_name,
+            ticker=ticker,
+            cusip_or_figi="",
+            asset_type=asset_type or "",
+            sector="",
+            industry="",
+            confidence_score=1.0,
+            resolution_status="exact_match",
+            match_source="manual_review",
+            commit=False,
+        )
+
+    return len(target_ids)
+
+
+def resolve_review_transaction(
+    transaction_id: int,
+    *,
+    ticker: str | None,
+    apply_to_asset: bool = False,
+) -> dict[str, object]:
+    """Assign a ticker, mark ``exact_match``, and remove the row from review_queue."""
+    ticker_value = normalize_manual_ticker(ticker)
+    if not ticker_value:
+        raise ValueError("ticker is required")
+    if not _TICKER_RE.match(ticker_value):
+        raise ValueError("ticker must look like a symbol (e.g. AAPL, BRK.B)")
+
+    _assert_sqlite_review_source()
+    conn = get_connection()
+    try:
+        init_db(conn)
+        queued = conn.execute(
+            "SELECT 1 FROM review_queue WHERE transaction_id = ?",
+            (transaction_id,),
+        ).fetchone()
+        if queued is None:
+            raise KeyError(f"transaction {transaction_id} is not in the review queue")
+
+        row = conn.execute(
+            """
+            SELECT id, asset_name_raw, asset_name_normalized, asset_type, ticker
+            FROM transactions
+            WHERE id = ?
+            """,
+            (transaction_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"transaction {transaction_id} not found")
+
+        updated = _apply_resolved_ticker(
+            conn,
+            transaction_id=transaction_id,
+            ticker=ticker_value,
+            asset_name_raw=normalize_whitespace(row["asset_name_raw"] or ""),
+            asset_name_normalized=normalize_whitespace(row["asset_name_normalized"] or ""),
+            asset_type=normalize_whitespace(row["asset_type"] or ""),
+            apply_to_asset=apply_to_asset,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    invalidate_data_cache()
+    return {
+        "ok": True,
+        "action": "resolve",
+        "transaction_id": transaction_id,
+        "ticker": ticker_value,
+        "updated_count": updated,
+        "apply_to_asset": apply_to_asset,
+    }
+
+
+def accept_review_transaction(
+    transaction_id: int,
+    *,
+    apply_to_asset: bool = False,
+) -> dict[str, object]:
+    """Promote the transaction's current ticker to ``exact_match`` and clear the queue row."""
+    _assert_sqlite_review_source()
+    conn = get_connection()
+    try:
+        init_db(conn)
+        row = conn.execute(
+            "SELECT ticker FROM transactions WHERE id = ?",
+            (transaction_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise KeyError(f"transaction {transaction_id} not found")
+    ticker = normalize_manual_ticker(row["ticker"])
+    if not ticker:
+        raise ValueError(
+            "transaction has no ticker to accept; use resolve with an explicit ticker"
+        )
+    result = resolve_review_transaction(
+        transaction_id,
+        ticker=ticker,
+        apply_to_asset=apply_to_asset,
+    )
+    result["action"] = "accept"
+    return result
+
+
+def dismiss_review_transaction(transaction_id: int) -> dict[str, object]:
+    """Remove a row from the review queue without changing the transaction ticker."""
+    _assert_sqlite_review_source()
+    conn = get_connection()
+    try:
+        init_db(conn)
+        queued = conn.execute(
+            "SELECT 1 FROM review_queue WHERE transaction_id = ?",
+            (transaction_id,),
+        ).fetchone()
+        if queued is None:
+            raise KeyError(f"transaction {transaction_id} is not in the review queue")
+
+        conn.execute("DELETE FROM review_queue WHERE transaction_id = ?", (transaction_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    invalidate_data_cache()
+    return {
+        "ok": True,
+        "action": "dismiss",
+        "transaction_id": transaction_id,
+    }

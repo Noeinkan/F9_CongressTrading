@@ -1,6 +1,7 @@
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,9 +9,24 @@ import { FilterProvider } from "@/components/FilterContext";
 import { Review } from "@/routes/Review";
 
 const useReviewSummary = vi.fn();
+const resolveMutateAsync = vi.fn();
+const acceptMutateAsync = vi.fn();
+const dismissMutateAsync = vi.fn();
 
 vi.mock("@/api/review", () => ({
   useReviewSummary: (...args: unknown[]) => useReviewSummary(...args),
+  useResolveReviewItem: () => ({
+    mutateAsync: resolveMutateAsync,
+    isPending: false,
+  }),
+  useAcceptReviewItem: () => ({
+    mutateAsync: acceptMutateAsync,
+    isPending: false,
+  }),
+  useDismissReviewItem: () => ({
+    mutateAsync: dismissMutateAsync,
+    isPending: false,
+  }),
 }));
 
 vi.mock("echarts-for-react", () => ({
@@ -21,19 +37,20 @@ vi.mock("echarts-for-react", () => ({
 
 const sampleData = {
   ready: true,
-  review_source: "sqlite",
+  review_source: "sqlite:congress_trades.sqlite",
   kpis: {
     open_count: 5,
     total_count: 10,
     high_confidence_pct: 0.7,
     high_confidence_label: "70%",
-    by_reason: [{ reason: "ticker", records: 4 }],
+    by_reason: [{ reason: "asset_resolution", records: 4 }],
     by_status: [{ status: "open", records: 5 }],
     by_month: [],
   },
   rows: [
     {
-      reason: "ticker",
+      transaction_id: 42,
+      reason: "asset_resolution",
       status: "open",
       member: "Alice",
       ticker: "AAPL",
@@ -69,6 +86,12 @@ function renderReview() {
 describe("Review route", () => {
   beforeEach(() => {
     useReviewSummary.mockReset();
+    resolveMutateAsync.mockReset();
+    acceptMutateAsync.mockReset();
+    dismissMutateAsync.mockReset();
+    resolveMutateAsync.mockResolvedValue({ ok: true });
+    acceptMutateAsync.mockResolvedValue({ ok: true });
+    dismissMutateAsync.mockResolvedValue({ ok: true });
   });
 
   it("shows loading state", () => {
@@ -90,5 +113,34 @@ describe("Review route", () => {
       "href",
       "/members?member=Alice",
     );
+    expect(screen.getByTestId("review-resolve-42")).toBeInTheDocument();
+    expect(screen.getByTestId("review-accept-42")).toBeInTheDocument();
+    expect(screen.getByTestId("review-dismiss-42")).toBeInTheDocument();
+  });
+
+  it("calls accept mutation from the Actions column", async () => {
+    const user = userEvent.setup();
+    useReviewSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderReview();
+    await user.click(screen.getByTestId("review-accept-42"));
+    expect(acceptMutateAsync).toHaveBeenCalledWith({
+      transactionId: 42,
+      applyToAsset: false,
+    });
+  });
+
+  it("calls resolve with the edited ticker", async () => {
+    const user = userEvent.setup();
+    useReviewSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderReview();
+    const input = screen.getByTestId("review-ticker-input-42");
+    await user.clear(input);
+    await user.type(input, "MSFT");
+    await user.click(screen.getByTestId("review-resolve-42"));
+    expect(resolveMutateAsync).toHaveBeenCalledWith({
+      transactionId: 42,
+      ticker: "MSFT",
+      applyToAsset: false,
+    });
   });
 });

@@ -273,11 +273,13 @@ def run_ingest_all(
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
     sys.stdout = tee
-    # Scope HOUSE_INGEST_FORCE_REPARSE_PDFS to this job so a previous
-    # force_reparse=True (or a stale process env) cannot make every later
-    # Refresh re-parse all ~1690 PDFs on disk.
+    # Scope HOUSE_INGEST_FORCE_REPARSE_PDFS / OGE_INGEST_FORCE_REPARSE_PDFS to
+    # this job so a previous force_reparse=True cannot leak into later Refresh
+    # runs in the same process.
     _force_reparse_env_key = "HOUSE_INGEST_FORCE_REPARSE_PDFS"
+    _oge_force_reparse_env_key = "OGE_INGEST_FORCE_REPARSE_PDFS"
     _prev_force_reparse_env = os.environ.get(_force_reparse_env_key)
+    _prev_oge_force_reparse_env = os.environ.get(_oge_force_reparse_env_key)
     try:
         from datetime import datetime
 
@@ -286,8 +288,10 @@ def run_ingest_all(
 
         if force_reparse:
             os.environ[_force_reparse_env_key] = "1"
+            os.environ[_oge_force_reparse_env_key] = "1"
         else:
             os.environ.pop(_force_reparse_env_key, None)
+            os.environ.pop(_oge_force_reparse_env_key, None)
 
         phase_total = len(_PIPELINE_PHASES)
         _begin_phase(
@@ -509,7 +513,11 @@ def run_ingest_all(
             progress_span=10,
         )
         try:
-            ingest_oge(cancel_event=cancel_event, progress_hook=oge_ingest_hook)
+            ingest_oge(
+                cancel_event=cancel_event,
+                progress_hook=oge_ingest_hook,
+                force_reparse=force_reparse,
+            )
         except CancelledError:
             raise
         except Exception as exc:
@@ -527,6 +535,10 @@ def run_ingest_all(
             os.environ.pop(_force_reparse_env_key, None)
         else:
             os.environ[_force_reparse_env_key] = _prev_force_reparse_env
+        if _prev_oge_force_reparse_env is None:
+            os.environ.pop(_oge_force_reparse_env_key, None)
+        else:
+            os.environ[_oge_force_reparse_env_key] = _prev_oge_force_reparse_env
         sys.stdout = original_stdout
         tee.flush()
 

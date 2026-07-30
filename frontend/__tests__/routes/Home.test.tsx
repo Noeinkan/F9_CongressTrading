@@ -10,6 +10,7 @@ import { Home } from "@/routes/Home";
 
 const useHomeSummary = vi.fn();
 const useTickerDrilldown = vi.fn();
+const useTickerPriceOverlay = vi.fn();
 
 vi.mock("@/api/home", () => ({
   useHomeSummary: (...args: unknown[]) => useHomeSummary(...args),
@@ -18,6 +19,10 @@ vi.mock("@/api/home", () => ({
 
 vi.mock("@/api/tickerDrilldown", () => ({
   useTickerDrilldown: (...args: unknown[]) => useTickerDrilldown(...args),
+}));
+
+vi.mock("@/api/tickers", () => ({
+  useTickerPriceOverlay: (...args: unknown[]) => useTickerPriceOverlay(...args),
 }));
 
 vi.mock("echarts-for-react", () => ({
@@ -158,8 +163,14 @@ describe("Home route", () => {
   beforeEach(() => {
     useHomeSummary.mockReset();
     useTickerDrilldown.mockReset();
+    useTickerPriceOverlay.mockReset();
     useTickerDrilldown.mockReturnValue({
-      data: { ticker_timeline: [], ticker_3d: [], ticker_cumulative: [] },
+      data: { ticker_timeline: [], ticker_cumulative: [] },
+      isLoading: false,
+      isError: false,
+    });
+    useTickerPriceOverlay.mockReturnValue({
+      data: { ticker: "AAPL", ready: false, bars: [], trades: [] },
       isLoading: false,
       isError: false,
     });
@@ -196,6 +207,51 @@ describe("Home route", () => {
     useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
     renderHome();
     expect(useTickerDrilldown).toHaveBeenCalledWith("AAPL", expect.any(Object));
+    expect(useTickerPriceOverlay).toHaveBeenCalledWith("AAPL", expect.any(Object));
+  });
+
+  it("links Open on Tickers to the selected drill-down symbol", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-open-tickers")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("home-open-tickers")).toHaveAttribute("href", "/tickers?ticker=AAPL");
+  });
+
+  it("renders the price overlay when Polygon bars are available", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    useTickerPriceOverlay.mockReturnValue({
+      data: {
+        ticker: "AAPL",
+        ready: true,
+        bars: [{ date: "2024-06-01", close: 190 }],
+        trades: [
+          {
+            transaction_date: "2024-06-02",
+            y: 191,
+            member: "Alice",
+            transaction_type: "P",
+            transaction_type_label: "Buy",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-price-overlay")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("home-no-polygon")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-Polygon fallback when cache is empty", async () => {
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-no-polygon")).toBeInTheDocument();
+    });
   });
 
   it("renders the latest activity table with issuer name next to the ticker", async () => {

@@ -101,15 +101,6 @@ export type TickerTimelineRow = {
   owner_type?: string;
 };
 
-export type Ticker3DRow = {
-  date: string;
-  member: string;
-  amount_high: number | null;
-  transaction_type: string;
-  txn_type_label: string;
-  z: number;
-};
-
 export type TickerCumulativeRow = {
   member: string;
   date: string;
@@ -122,7 +113,6 @@ export type TickerDrilldownResponse = {
   ready: boolean;
   ticker: string;
   ticker_timeline: TickerTimelineRow[];
-  ticker_3d: Ticker3DRow[];
   ticker_cumulative: TickerCumulativeRow[];
 };
 
@@ -196,6 +186,7 @@ export type RawTransactionsResponse = {
 };
 
 export type ReviewRow = {
+  transaction_id?: number | null;
   reason: string;
   status: string;
   notes?: string;
@@ -216,6 +207,15 @@ export type ReviewRow = {
   raw_document_path?: string;
   source_page?: number;
   source_row?: number;
+};
+
+export type ReviewMutationResponse = {
+  ok: boolean;
+  action: "resolve" | "accept" | "dismiss";
+  transaction_id: number;
+  ticker?: string;
+  updated_count?: number;
+  apply_to_asset?: boolean;
 };
 
 export type ReviewSummaryResponse = {

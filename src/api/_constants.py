@@ -37,6 +37,7 @@ TRANSACTION_COLUMNS = [
 ]
 
 REVIEW_COLUMNS = [
+    "transaction_id",
     "reason",
     "status",
     "notes",
@@ -125,6 +126,7 @@ ORDER BY t.transaction_date DESC, f.filing_date DESC, m.full_name ASC
 
 SQLITE_REVIEW_QUERY = """
 SELECT
+    t.id AS transaction_id,
     rq.reason AS reason,
     rq.status AS status,
     rq.notes AS notes,

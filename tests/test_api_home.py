@@ -119,11 +119,11 @@ def test_home_ticker_drilldown_shape(client):
     r = client.get("/api/home/ticker_drilldown?ticker=MSFT")
     assert r.status_code == 200
     data = r.json()
-    for key in ("ready", "ticker", "ticker_timeline", "ticker_3d", "ticker_cumulative"):
+    for key in ("ready", "ticker", "ticker_timeline", "ticker_cumulative"):
         assert key in data, f"missing {key}"
     assert data["ticker"] == "MSFT"
     assert isinstance(data["ticker_timeline"], list)
-    assert isinstance(data["ticker_3d"], list)
+    assert "ticker_3d" not in data
     assert isinstance(data["ticker_cumulative"], list)
 
 

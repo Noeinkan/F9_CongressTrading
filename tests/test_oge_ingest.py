@@ -5,6 +5,7 @@ and exercise the parser + ingest against an in-memory SQLite database.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -367,5 +368,174 @@ def test_download_oge_calls_network_when_file_missing(tmp_path: Path, monkeypatc
 
     assert downloaded == len(oge_source.TRUMP_OGE_FILINGS)
     assert already_present == 0
+
+
+# --------------------------------------------------------------------------- #
+# OCR cleanup + ingest force-reparse
+# --------------------------------------------------------------------------- #
+def test_repair_ocr_text_fixes_garbled_dates_and_amounts() -> None:
+    from src.parse_oge import repair_ocr_text, _parse_278t_text
+
+    repaired = repair_ocr_text("Apple Inc P 2/2l/2026 $100 001-$250 000")
+    assert "100,001" in repaired or "100001" in repaired.replace(",", "")
+    assert re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", repaired)
+
+    rows = _parse_278t_text(
+        "Apple Inc P 02/15/2026 $1,001-$15,000\n"
+        "Microsoft Corp Sale 03/01/2026 $15,001-$50,000",
+        page_number=2,
+    )
+    assert len(rows) >= 2
+    types = {r["transaction_type"] for r in rows}
+    assert "P (Buy)" in types
+    assert "S (Sell)" in types
+
+
+def test_parse_278t_ocr_fallback_when_pdfplumber_empty(tmp_path: Path, monkeypatch) -> None:
+    """When the text layer yields 0 rows, OCR page text is parsed instead."""
+    from src.parse_oge import parse_oge_278t
+
+    pdf = tmp_path / "ocr_fallback.pdf"
+    _make_pdf(
+        pdf,
+        [
+            "OGE Form 278-T",
+            "Filer Name: MI Position",
+            "Filing Date: 02/26/2026",
+        ],
+    )
+
+    def fake_ocr(_path, page_index, **_kwargs):
+        if page_index == 0:
+            return (
+                "OGE Form 278-T\n"
+                "Filer Name: Donald J. Trump\n"
+                "Apple Inc P 02/15/2026 $1,001 - $15,000\n"
+            )
+        return ""
+
+    monkeypatch.setattr("src.parse_oge.ocr_page_text", fake_ocr)
+    header, rows = parse_oge_278t(pdf)
+    assert header.get("ocr_status") == "used"
+    assert any(r["transaction_type"] == "P (Buy)" for r in rows)
+
+
+def test_ingest_prefers_registry_filer_name(in_memory_db, tmp_path, monkeypatch) -> None:
+    """Bad header parse must not beat the hard-coded OGE registry filer name."""
+    from src import ingest_oge as ingest_oge_module
+    from src.db import get_connection
+    from src.ingest_oge import ingest_oge
+    from src.oge_source import TRUMP_OGE_FILINGS
+
+    monkeypatch.setattr(ingest_oge_module, "OGE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.config.OGE_RAW_DIR", tmp_path)
+
+    known = next(f for f in TRUMP_OGE_FILINGS if f.filing_type == "OGE278T")
+    pdf = tmp_path / f"{known.doc_id}.pdf"
+    _make_pdf(
+        pdf,
+        [
+            "OGE Form 278-T",
+            "Filer Name: MI Position",
+            "Filing Date: 02/26/2026",
+            "Apple Inc P 02/15/2026 $1,001 - $15,000",
+        ],
+    )
+
+    ingest_oge()
+
+    conn = get_connection()
+    try:
+        names = [
+            r["full_name"]
+            for r in conn.execute(
+                "SELECT full_name FROM members WHERE chamber = 'Executive'"
+            ).fetchall()
+        ]
+        assert known.filer_name in names
+        assert "MI Position" not in names
+    finally:
+        conn.close()
+
+
+def test_ingest_force_reparse_reprocesses_ingested_sha(in_memory_db, tmp_path, monkeypatch) -> None:
+    """force_reparse=True must ignore files_ingested and parse again."""
+    from src import ingest_oge as ingest_oge_module
+    from src.db import get_connection, is_file_ingested, mark_file_ingested
+    from src.ingest_oge import ingest_oge
+    from src.utils import sha256_file
+
+    monkeypatch.setattr(ingest_oge_module, "OGE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.config.OGE_RAW_DIR", tmp_path)
+
+    pdf = tmp_path / "FORCE_REPARSE_DOC_ABCDEF1234567890ABCDEF12.pdf"
+    _make_pdf(
+        pdf,
+        [
+            "OGE Form 278-T",
+            "Filer Name: Donald J. Trump",
+            "Filing Date: 02/26/2026",
+            "Apple Inc P 02/15/2026 $1,001 - $15,000",
+        ],
+    )
+
+    conn = get_connection()
+    try:
+        mark_file_ingested(conn, str(pdf), sha256_file(pdf))
+        assert is_file_ingested(conn, str(pdf), sha256_file(pdf))
+    finally:
+        conn.close()
+
+    ingest_oge(force_reparse=True)
+
+    conn = get_connection()
+    try:
+        txn_count = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM transactions t
+            JOIN filings f ON f.id = t.filing_id
+            WHERE f.chamber = 'Executive'
+            """
+        ).fetchone()["c"]
+        assert txn_count >= 1
+    finally:
+        conn.close()
+
+
+def test_empty_parse_not_marked_when_ocr_unavailable(in_memory_db, tmp_path, monkeypatch) -> None:
+    """0-txn 278-T without OCR must stay retryable (not in files_ingested)."""
+    from src import ingest_oge as ingest_oge_module
+    from src.db import get_connection, is_file_ingested
+    from src.ingest_oge import ingest_oge
+    from src.ocr_pdf import OcrUnavailableError
+    from src.utils import sha256_file
+
+    monkeypatch.setattr(ingest_oge_module, "OGE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.config.OGE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.ingest_oge.ocr_available", lambda: False)
+
+    def boom(*_a, **_k):
+        raise OcrUnavailableError("no ocr")
+
+    monkeypatch.setattr("src.parse_oge.ocr_page_text", boom)
+
+    pdf = tmp_path / "EMPTY_OCR_DOC_ABCDEF1234567890ABCDEF1234.pdf"
+    _make_pdf(
+        pdf,
+        [
+            "OGE Form 278-T",
+            "Filer Name: Donald J. Trump",
+            "Filing Date: 02/26/2026",
+        ],
+    )
+
+    ingest_oge()
+
+    conn = get_connection()
+    try:
+        assert not is_file_ingested(conn, str(pdf), sha256_file(pdf))
+    finally:
+        conn.close()
     written = list(tmp_path.glob("*.pdf"))
     assert written, "downloader did not write any PDFs"

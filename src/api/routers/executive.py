@@ -20,6 +20,9 @@ from ..repository import (
     _prepare_transactions,
     available_years,
     filter_by_lookback,
+    is_buy_transaction_type,
+    is_exchange_transaction_type,
+    is_sell_transaction_type,
     load_transactions,
 )
 from ..security import require_auth
@@ -112,6 +115,25 @@ def _executive_transactions_frame() -> tuple[pd.DataFrame, str]:
     return frame.loc[mask].copy(), source
 
 
+def _transaction_type_matches(raw: object, target: str) -> bool:
+    """Match a filter token against a raw transaction_type value.
+
+    Accepts display labels (``Buy`` / ``Sell`` / ``Exchange``) as well as
+    House/OGE codes (``P``, ``P (Buy)``, …).
+    """
+    token = target.strip()
+    if not token:
+        return False
+    folded = token.casefold()
+    if folded in ("buy", "purchase"):
+        return is_buy_transaction_type(raw)
+    if folded in ("sell", "sale"):
+        return is_sell_transaction_type(raw)
+    if folded == "exchange":
+        return is_exchange_transaction_type(raw)
+    return str(raw or "").strip().casefold() == folded
+
+
 def _apply_executive_filters(
     frame: pd.DataFrame,
     *,
@@ -131,8 +153,12 @@ def _apply_executive_filters(
             work = work.loc[work["doc_id"].astype(str) == target]
     work = filter_by_lookback(work, lookback=lookback, quarters=quarters)
     if transaction_type:
-        target = transaction_type.strip().casefold()
-        work = work.loc[work["transaction_type"].astype(str).str.casefold() == target]
+        tokens = [t.strip() for t in transaction_type.split(",") if t.strip()]
+        if tokens and "transaction_type" in work.columns:
+            mask = work["transaction_type"].map(
+                lambda raw: any(_transaction_type_matches(raw, tok) for tok in tokens)
+            )
+            work = work.loc[mask]
     if owner_type:
         target = owner_type.strip().casefold()
         work = work.loc[work["owner_type"].astype(str).str.casefold() == target]
@@ -204,7 +230,10 @@ def executive_transactions(
     ),
     transaction_type: str | None = Query(
         None,
-        description="Filter by raw transaction_type (e.g. 'P', 'P (Buy)', 'S').",
+        description=(
+            "Filter by transaction type. Accepts display labels (Buy/Sell/Exchange) "
+            "or raw codes (P, P (Buy), …). Comma-separated for OR of multiple types."
+        ),
     ),
     owner_type: str | None = Query(
         None,

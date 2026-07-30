@@ -16,7 +16,6 @@ from fastapi.responses import StreamingResponse
 from .._home_analytics import (
     aggregate_net_trade_amount,
     net_trade_records,
-    ticker_3d_rows,
     ticker_cumulative_rows,
     ticker_timeline_rows,
     tickers_available,
@@ -286,7 +285,11 @@ def home_summary(
 
     hero = _hero(s)
     # Cap matches the Home "Rows" selector max (25/50/75/100); the client slices.
-    latest = s.filtered.head(100)
+    latest_src = s.filtered
+    sort_cols = [c for c in ("transaction_date", "filing_date") if c in latest_src.columns]
+    if sort_cols:
+        latest_src = latest_src.sort_values(sort_cols, ascending=False, kind="stable", na_position="last")
+    latest = latest_src.head(100)
     return {
         "ready": True,
         "hero": hero,
@@ -335,13 +338,12 @@ def ticker_drilldown(
     s: Slice = Depends(get_slice),
     _user: str = Depends(require_auth),
 ) -> dict[str, Any]:
-    """Per-ticker drill-down rows for timeline, 3D scatter, and cumulative exposure."""
+    """Per-ticker drill-down rows for timeline and cumulative exposure."""
     if not s.ready:
         return {
             "ready": False,
             "ticker": ticker.strip().upper(),
             "ticker_timeline": [],
-            "ticker_3d": [],
             "ticker_cumulative": [],
         }
     t = ticker.strip().upper()
@@ -349,6 +351,5 @@ def ticker_drilldown(
         "ready": True,
         "ticker": t,
         "ticker_timeline": ticker_timeline_rows(s.filtered, t),
-        "ticker_3d": ticker_3d_rows(s.filtered, t),
         "ticker_cumulative": ticker_cumulative_rows(s.filtered, t),
     }

@@ -575,8 +575,11 @@ def openfigi_lookup_batch(assets: list[str], api_key: str, limiter: RateLimiter)
 
 def infer_asset_type(asset: str, ticker: str | None) -> str:
     asset_key = normalize_key(asset)
+    asset_raw = (asset or "").casefold()
     if re.search(r"\b(call|put|option|options)\b", asset_key):
         return "option"
+    if re.search(r"\b(rila|annuity)\b", asset_key) or "[va]" in asset_raw:
+        return "annuity"
     if any(keyword in asset_key for keyword in ("etf", "ishares", "spdr", "invesco", "vanguard", "index fund")):
         return "etf"
     if "fund" in asset_key or "portfolio" in asset_key:

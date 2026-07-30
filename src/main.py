@@ -32,7 +32,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verifica metadata FD House su disco e freshness fd_filings (anni da HOUSE_COVERAGE_MIN_YEAR)",
     )
     sub.add_parser("ingest-senate", help="Ingesta PTR Senate (manuale)")
-    sub.add_parser("ingest-oge", help="Ingesta filing OGE Executive (278-T + 278e) da data/raw/oge/")
+    ingest_oge_p = sub.add_parser(
+        "ingest-oge", help="Ingesta filing OGE Executive (278-T + 278e) da data/raw/oge/"
+    )
+    ingest_oge_p.add_argument(
+        "--force-reparse",
+        action="store_true",
+        help=(
+            "Ri-parsa ogni PDF OGE su disco ignorando la dedup (path, sha256). "
+            "Di default ingest-oge riprocessa solo i PDF nuovi o non ancora ingeriti."
+        ),
+    )
+    ingest_oge_p.add_argument(
+        "--filer",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Nome filer di override (normalmente preso dal registry OGE).",
+    )
     sub.add_parser("ingest-all", help="Esegue ingestione House + Senate + OGE")
 
     dl_oge = sub.add_parser(
@@ -257,7 +274,9 @@ def main() -> None:
         ingest_senate()
     elif args.command == "ingest-oge":
         filer = getattr(args, "filer", None)
-        ingest_oge(filer_name=filer)
+        if getattr(args, "force_reparse", False):
+            os.environ["OGE_INGEST_FORCE_REPARSE_PDFS"] = "1"
+        ingest_oge(filer_name=filer, force_reparse=bool(getattr(args, "force_reparse", False)))
     elif args.command == "ingest-all":
         ingest_house()
         ingest_senate()

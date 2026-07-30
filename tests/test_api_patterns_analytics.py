@@ -244,3 +244,49 @@ def test_score_committee_relevance_overlap():
     cov = committee_relevance_coverage(frame, assignments)
     assert cov["members_mapped"] == 1
     assert cov["sector_coverage_pct"] == 100.0
+
+
+def test_member_committee_relevant_no_same_day_cartesian_dupes():
+    from src.api._patterns_analytics import member_committee_relevant_transactions
+
+    frame = pd.DataFrame(
+        [
+            {
+                "member": "Alice",
+                "chamber": "House",
+                "party": "D",
+                "ticker": "LMT",
+                "sector": "Industrials",
+                "industry": "Aerospace",
+                "transaction_type": "P",
+                "transaction_type_label": "Buy",
+                "transaction_date": pd.Timestamp("2024-06-01"),
+                "amount_low": 1000,
+                "amount_high": 15000,
+                "amount_range_raw": "1k-15k",
+                "issuer_name": "Lockheed",
+                "asset_name_raw": "Lockheed Martin A",
+                "doc_id": "doc-a",
+            },
+            {
+                "member": "Alice",
+                "chamber": "House",
+                "party": "D",
+                "ticker": "LMT",
+                "sector": "Industrials",
+                "industry": "Aerospace",
+                "transaction_type": "S",
+                "transaction_type_label": "Sell",
+                "transaction_date": pd.Timestamp("2024-06-01"),
+                "amount_low": 15001,
+                "amount_high": 50000,
+                "amount_range_raw": "15k-50k",
+                "issuer_name": "Lockheed",
+                "asset_name_raw": "Lockheed Martin B",
+                "doc_id": "doc-b",
+            },
+        ]
+    )
+    assignments = {"alice": ["Armed Services"]}
+    out = member_committee_relevant_transactions(frame, "Alice", assignments, COMMITTEE_SECTOR_MAP)
+    assert len(out) == 2

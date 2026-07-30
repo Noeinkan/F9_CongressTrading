@@ -17,6 +17,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { netTradeCsvUrl, useHomeSummary } from "@/api/home";
 import { useTickerDrilldown } from "@/api/tickerDrilldown";
+import { useTickerPriceOverlay } from "@/api/tickers";
 import type { HomeTransactionRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposure } from "@/components/CumulativeExposure";
@@ -26,10 +27,11 @@ import { MonthlyActivityChart } from "@/components/MonthlyActivityChart";
 import { NetTradeChart } from "@/components/NetTradeChart";
 import { PageState } from "@/components/PageState";
 import { PillStrip } from "@/components/PillStrip";
+import { PriceOverlayChart } from "@/components/PriceOverlayChart";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
-import { Ticker3D } from "@/components/Ticker3D";
 import { TickerTimeline } from "@/components/TickerTimeline";
+import { COPY } from "@/copy";
 import { formatDate, formatDisclosedRange } from "@/utils/format";
 import {
   classifyTransaction,
@@ -109,6 +111,15 @@ function quartersParam(quarters: string[]): string | undefined {
   return quarters.join(",");
 }
 
+/** Deep-link into the Tickers workspace for the same symbol (incl. override). */
+function tickersPageHref(ticker: string, override: string): string {
+  const params = new URLSearchParams();
+  params.set("ticker", ticker);
+  const ov = override.trim().toUpperCase();
+  if (ov) params.set("ticker_override", ov);
+  return `/tickers?${params.toString()}`;
+}
+
 export function Home() {
   const { lookback, quarters } = useFilters();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,6 +151,7 @@ export function Home() {
   const tickerForChart = manualTicker.trim().toUpperCase() || selectedTicker;
 
   const drilldown = useTickerDrilldown(tickerForChart || null, periodParams);
+  const priceOverlay = useTickerPriceOverlay(tickerForChart || null, periodParams);
 
   const setNetView = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -517,13 +529,14 @@ export function Home() {
               <Text c="dimmed">No resolved tickers in the current slice.</Text>
             ) : (
               <Stack gap="md">
-                <Group grow>
+                <Group align="flex-end" wrap="wrap">
                   <Select
                     label="Ticker"
                     data={data.tickers_available}
                     value={selectedTicker || null}
                     onChange={setSelectedTicker}
                     searchable
+                    style={{ flex: 1, minWidth: 160 }}
                     data-testid="home-ticker-select"
                   />
                   <TextInput
@@ -531,22 +544,46 @@ export function Home() {
                     placeholder="e.g. MSFT"
                     value={manualTicker}
                     onChange={(e) => setManualTicker(e.currentTarget.value.toUpperCase())}
+                    style={{ flex: 1, minWidth: 160 }}
                     data-testid="home-ticker-override"
                   />
+                  {tickerForChart ? (
+                    <Button
+                      component={Link}
+                      to={tickersPageHref(tickerForChart, manualTicker)}
+                      variant="light"
+                      data-testid="home-open-tickers"
+                    >
+                      Open on Tickers
+                    </Button>
+                  ) : null}
                 </Group>
                 {tickerForChart ? (
                   <Stack gap="lg">
                     <div>
                       <Title order={5} mb="xs">
-                        Member timeline
+                        Price & trade overlay
                       </Title>
-                      <TickerTimeline rows={drilldown.data?.ticker_timeline ?? []} />
+                      {priceOverlay.data?.ready && priceOverlay.data.bars.length > 0 ? (
+                        <PriceOverlayChart
+                          bars={priceOverlay.data.bars}
+                          trades={priceOverlay.data.trades}
+                          testId="home-price-overlay"
+                        />
+                      ) : (
+                        <Text c="dimmed" data-testid="home-no-polygon">
+                          {COPY.tickers.noPolygon}
+                        </Text>
+                      )}
                     </div>
                     <div>
                       <Title order={5} mb="xs">
-                        3D scatter
+                        Member timeline
                       </Title>
-                      <Ticker3D rows={drilldown.data?.ticker_3d ?? []} />
+                      <Text c="dimmed" size="sm" mb="xs">
+                        Color is buy/sell; bubble size scales with disclosed high amount.
+                      </Text>
+                      <TickerTimeline rows={drilldown.data?.ticker_timeline ?? []} />
                     </div>
                     <div>
                       <Title order={5} mb="xs">

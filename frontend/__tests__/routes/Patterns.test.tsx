@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FilterProvider } from "@/components/FilterContext";
-import { Patterns } from "@/routes/Patterns";
+import { coordinatedOptionKey, Patterns } from "@/routes/Patterns";
 
 const usePatternsSummary = vi.fn();
 const usePatternsCommitteeRelevant = vi.fn();
@@ -98,5 +98,12 @@ describe("Patterns route", () => {
     const slider = screen.getByTestId("patterns-window-slider");
     await user.click(slider);
     expect(usePatternsSummary.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
+  });
+
+  it("resolves coordinated drill-down selection from the option key", () => {
+    const key = coordinatedOptionKey(sample.coordinated[0]!);
+    expect(key).toBe("AAPL · Coordinated buy · 3 members");
+    const row = sample.coordinated.find((r) => coordinatedOptionKey(r) === key);
+    expect(row).toMatchObject({ ticker: "AAPL", pattern: "Coordinated buy", members: 3 });
   });
 });

@@ -91,6 +91,12 @@ def house_ingest_force_reparse_pdfs() -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
+def oge_ingest_force_reparse_pdfs() -> bool:
+    """If true, re-parse every OGE PDF even when already in files_ingested."""
+    v = (os.getenv("OGE_INGEST_FORCE_REPARSE_PDFS") or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
 def house_coverage_min_year() -> int:
     """Primo anno solare incluso in verify-house-coverage (default 2023). Env: HOUSE_COVERAGE_MIN_YEAR."""
     raw = (os.getenv("HOUSE_COVERAGE_MIN_YEAR") or "").strip()

@@ -1,18 +1,25 @@
-"""Review queue route: KPIs, groupbys, and paginated rows.
+"""Review queue route: KPIs, groupbys, paginated rows, and triage mutations.
 
 Reproduces the analytics surface of ``src/dashboard_pages/review.py`` as plain
 JSON. Charts are returned as raw aggregates; the frontend renders them.
+Resolve/dismiss endpoints write back to SQLite ``review_queue`` / ``transactions``.
 """
 from __future__ import annotations
 
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from .._constants import REVIEW_COLUMNS
 from .._format import format_percent
 from ..query import Slice, get_slice
+from ..repository import (
+    accept_review_transaction,
+    dismiss_review_transaction,
+    resolve_review_transaction,
+)
 from ..security import require_auth
 from ..serialize import records
 
@@ -21,6 +28,15 @@ router = APIRouter(prefix="/api/review", tags=["review"])
 _ROW_COLUMNS = list(REVIEW_COLUMNS)
 
 _DATE_COLUMNS = ("filing_date", "transaction_date")
+
+
+class ResolveBody(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=16)
+    apply_to_asset: bool = False
+
+
+class AcceptBody(BaseModel):
+    apply_to_asset: bool = False
 
 
 def _count_group(frame: pd.DataFrame, key: str) -> list[dict[str, Any]]:
@@ -83,6 +99,16 @@ def _rows(review: pd.DataFrame, limit: int, offset: int) -> tuple[list[dict[str,
     return records(page, _ROW_COLUMNS, date_columns=_DATE_COLUMNS), total
 
 
+def _mutation_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, RuntimeError):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/summary")
 def review_summary(
     s: Slice = Depends(get_slice),
@@ -120,3 +146,48 @@ def review_summary(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/items/{transaction_id}/resolve")
+def review_resolve(
+    transaction_id: int,
+    body: ResolveBody,
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Manually assign a ticker and clear the review-queue row."""
+    try:
+        return resolve_review_transaction(
+            transaction_id,
+            ticker=body.ticker,
+            apply_to_asset=body.apply_to_asset,
+        )
+    except (KeyError, ValueError, RuntimeError) as exc:
+        raise _mutation_http_error(exc) from exc
+
+
+@router.post("/items/{transaction_id}/accept")
+def review_accept(
+    transaction_id: int,
+    body: AcceptBody = AcceptBody(),
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Promote the transaction's current ticker to ``exact_match`` and clear the queue row."""
+    try:
+        return accept_review_transaction(
+            transaction_id,
+            apply_to_asset=body.apply_to_asset,
+        )
+    except (KeyError, ValueError, RuntimeError) as exc:
+        raise _mutation_http_error(exc) from exc
+
+
+@router.post("/items/{transaction_id}/dismiss")
+def review_dismiss(
+    transaction_id: int,
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Drop the review-queue row without changing the underlying transaction."""
+    try:
+        return dismiss_review_transaction(transaction_id)
+    except (KeyError, ValueError, RuntimeError) as exc:
+        raise _mutation_http_error(exc) from exc

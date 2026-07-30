@@ -110,6 +110,11 @@ _NON_EQUITY_ASSET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bWater\s+(?:&\s+Wastewater|&)\b", re.I),
     re.compile(r"\bHospital\b", re.I),
     re.compile(r"\bHealth\s+Facilities\b", re.I),
+    # Variable / buffered annuities (RILA, etc.) — often mis-tagged with the
+    # insurer's equity ticker (PRU/PUK) and must not enter equity flow charts.
+    re.compile(r"\bRILA\b", re.I),
+    re.compile(r"\bAnnuity\b", re.I),
+    re.compile(r"\[VA\]", re.I),
 )
 
 

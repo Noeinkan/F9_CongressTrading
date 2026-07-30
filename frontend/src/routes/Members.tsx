@@ -30,7 +30,7 @@ import { SectionIntro } from "@/components/SectionIntro";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
 import { formatCurrency, formatDate, formatSignedPercent, returnColor } from "@/utils/format";
-import { rangeOpacity } from "@/utils/transactions";
+import { rangeOpacity, parseRangeHigh } from "@/utils/transactions";
 import { DirectionBadge } from "@/components/DirectionBadge";
 
 const COMMITTEE_VIEW = "committee_relevance";
@@ -41,17 +41,20 @@ function quartersParam(quarters: string[]): string | undefined {
 }
 
 function activityToTimelineRows(rows: MemberActivityRow[]): TickerTimelineRow[] {
-  return rows.map((r) => ({
-    member: r.ticker,
-    ticker: r.ticker,
-    transaction_date: r.transaction_date,
-    transaction_type: r.transaction_type,
-    txn_type_label: r.transaction_type_label,
-    amount_low: null,
-    amount_high: null,
-    amount_range_raw: r.amount_range_raw,
-    issuer_name: r.issuer_name,
-  }));
+  return rows.map((r) => {
+    const high = parseRangeHigh(r.amount_range_raw);
+    return {
+      member: r.ticker,
+      ticker: r.ticker,
+      transaction_date: r.transaction_date,
+      transaction_type: r.transaction_type,
+      txn_type_label: r.transaction_type_label,
+      amount_low: null,
+      amount_high: high > 0 ? high : null,
+      amount_range_raw: r.amount_range_raw,
+      issuer_name: r.issuer_name,
+    };
+  });
 }
 
 export function Members() {
@@ -313,7 +316,7 @@ export function Members() {
                             </Table.Td>
                           <Table.Td>{formatDate(row.filing_date ?? null)}</Table.Td>
                           <Table.Td
-                            c={returnColor(row.return_pct ?? null)}
+                            c={returnColor(row.est_pnl_usd ?? null)}
                             fw={600}
                             data-testid="members-by-ticker-pnl"
                           >

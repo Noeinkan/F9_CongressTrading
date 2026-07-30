@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DISCLOSED_RANGE_BUCKETS,
   classifyAmountRange,
+  classifyTransaction,
   rangeOpacity,
 } from "@/utils/transactions";
 
@@ -61,5 +62,13 @@ describe("classifyAmountRange", () => {
 
   it("leaves rangeOpacity unchanged for the existing call signature", () => {
     expect(rangeOpacity("$1K – $15K")).toBeLessThan(rangeOpacity("$1M – $5M"));
+  });
+});
+
+describe("classifyTransaction", () => {
+  it("treats Exchange as other, not sell", () => {
+    expect(classifyTransaction("Exchange")).toBe("other");
+    expect(classifyTransaction("Sell")).toBe("sell");
+    expect(classifyTransaction("Buy")).toBe("buy");
   });
 });

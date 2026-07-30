@@ -4,9 +4,45 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..utils import is_non_equity_asset
 from ._format import format_currency_compact, format_cumulative_net_label
 from ._patterns_analytics import signed_trade_notional
 from .repository import transaction_type_display_label
+
+# Asset kinds that are never equity flow even when a ticker was wrongly attached
+# (e.g. Prudential RILA annuities resolved to PRU/PUK).
+_NET_TRADE_EXCLUDED_ASSET_TYPES = frozenset({"annuity", "bond"})
+
+
+def _net_trade_eligible_mask(frame: pd.DataFrame) -> pd.Series:
+    """True for rows that belong on the Home net-trade-by-ticker chart."""
+    if frame.empty:
+        return pd.Series(dtype=bool)
+
+    if "asset_type" in frame.columns:
+        asset_type = frame["asset_type"].fillna("").astype(str).str.strip().str.lower()
+        type_ok = ~asset_type.isin(_NET_TRADE_EXCLUDED_ASSET_TYPES)
+    else:
+        type_ok = pd.Series(True, index=frame.index)
+
+    tickers = (
+        frame["ticker"].fillna("").astype(str)
+        if "ticker" in frame.columns
+        else pd.Series("", index=frame.index)
+    )
+    names = (
+        frame["asset_name_raw"].fillna("").astype(str)
+        if "asset_name_raw" in frame.columns
+        else pd.Series("", index=frame.index)
+    )
+    equity_ok = pd.Series(
+        [
+            not is_non_equity_asset(ticker, name)
+            for ticker, name in zip(tickers, names, strict=True)
+        ],
+        index=frame.index,
+    )
+    return type_ok & equity_ok
 
 
 def aggregate_net_trade_amount(
@@ -15,11 +51,16 @@ def aggregate_net_trade_amount(
     top_n: int = 20,
     group_field: str = "ticker",
 ) -> pd.DataFrame | None:
-    """Per-ticker net signed notional for the current filter slice."""
+    """Per-ticker net signed notional for the current filter slice.
+
+    Excludes annuities, bonds, and other non-equity assets so mis-tagged
+    products (e.g. RILA contracts sitting on an insurer equity ticker) cannot
+    dominate the Home chart.
+    """
     if frame.empty or group_field not in frame.columns:
         return None
 
-    work = frame.copy()
+    work = frame.loc[_net_trade_eligible_mask(frame)].copy()
     if group_field == "ticker":
         work = work[work["ticker"].astype(str).str.strip() != ""]
     if work.empty:
@@ -56,9 +97,13 @@ def aggregate_net_trade_amount(
 
 
 def tickers_available(frame: pd.DataFrame) -> list[str]:
+    """Tickers eligible for the Home net-trade chart / drilldown picker."""
     if frame.empty or "ticker" not in frame.columns:
         return []
-    vals = frame.loc[frame["ticker"].astype(str).str.strip() != "", "ticker"].astype(str).unique()
+    eligible = frame.loc[_net_trade_eligible_mask(frame)]
+    if eligible.empty:
+        return []
+    vals = eligible.loc[eligible["ticker"].astype(str).str.strip() != "", "ticker"].astype(str).unique()
     return sorted(v for v in vals if v)
 
 
@@ -103,29 +148,6 @@ def ticker_timeline_rows(frame: pd.DataFrame, ticker: str) -> list[dict[str, obj
             else:
                 rec[col] = val if not (isinstance(val, float) and pd.isna(val)) else None
         rows.append(rec)
-    return rows
-
-
-def ticker_3d_rows(frame: pd.DataFrame, ticker: str) -> list[dict[str, object]]:
-    sub = _ticker_slice(frame, ticker)
-    if sub.empty:
-        return []
-    sub = sub.copy()
-    sub["txn_type_label"] = sub["transaction_type"].map(transaction_type_display_label)
-    hi = pd.to_numeric(sub["amount_high"], errors="coerce").fillna(0.0)
-    sub["_z"] = np.log10(hi.clip(lower=0.0) + 1.0)
-    rows: list[dict[str, object]] = []
-    for _, row in sub.sort_values(["transaction_date", "member"]).iterrows():
-        rows.append(
-            {
-                "date": pd.Timestamp(row["transaction_date"]).strftime("%Y-%m-%d"),
-                "member": str(row["member"]),
-                "amount_high": float(row["amount_high"]) if pd.notna(row["amount_high"]) else None,
-                "transaction_type": str(row.get("transaction_type", "")),
-                "txn_type_label": str(row["txn_type_label"]),
-                "z": float(row["_z"]),
-            }
-        )
     return rows
 
 

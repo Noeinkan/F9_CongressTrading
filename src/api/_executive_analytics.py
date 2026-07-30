@@ -10,6 +10,12 @@ from typing import Any
 
 import pandas as pd
 
+from .repository import (
+    is_buy_transaction_type,
+    is_exchange_transaction_type,
+    is_sell_transaction_type,
+)
+
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -49,27 +55,30 @@ def compute_executive_summary(transactions_df: pd.DataFrame) -> dict[str, Any]:
         if "member" in transactions_df.columns
         else 0
     )
-    filing_count = (
-        int(transactions_df["filing_type"].astype(str).nunique())
-        if "filing_type" in transactions_df.columns
-        else 0
-    )
-    # If we have a filing_id column we prefer counting distinct filings, so
-    # multiple transactions on the same filing still count as one filing.
-    if "filing_id" in transactions_df.columns:
+    # Prefer distinct filing identifiers. ``doc_id`` is always on the prepared
+    # transaction frame; ``filing_id`` is not in TRANSACTION_COLUMNS.
+    if "doc_id" in transactions_df.columns:
+        docs = transactions_df["doc_id"].astype(str).str.strip()
+        filing_count = int(docs[docs != ""].nunique())
+    elif "filing_id" in transactions_df.columns:
         distinct_filings = transactions_df["filing_id"].astype("Int64").nunique(dropna=True)
-        if distinct_filings and not pd.isna(distinct_filings):
-            filing_count = int(distinct_filings)
+        filing_count = int(distinct_filings) if distinct_filings and not pd.isna(distinct_filings) else 0
+    else:
+        filing_count = (
+            int(transactions_df["filing_type"].astype(str).nunique())
+            if "filing_type" in transactions_df.columns
+            else 0
+        )
     asset_count = (
         int(transactions_df["asset_name_raw"].astype(str).nunique())
         if "asset_name_raw" in transactions_df.columns
         else 0
     )
 
-    tx_type = transactions_df.get("transaction_type", pd.Series([], dtype=object)).astype(str).str.upper()
-    buy_count = int(((tx_type == "P") | tx_type.str.contains("BUY", na=False)).sum())
-    sell_count = int(((tx_type == "S") | tx_type.str.contains("SELL", na=False)).sum())
-    exchange_count = int(((tx_type == "E") | tx_type.str.contains("EXCHANGE", na=False)).sum())
+    tt = transactions_df.get("transaction_type", pd.Series([], dtype=object))
+    buy_count = int(tt.map(is_buy_transaction_type).sum())
+    sell_count = int(tt.map(is_sell_transaction_type).sum())
+    exchange_count = int(tt.map(is_exchange_transaction_type).sum())
 
     amount_high = pd.to_numeric(transactions_df.get("amount_high", 0), errors="coerce").fillna(0.0)
     amount_high_total = float(amount_high.sum())

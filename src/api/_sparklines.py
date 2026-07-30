@@ -73,8 +73,18 @@ def monthly_series(
     if agg.empty:
         return []
 
-    agg = agg.sort_values("month").tail(max_months)
-    vals = [float(v) for v in pd.to_numeric(agg["value"], errors="coerce").fillna(0.0)]
+    agg = agg.sort_values("month")
+    end = agg["month"].max()
+    start = end - pd.DateOffset(months=max_months - 1)
+    full_idx = pd.period_range(start.to_period("M"), end.to_period("M"), freq="M").to_timestamp()
+    filled = (
+        agg.set_index("month")
+        .reindex(full_idx)
+        .fillna(0.0)
+        .rename_axis("month")
+        .reset_index()
+    )
+    vals = [float(v) for v in pd.to_numeric(filled["value"], errors="coerce").fillna(0.0)]
     if len(vals) == 1:
         vals = [vals[0], vals[0]]
     return vals

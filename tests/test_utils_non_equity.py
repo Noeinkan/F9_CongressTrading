@@ -39,6 +39,14 @@ from src.utils import is_non_equity_asset
         # Municipal / water / hospital / school district issues.
         ("EML", "Eastern Municipal Water District Financing Authority, CA, Water & Wastewater Rev", True),
         ("NWWDF", "New York Liberty Development Corporation Revenue Bonds [GS]", True),
+        # Variable / buffered annuities mis-tagged onto insurer equity tickers.
+        (
+            "PRU",
+            "Prudential RILA - 10% Buffer 6-year Alliance Bernstein 500 Plus Index with participation rate [VA]",
+            True,
+        ),
+        ("PUK", "Prudential RILA - 10% Buffer 3-year Alliance Bernstein 500 Plus Index [VA]", True),
+        ("", "Brighthouse Buffered Annuity S&P 500 Trigger Rate [VA]", True),
         # Empty / None inputs.
         ("", "", False),
         ("AAPL", "", False),

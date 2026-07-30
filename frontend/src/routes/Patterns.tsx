@@ -6,7 +6,6 @@ import {
   Stack,
   Table,
   Text,
-  TextInput,
 } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -16,7 +15,7 @@ import {
   usePatternsCoordinatedTransactions,
   usePatternsSummary,
 } from "@/api/patterns";
-import type { PatternsCallPutMonthlyRow } from "@/api/types";
+import type { PatternsCoordinatedRow } from "@/api/types";
 import { CallPutAreaChart } from "@/components/CallPutAreaChart";
 import { CallPutRatioChart } from "@/components/CallPutRatioChart";
 import { ChartCard } from "@/components/ChartCard";
@@ -33,17 +32,9 @@ function quartersParam(quarters: string[]): string | undefined {
   return quarters.join(",");
 }
 
-function filterCallPutByTicker(
-  rows: PatternsCallPutMonthlyRow[],
-  ticker: string,
-  transactions: { ticker?: string; option_side?: string; transaction_date?: string }[] | undefined,
-): PatternsCallPutMonthlyRow[] {
-  if (!ticker.trim() || !transactions?.length) return rows;
-  const needle = ticker.trim().toUpperCase();
-  // Client-side filter: re-aggregate isn't available without raw rows; show empty when filtered
-  // unless we have ticker in monthly data (we don't). Use ratio/monthly as-is when no ticker field.
-  void needle;
-  return rows;
+/** Stable Select option / lookup key for a coordinated pattern row. */
+export function coordinatedOptionKey(row: Pick<PatternsCoordinatedRow, "ticker" | "pattern" | "members">): string {
+  return `${row.ticker} · ${row.pattern} · ${row.members} members`;
 }
 
 export function Patterns() {
@@ -52,7 +43,6 @@ export function Patterns() {
   const [minMembers, setMinMembers] = useState(2);
   const [committeeMember, setCommitteeMember] = useState<string | null>(null);
   const [coordinatedKey, setCoordinatedKey] = useState<string | null>(null);
-  const [callPutTicker, setCallPutTicker] = useState("");
 
   const periodParams = useMemo(
     () => ({ lookback, quarters: quartersParam(quarters) }),
@@ -73,9 +63,7 @@ export function Patterns() {
 
   const coordinatedSelection = useMemo(() => {
     if (!coordinatedKey || !data?.coordinated.length) return null;
-    const row = data.coordinated.find(
-      (r) => `${r.ticker} · ${r.pattern} · ${r.members}` === coordinatedKey,
-    );
+    const row = data.coordinated.find((r) => coordinatedOptionKey(r) === coordinatedKey);
     if (!row) return null;
     return { ticker: row.ticker, pattern: row.pattern, window_days: windowDays };
   }, [coordinatedKey, data?.coordinated, windowDays]);
@@ -85,18 +73,9 @@ export function Patterns() {
   );
 
   const coordinatedOptions = useMemo(
-    () =>
-      (data?.coordinated ?? []).map(
-        (r) => `${r.ticker} · ${r.pattern} · ${r.members} members`,
-      ),
+    () => (data?.coordinated ?? []).map(coordinatedOptionKey),
     [data?.coordinated],
   );
-
-  const filteredCallPutMonthly = useMemo(() => {
-    const rows = data?.call_put.monthly ?? [];
-    if (!callPutTicker.trim()) return rows;
-    return filterCallPutByTicker(rows, callPutTicker, undefined);
-  }, [data?.call_put.monthly, callPutTicker]);
 
   return (
     <PageState isLoading={isLoading} isError={isError} ready={data?.ready ?? false}>
@@ -320,22 +299,6 @@ export function Patterns() {
                 </Text>
               </Stack>
             </SimpleGrid>
-            <TextInput
-              mt="md"
-              label={COPY.patterns.tickerFilter}
-              value={callPutTicker}
-              onChange={(e) => setCallPutTicker(e.currentTarget.value.toUpperCase())}
-              data-testid="patterns-callput-ticker-filter"
-            />
-            {callPutTicker.trim() ? (
-              <Stack gap="xs" mt="md">
-                <Text fw={600}>Filtered: {callPutTicker}</Text>
-                <CallPutAreaChart
-                  rows={filteredCallPutMonthly}
-                  testId="patterns-call-put-filtered"
-                />
-              </Stack>
-            ) : null}
           </ChartCard>
 
           <ChartCard collapsible title={COPY.patterns.volumeSpikes} testId="patterns-volume">

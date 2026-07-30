@@ -3,7 +3,7 @@ export const COPY = {
   review: {
     kicker: "Review Queue",
     title: "Triage unresolved records",
-    copy: "These rows still require manual confirmation or a better asset resolution. Treat this tab as the backlog that determines analysis quality.",
+    copy: "These rows still require manual confirmation or a better asset resolution. Save a ticker, accept a fuzzy match, or dismiss a row to clear the backlog.",
     recordsCard: "Records needing review",
     byReason: "By reason",
     byStatus: "By status",
@@ -11,6 +11,9 @@ export const COPY = {
     statusCaption: "How many review-queue rows per status (open, …).",
     summaryTable: "Summary",
     transactionDetail: "Full transaction detail",
+    actionsCaption:
+      "Save sets the ticker and marks the trade resolved. Accept keeps the current ticker. Dismiss drops the queue row without changing the trade.",
+    applyToAsset: "Apply Save/Accept to all open rows with the same asset name",
   },
   members: {
     kicker: "Members",

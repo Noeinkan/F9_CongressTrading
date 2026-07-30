@@ -13,7 +13,8 @@ Senate use:
   ticker resolution, no review queue entry)
 
 The pipeline marks files in ``files_ingested`` (keyed by SHA-256) so reruns
-are idempotent — the same PDF gets reparsed only when the file changes.
+are idempotent — the same PDF gets reparsed only when the file changes, or
+when ``force_reparse`` / ``OGE_INGEST_FORCE_REPARSE_PDFS=1`` is set.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Iterable
 
-from .config import OGE_RAW_DIR
+from .config import OGE_RAW_DIR, oge_ingest_force_reparse_pdfs
 from .db import (
     get_connection,
     init_db,
@@ -36,7 +37,8 @@ from .db import (
     upsert_issuer,
     upsert_member,
 )
-from .oge_source import TRUMP_OGE_FILINGS, OgeFiling, all_filings, get_filings_for_filer
+from .ocr_pdf import ocr_available
+from .oge_source import TRUMP_OGE_FILINGS, OgeFiling, all_filings
 from .parse_oge import parse_oge_278e_safe, parse_oge_278t_safe
 from .ticker_lookup import resolve_asset
 from .utils import (
@@ -63,12 +65,7 @@ def _iter_oge_pdfs(root: Path) -> Iterable[Path]:
 
 
 def _resolve_source_url_for_pdf(pdf_path: Path) -> str:
-    """Match a local OGE PDF back to its registered URL (best-effort).
-
-    Matches by ``doc_id`` (which we use as the filename) — the OGE downloader
-    saves files as ``<doc_id>.pdf``.  If we can't find a match, returns an
-    empty string so callers don't claim a source we don't have.
-    """
+    """Match a local OGE PDF back to its registered URL (best-effort)."""
     stem = pdf_path.stem.strip().upper()
     if not stem:
         return ""
@@ -94,16 +91,14 @@ def _ingest_one(
     pdf_path: Path,
     *,
     filer_name_override: str | None = None,
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, str | None]:
     """Parse one PDF and write to SQLite.
 
-    Returns ``(form_type, n_transactions, n_holdings)``.
+    Returns ``(form_type, n_transactions, n_holdings, ocr_status)``.
     Raises on form-type detection failure so the caller can log + skip.
     """
     sha = sha256_file(pdf_path)
 
-    # Try 278-T first; if the file is a 278e the detector will raise and
-    # we'll fall through to the 278e parser.  If neither matches we propagate.
     form_type: str | None = None
     header: dict[str, str | None] = {}
     rows: list[dict[str, object]] = []
@@ -112,25 +107,25 @@ def _ingest_one(
         header, rows = parse_oge_278t_safe(pdf_path)
         form_type = "OGE278T"
     except ValueError:
-        # Not a 278-T — try 278e.
         header, rows = parse_oge_278e_safe(pdf_path)
         form_type = "OGE278e"
-    except Exception as exc:
-        # Hard failure (corrupt PDF, timeout, …) — bubble up.
-        raise
 
     if form_type not in {"OGE278T", "OGE278e"}:
         raise ValueError(f"Unknown OGE form type for {pdf_path}: {form_type!r}")
 
-    filer_name = normalize_whitespace(filer_name_override or header.get("filer_name") or "")
+    ocr_status = header.get("ocr_status")
     known = _lookup_known_filing(pdf_path)
-    if known and not filer_name:
-        filer_name = known.filer_name
+
+    # Registry filer name always wins over a bad header parse ("MI Position").
+    filer_name = normalize_whitespace(
+        filer_name_override
+        or (known.filer_name if known else "")
+        or header.get("filer_name")
+        or ""
+    )
     if not filer_name:
         filer_name = "Unknown Executive Filer"
 
-    # Filing metadata: prefer the registry (stable, hand-curated) but fall back
-    # to what the parser extracted.
     filing_date = (
         (known.filing_date if known else "")
         or header.get("filing_date")
@@ -273,29 +268,44 @@ def _ingest_one(
             )
             n_holdings += 1
 
-    mark_file_ingested(conn, str(pdf_path), sha)
-    return form_type, n_transactions, n_holdings
+    # Leave empty 278-T parses retryable when OCR was unavailable — otherwise
+    # the empty filing is stuck forever behind files_ingested.
+    should_mark = True
+    if form_type == "OGE278T" and n_transactions == 0:
+        if ocr_status == "unavailable" or not ocr_available():
+            should_mark = False
+            print(
+                f"  RETRYABLE {pdf_path.name}: 0 transactions and OCR unavailable "
+                f"(install tesseract-ocr + poppler-utils, then re-run ingest-oge).",
+                flush=True,
+            )
+
+    if should_mark:
+        mark_file_ingested(conn, str(pdf_path), sha)
+    return form_type, n_transactions, n_holdings, ocr_status
 
 
 def ingest_oge(
     filer_name: str | None = None,
     cancel_event: threading.Event | None = None,
-    progress_hook: Callable[[str, int, int], None] | None = None,
+    progress_hook: Callable[..., None] | None = None,
+    *,
+    force_reparse: bool = False,
 ) -> None:
     """Ingest every PDF under ``data/raw/oge/`` into the normalized SQLite.
 
     Parameters
     ----------
     filer_name:
-        Optional registry name (e.g. ``"Donald J. Trump"``) used only as a
-        hint for the parsed header.  All PDFs on disk are processed
-        regardless; this just changes what name we record if the PDF
-        header is illegible.
+        Optional registry name hint (normally unused — registry doc_id match
+        supplies the filer name).
     cancel_event:
-        Optional threading.Event observed between PDFs. When set, raises
-        CancelledError so the API background job runner can flip the job
-        status to "cancelled" instead of "succeeded".
+        Optional threading.Event observed between PDFs.
+    force_reparse:
+        When True (or ``OGE_INGEST_FORCE_REPARSE_PDFS=1``), ignore
+        ``files_ingested`` and re-parse every PDF on disk.
     """
+    force = force_reparse or oge_ingest_force_reparse_pdfs()
     OGE_RAW_DIR.mkdir(parents=True, exist_ok=True)
     conn = get_connection()
     init_db(conn)
@@ -310,6 +320,8 @@ def ingest_oge(
             return
 
         print(f"OGE: trovati {len(pdf_paths)} PDF in {OGE_RAW_DIR}; avvio parsing...", flush=True)
+        if force:
+            print("OGE: force_reparse — riparsando ogni PDF anche se gia ingerito.", flush=True)
         if progress_hook is not None:
             progress_hook("Parsing OGE PDFs", 0, len(pdf_paths), unit="PDFs")
 
@@ -318,11 +330,12 @@ def ingest_oge(
         errors: list[tuple[Path, str]] = []
         tx_total = 0
         holdings_total = 0
+        retryable = 0
 
         for pdf_index, pdf_path in enumerate(pdf_paths):
             _check_cancel(cancel_event)
             sha = sha256_file(pdf_path)
-            if is_file_ingested(conn, str(pdf_path), sha):
+            if not force and is_file_ingested(conn, str(pdf_path), sha):
                 skipped += 1
                 if progress_hook is not None:
                     progress_hook(
@@ -333,7 +346,7 @@ def ingest_oge(
                     )
                 continue
             try:
-                form_type, n_tx, n_hold = _ingest_one(
+                form_type, n_tx, n_hold, _ocr_status = _ingest_one(
                     conn,
                     pdf_path,
                     filer_name_override=filer_name,
@@ -341,10 +354,8 @@ def ingest_oge(
             except Exception as exc:  # noqa: BLE001 — surface failures but keep going.
                 errors.append((pdf_path, str(exc)))
                 print(f"  SKIP {pdf_path.name}: {exc}", flush=True)
-                # Still mark as ingested so a broken file doesn't loop forever;
-                # operator can remove the entry from files_ingested if they want
-                # to retry after fixing the parser.
-                mark_file_ingested(conn, str(pdf_path), sha)
+                # Do not mark as ingested on hard failure — leave retryable
+                # (e.g. timeout, missing OCR toolchain mid-parse).
                 if progress_hook is not None:
                     progress_hook(
                         f"OGE {pdf_path.name} (error)",
@@ -353,6 +364,10 @@ def ingest_oge(
                         unit="PDFs",
                     )
                 continue
+
+            if form_type == "OGE278T" and n_tx == 0 and not is_file_ingested(conn, str(pdf_path), sha):
+                retryable += 1
+
             parsed += 1
             tx_total += n_tx
             holdings_total += n_hold
@@ -372,15 +387,13 @@ def ingest_oge(
         summary = (
             f"OGE completato: {parsed} PDF parsati, {skipped} gia ingeriti (skip), "
             f"{tx_total} transazioni, {holdings_total} holdings, "
-            f"{len(errors)} errori."
+            f"{len(errors)} errori, {retryable} retryable (OCR mancante / 0 txn)."
         )
         print(summary, flush=True)
     finally:
         conn.close()
 
 
-# Keep a reference to TRUMP_OGE_FILINGS so static analyzers see it as used;
-# this module is the "registry importer" the CLI expects.
 __all__ = [
     "ingest_oge",
     "TRUMP_OGE_FILINGS",

@@ -1,8 +1,6 @@
 import {
-  Alert,
   Anchor,
   Button,
-  Checkbox,
   Group,
   Pagination,
   Slider,
@@ -20,7 +18,6 @@ import {
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import { useHealth } from "@/api/health";
 import { rawExportCsvUrl, useRawTransactions } from "@/api/raw";
 import type { ColumnMeta, RawParams } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
@@ -67,7 +64,7 @@ function cellContent(
           </Anchor>
         );
       }
-      if (col.key === "type" && typeof value === "string" && value) {
+      if (col.key === "transaction_type_label" && typeof value === "string" && value) {
         return (
           <DirectionBadge
             label={value}
@@ -89,7 +86,6 @@ function cellContent(
 export function Raw() {
   const { lookback, quarters } = useFilters();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [polygonEstimates, setPolygonEstimates] = useState(false);
   const [searchDraft, setSearchDraft] = useState(searchParams.get("search") ?? "");
   const search = searchParams.get("search") ?? "";
 
@@ -119,7 +115,6 @@ export function Raw() {
   );
 
   const { data, isLoading, isError } = useRawTransactions(rawParams);
-  const health = useHealth();
 
   const sorting: SortingState = [{ id: sortColumn, desc: sortOrder === "desc" }];
 
@@ -154,9 +149,6 @@ export function Raw() {
     setSearchParams(next);
   };
 
-  const showPolygonAlert =
-    polygonEstimates && (health.data?.polygon_cache_rows ?? 0) === 0;
-
   return (
     <PageState isLoading={isLoading} isError={isError} ready={data?.ready ?? false}>
       <Stack gap="md" data-testid="raw-page">
@@ -177,12 +169,6 @@ export function Raw() {
                 if (e.key === "Enter") updateParams({ search: searchDraft, page: 1 });
               }}
               data-testid="raw-search"
-            />
-            <Checkbox
-              label="Polygon return estimates"
-              checked={polygonEstimates}
-              onChange={(e) => setPolygonEstimates(e.currentTarget.checked)}
-              data-testid="raw-polygon-toggle"
             />
             <div style={{ minWidth: 200 }}>
               <Text size="sm" fw={500} mb={4}>
@@ -208,14 +194,6 @@ export function Raw() {
             Download CSV
           </Button>
         </Group>
-
-        {showPolygonAlert ? (
-          <Alert color="orange" variant="light" data-testid="raw-polygon-alert">
-            Polygon daily bar cache is empty. Warm it with{" "}
-            <code>python -m src.main warm-polygon-price-cache</code> before enabling return
-            estimates.
-          </Alert>
-        ) : null}
 
         <ChartCard title="Transactions" testId="raw-table-card">
           <Table.ScrollContainer minWidth={900}>
@@ -248,7 +226,10 @@ export function Raw() {
               <Table.Tbody>
                 {table.getRowModel().rows.length ? (
                   table.getRowModel().rows.map((row) => {
-                    const typed = typeof row.original.type === "string" ? row.original.type : "";
+                    const typed =
+                      typeof row.original.transaction_type_label === "string"
+                        ? row.original.transaction_type_label
+                        : "";
                     const tint = directionTint(
                       classifyTransaction(typed),
                       (row.original.amount_range_raw as string | null | undefined) ?? null,

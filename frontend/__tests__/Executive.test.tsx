@@ -86,7 +86,20 @@ const loadedMocks = () => {
     isError: false,
   });
   useExecutiveTransactions.mockReturnValue({
-    data: { rows: [sampleTransaction], total: 1 },
+    data: {
+      rows: [sampleTransaction],
+      total: 1,
+      summary: {
+        ready: true,
+        buy_count: 1,
+        sell_count: 0,
+        exchange_count: 0,
+        amount_high_total: 100000,
+        amount_high_label: "$100.0K",
+      },
+      monthly_timeline: [{ month: "2024-07-01", count: 1 }],
+      by_owner_type: { filer: { count: 1, amount_high_total: 100000, amount_high_label: "$100.0K" } },
+    },
     isLoading: false,
     isError: false,
   });
@@ -144,10 +157,7 @@ describe("Executive route", () => {
     });
     const header = screen.getByTestId("executive-header");
     expect(within(header).getByText("Donald J. Trump")).toBeInTheDocument();
-    // formatDate turns 2024-08-15 into 15/08/2024
     expect(within(header).getByText("15/08/2024")).toBeInTheDocument();
-    // Header shows filing_count (3) and transaction_count (12). formatNumber
-    // pads with two decimals by default, so "3" appears inside "3 filings".
     expect(within(header).getByText(/3 filings/)).toBeInTheDocument();
     expect(within(header).getByText(/12 transactions/)).toBeInTheDocument();
     const link = screen.getByTestId("executive-source-link");
@@ -163,7 +173,6 @@ describe("Executive route", () => {
     expect(rows).toHaveLength(1);
     const table = screen.getByTestId("executive-tx-table");
     expect(within(table).getByText("Apple Inc Common Stock")).toBeInTheDocument();
-    // "Buy" also appears in the MultiSelect dropdown options; assert inside the table.
     expect(within(table).getByText("Buy")).toBeInTheDocument();
     expect(within(table).getByText("AAPL")).toBeInTheDocument();
     expect(within(table).getByText("approved")).toBeInTheDocument();
@@ -180,6 +189,36 @@ describe("Executive route", () => {
     expect(screen.getByTestId("executive-owner-filter")).toBeInTheDocument();
   });
 
+  it("renders holdings table from the holdings API payload", async () => {
+    renderExecutive();
+    await waitFor(() => {
+      expect(screen.getByTestId("executive-holdings-table")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Trump Tower")).toBeInTheDocument();
+    expect(screen.getAllByTestId("executive-holdings-row")).toHaveLength(1);
+  });
+
+  it("keeps All time lookback and passes null lookback to the API", async () => {
+    renderExecutive(["/executive?lookback=all"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("executive-page")).toBeInTheDocument();
+    });
+    const withAll = useExecutiveTransactions.mock.calls.find((call) => {
+      const p = call[0] as { lookback?: number | null } | undefined;
+      return p != null && p.lookback === null;
+    });
+    expect(withAll).toBeTruthy();
+  });
+
+  it("renders monthly activity and owner charts when analytics are present", async () => {
+    renderExecutive();
+    await waitFor(() => {
+      expect(screen.getByTestId("executive-monthly-card")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("executive-owner-card")).toBeInTheDocument();
+    expect(screen.getByTestId("executive-kpi-strip")).toBeInTheDocument();
+  });
+
   it("renders an empty state when the API returns no filers and no filings", async () => {
     emptyMocks();
     renderExecutive();
@@ -190,5 +229,35 @@ describe("Executive route", () => {
       /No Executive filings ingested yet/,
     );
     expect(screen.queryByTestId("executive-tx-table")).not.toBeInTheDocument();
+  });
+
+  it("explains OCR re-ingest when filings exist but transactions are empty", async () => {
+    useExecutiveFilers.mockReturnValue({
+      data: [{ ...sampleFiler, transaction_count: 0 }],
+      isLoading: false,
+      isError: false,
+    });
+    useExecutiveFilings.mockReturnValue({
+      data: [{ ...sampleFiling, transaction_count: 0 }],
+      isLoading: false,
+      isError: false,
+    });
+    useExecutiveHoldings.mockReturnValue({ data: [], isLoading: false, isError: false });
+    useExecutiveTransactions.mockReturnValue({
+      data: {
+        rows: [],
+        total: 0,
+        summary: { ready: false },
+        monthly_timeline: [],
+        by_owner_type: {},
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderExecutive();
+    await waitFor(() => {
+      expect(screen.getByTestId("executive-tx-empty-hint")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("executive-tx-empty-hint")).toHaveTextContent(/force-reparse/);
   });
 });

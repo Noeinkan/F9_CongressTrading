@@ -33,9 +33,11 @@ import type {
   ExecutiveTransactionRow,
 } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
+import { MonthlyActivityChart } from "@/components/MonthlyActivityChart";
 import { PageState } from "@/components/PageState";
+import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
-import { formatDate, formatNumber } from "@/utils/format";
+import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
 import { classifyTransaction, directionColor } from "@/utils/transactions";
 
 const LOOKBACK_OPTIONS = [
@@ -51,7 +53,7 @@ const TRANSACTION_TYPE_OPTIONS = [
 ];
 
 function lookbackValue(raw: string | null): number | null {
-  if (raw == null || raw === "" || raw === "all") return null;
+  if (raw == null || raw === "" || raw === "all" || raw === "0") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -64,15 +66,21 @@ function reviewStatusColor(status: string | undefined): string {
   return "gray";
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
 export function Executive() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
+  // Persist "all" explicitly so clearing the param does not fall back to 1y.
   const lookbackRaw = searchParams.get("lookback") ?? "1";
+  const lookbackSelectValue =
+    lookbackRaw === "" || lookbackRaw === "all" || lookbackRaw === "0" ? "all" : lookbackRaw;
   const filingDocId = searchParams.get("filing_doc_id") ?? "";
   const ownerType = searchParams.get("owner_type") ?? "";
-  const transactionType =
-    selectedTypes.length === 1 ? selectedTypes[0] ?? "" : "";
+  const transactionType = selectedTypes.length > 0 ? selectedTypes.join(",") : "";
 
   const filersQuery = useExecutiveFilers();
   const filingsQuery = useExecutiveFilings();
@@ -95,9 +103,38 @@ export function Executive() {
   const filings = useMemo(() => filingsQuery.data ?? [], [filingsQuery.data]);
   const transactions = transactionsQuery.data?.rows ?? [];
   const totalTransactions = transactionsQuery.data?.total ?? 0;
+  const summary = asRecord(transactionsQuery.data?.summary);
+  const monthlyTimeline = useMemo(() => {
+    const raw = transactionsQuery.data?.monthly_timeline;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((row) => {
+      const r = asRecord(row);
+      const count = Number(r.count ?? r.transactions ?? 0);
+      return {
+        month: typeof r.month === "string" ? r.month : null,
+        transactions: Number.isFinite(count) ? count : 0,
+        amount_low: 0,
+        amount_high: 0,
+      };
+    });
+  }, [transactionsQuery.data?.monthly_timeline]);
+  const ownerBars = useMemo(() => {
+    const byOwner = asRecord(transactionsQuery.data?.by_owner_type);
+    return Object.entries(byOwner)
+      .map(([label, stats]) => {
+        const s = asRecord(stats);
+        return {
+          label,
+          value: Number(s.count ?? 0) || 0,
+        };
+      })
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value);
+  }, [transactionsQuery.data?.by_owner_type]);
 
   const primaryFiler: ExecutiveFiler | undefined = filers[0];
   const latestFiling: ExecutiveFiling | undefined = filings[0];
+  const filingTxTotal = filings.reduce((sum, f) => sum + (f.transaction_count || 0), 0);
 
   const filingOptions = useMemo(
     () =>
@@ -168,7 +205,11 @@ export function Executive() {
         cell: ({ getValue }) => {
           const v = getValue();
           if (typeof v === "string" && v.trim()) {
-            return <Badge variant="light" color="navy" size="sm">{v}</Badge>;
+            return (
+              <Badge variant="light" color="navy" size="sm">
+                {v}
+              </Badge>
+            );
           }
           return <Text c="dimmed">—</Text>;
         },
@@ -223,14 +264,35 @@ export function Executive() {
   const isError =
     filersQuery.isError || filingsQuery.isError || transactionsQuery.isError;
 
-  const holdingsCount = holdingsQuery.data?.length ?? 0;
+  const holdings = useMemo(() => holdingsQuery.data ?? [], [holdingsQuery.data]);
+  const filteredHoldings = useMemo(() => {
+    if (!filingDocId) return holdings;
+    return holdings.filter((h) => String(h.doc_id ?? "") === filingDocId);
+  }, [holdings, filingDocId]);
+  const holdingsCount = holdings.length;
 
-  // Treat the page as "no data" until filings load and we know whether the
-  // backend has anything. If filers/filings are both empty arrays we render a
-  // helpful empty state rather than a broken table.
+  const selectedFiling = useMemo(
+    () => filings.find((f) => f.doc_id === filingDocId) ?? null,
+    [filings, filingDocId],
+  );
+  const selectedIsHoldingsFiling =
+    Boolean(selectedFiling) &&
+    /278e/i.test(String(selectedFiling?.filing_type ?? "")) &&
+    totalTransactions === 0 &&
+    filteredHoldings.length > 0;
+
   const hasLoaded = !filingsQuery.isLoading && !filersQuery.isLoading;
-  const hasNoData =
-    hasLoaded && filers.length === 0 && filings.length === 0;
+  const hasNoData = hasLoaded && filers.length === 0 && filings.length === 0;
+  const hasFilingsButNoTx =
+    hasLoaded && filings.length > 0 && filingTxTotal === 0 && totalTransactions === 0;
+
+  const buyCount = Number(summary.buy_count ?? 0) || 0;
+  const sellCount = Number(summary.sell_count ?? 0) || 0;
+  const exchangeCount = Number(summary.exchange_count ?? 0) || 0;
+  const amountHighLabel =
+    typeof summary.amount_high_label === "string" && summary.amount_high_label
+      ? summary.amount_high_label
+      : formatCurrency(summary.amount_high_total);
 
   return (
     <PageState isLoading={isLoading} isError={isError}>
@@ -307,6 +369,35 @@ export function Executive() {
               </SimpleGrid>
             </Card>
 
+            {totalTransactions > 0 ? (
+              <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md" data-testid="executive-kpi-strip">
+                <Card withBorder radius="md" padding="sm">
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                    Buys
+                  </Text>
+                  <Text fw={700}>{formatNumber(buyCount, 0)}</Text>
+                </Card>
+                <Card withBorder radius="md" padding="sm">
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                    Sells
+                  </Text>
+                  <Text fw={700}>{formatNumber(sellCount, 0)}</Text>
+                </Card>
+                <Card withBorder radius="md" padding="sm">
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                    Exchanges
+                  </Text>
+                  <Text fw={700}>{formatNumber(exchangeCount, 0)}</Text>
+                </Card>
+                <Card withBorder radius="md" padding="sm">
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                    Amount high total
+                  </Text>
+                  <Text fw={700}>{amountHighLabel}</Text>
+                </Card>
+              </SimpleGrid>
+            ) : null}
+
             <ChartCard
               collapsible
               title="Filings"
@@ -375,16 +466,53 @@ export function Executive() {
               )}
             </ChartCard>
 
+            {hasFilingsButNoTx ? (
+              <Card withBorder radius="md" padding="md" data-testid="executive-tx-empty-hint">
+                <Stack gap="xs">
+                  <Title order={5}>Filings found, but no transactions parsed yet</Title>
+                  <Text c="dimmed" size="sm">
+                    These OGE PDFs are often scanned images. Install Tesseract + Poppler, then
+                    re-ingest with force-reparse so the OCR fallback can extract rows:
+                  </Text>
+                  <Text size="sm" style={{ fontFamily: "var(--mantine-font-family-monospace)" }}>
+                    python -m src.main ingest-oge --force-reparse
+                  </Text>
+                </Stack>
+              </Card>
+            ) : null}
+
+            {monthlyTimeline.length > 0 ? (
+              <ChartCard
+                collapsible
+                title="Monthly activity"
+                caption="Transaction counts by month for the active Executive filters."
+                testId="executive-monthly-card"
+              >
+                <MonthlyActivityChart rows={monthlyTimeline} />
+              </ChartCard>
+            ) : null}
+
+            {ownerBars.length > 0 ? (
+              <ChartCard
+                collapsible
+                title="By owner"
+                caption="Who the disclosure attributes each trade to (filer / spouse / dependent / joint)."
+                testId="executive-owner-card"
+              >
+                <RankBars testId="executive-owner-bars" color="#20344a" rows={ownerBars} />
+              </ChartCard>
+            ) : null}
+
             <Group justify="space-between" align="flex-end" wrap="wrap" gap="md">
               <Title order={4}>Transactions</Title>
               <Group gap="md" align="flex-end" wrap="wrap">
                 <Select
                   label="Lookback"
                   data={LOOKBACK_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                  value={lookbackRaw}
+                  value={lookbackSelectValue}
                   onChange={(v) => {
                     if (!v) return;
-                    setParam("lookback", v === "all" ? "" : v);
+                    setParam("lookback", v === "all" ? "all" : v);
                   }}
                   allowDeselect={false}
                   data-testid="executive-lookback"
@@ -417,6 +545,7 @@ export function Executive() {
                     { value: "filer", label: "Filer" },
                     { value: "spouse", label: "Spouse" },
                     { value: "dependent", label: "Dependent" },
+                    { value: "joint", label: "Joint" },
                   ]}
                   value={ownerType || null}
                   onChange={(v) => setParam("owner_type", v ?? "")}
@@ -455,8 +584,12 @@ export function Executive() {
                     ) : (
                       <Table.Tr>
                         <Table.Td colSpan={columns.length || 1}>
-                          <Text c="dimmed" ta="center" py="md">
-                            No transactions match the current filters.
+                          <Text c="dimmed" ta="center" py="md" data-testid="executive-tx-empty">
+                            {selectedIsHoldingsFiling
+                              ? "This filing is an annual holdings report (278e). See holdings below — it has no periodic transactions."
+                              : hasFilingsButNoTx
+                                ? "No transactions parsed from the ingested filings yet."
+                                : "No transactions match the current filters."}
                           </Text>
                         </Table.Td>
                       </Table.Tr>
@@ -469,6 +602,48 @@ export function Executive() {
                 {filingDocId ? " in selected filing" : ""}
               </Text>
             </ChartCard>
+
+            {filteredHoldings.length > 0 ? (
+              <ChartCard
+                collapsible
+                title="Annual holdings (278e)"
+                caption={
+                  filingDocId
+                    ? "Holdings for the selected filing."
+                    : "Latest annual-report asset holdings from OGE Form 278e."
+                }
+                testId="executive-holdings-card"
+              >
+                <Table.ScrollContainer minWidth={700}>
+                  <Table striped highlightOnHover data-testid="executive-holdings-table">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Asset</Table.Th>
+                        <Table.Th>Owner</Table.Th>
+                        <Table.Th>Type</Table.Th>
+                        <Table.Th>Value</Table.Th>
+                        <Table.Th>Filed</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {filteredHoldings.map((h, i) => (
+                        <Table.Tr key={`${h.doc_id ?? ""}-${h.asset_name}-${i}`} data-testid="executive-holdings-row">
+                          <Table.Td>{h.asset_name || "—"}</Table.Td>
+                          <Table.Td>{h.owner_type || "—"}</Table.Td>
+                          <Table.Td>{h.asset_type || "—"}</Table.Td>
+                          <Table.Td>{h.value_range || "—"}</Table.Td>
+                          <Table.Td>{formatDate(h.filing_date ?? null)}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+                <Text size="sm" c="dimmed" mt="sm">
+                  {filteredHoldings.length} holding{filteredHoldings.length === 1 ? "" : "s"}
+                  {filingDocId ? " in selected filing" : ""}
+                </Text>
+              </ChartCard>
+            ) : null}
           </>
         )}
       </Stack>

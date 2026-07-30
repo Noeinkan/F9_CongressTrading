@@ -66,8 +66,8 @@ def _patch_oge(monkeypatch, calls: list[str], *, download_returns: tuple[int, in
             progress_hook("Downloading OGE filings", 1, 1, unit="filings")
         return download_returns
 
-    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None):
-        calls.append("oge_ingest")
+    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None, force_reparse=False):
+        calls.append(f"oge_ingest:force_reparse={force_reparse}")
         if progress_hook is not None:
             progress_hook("Parsing OGE PDFs", 1, 1, unit="PDFs")
 
@@ -123,11 +123,11 @@ def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     assert datetime.now().year in final["result"]["force_years"]
     # OGE is part of the default pipeline now and runs after senate.
     assert any(c.startswith("oge_download") for c in calls)
-    assert "oge_ingest" in calls
-    # OGE download should default to overwrite=False (don't re-hammer the registry).
-    assert "oge_download:overwrite=False" in calls
+    assert "oge_ingest:force_reparse=False" in calls
     # The full order is: download -> house -> senate -> oge_download -> oge_ingest.
-    assert calls.index("senate") < calls.index("oge_download:overwrite=False") < calls.index("oge_ingest")
+    assert calls.index("senate") < calls.index("oge_download:overwrite=False") < calls.index(
+        "oge_ingest:force_reparse=False"
+    )
     # OGE summary recorded on the job state.
     assert final["result"]["oge_download"]["downloaded"] == 0
     assert final["result"]["oge_download"]["already_present"] == 0
@@ -208,6 +208,8 @@ def test_refresh_force_reparse_true_scopes_and_restores_env(monkeypatch):
     assert seen_during_house == ["1"]
     # Env must be restored after the job — no sticky force-reparse.
     assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") != "1"
+    assert os.environ.get("OGE_INGEST_FORCE_REPARSE_PDFS") != "1"
+    assert "oge_ingest:force_reparse=True" in calls
 
     # A subsequent default Refresh must not re-enable the env during ingest.
     seen_during_house.clear()
@@ -373,7 +375,7 @@ def test_job_manager_oge_download_error_does_not_fail_job(monkeypatch):
     def exploding_oge_download(*, filer_name=None, dest_dir=None, min_interval_seconds=None, overwrite=False, progress_hook=None):
         raise RuntimeError("OGE doc_id XYZ returned 404")
 
-    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None):
+    def fake_oge_ingest(filer_name=None, cancel_event=None, progress_hook=None, force_reparse=False):
         calls.append("oge_ingest")
 
     monkeypatch.setattr("src.download_oge.download_oge_filings", exploding_oge_download)
@@ -770,7 +772,7 @@ def test_refresh_restart_while_running(client, monkeypatch):
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
     monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None, progress_hook=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None, force_reparse=False: None)
 
     _login(client)
 
@@ -805,7 +807,7 @@ def test_refresh_cancel_endpoint(client, monkeypatch):
     monkeypatch.setattr("src.ingest_house.ingest_house", slow_house)
     monkeypatch.setattr("src.ingest_senate.ingest_senate", lambda cancel_event=None, progress_hook=None: None)
     monkeypatch.setattr("src.download_oge.download_oge_filings", lambda *a, **k: (0, 0))
-    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None)
+    monkeypatch.setattr("src.ingest_oge.ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None, force_reparse=False: None)
 
     _login(client)
     client.post("/api/admin/refresh-data", json={"restart": True})
@@ -895,7 +897,7 @@ def test_cancel_event_is_passed_to_ingest_callables(monkeypatch):
     monkeypatch.setattr("src.download_oge.download_oge_filings",
                         record("download_oge_filings", lambda *a, **k: (0, 0)))
     monkeypatch.setattr("src.ingest_oge.ingest_oge",
-                        record("ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None: None))
+                        record("ingest_oge", lambda cancel_event=None, filer_name=None, progress_hook=None, force_reparse=False: None))
 
     manager = JobManager()
     manager.start_or_restart()
