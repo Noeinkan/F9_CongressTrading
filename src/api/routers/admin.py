@@ -28,6 +28,15 @@ class RefreshDataRequest(BaseModel):
     skip_oge: bool = False
 
 
+class DeployRequest(BaseModel):
+    # Forwarded to deploy/deploy.sh as SKIP_FRONTEND=1. Useful for backend-only
+    # hotfixes (skip the multi-minute `npm ci && npm run build`).
+    skip_frontend: bool = False
+    # Forwarded as SKIP_RESTART=1. Useful when you want to deploy code but
+    # restart the services yourself (e.g. to drain a load balancer first).
+    skip_restart: bool = False
+
+
 @router.get("/refresh-data/status")
 def refresh_data_status(_user: str = Depends(require_admin)) -> dict[str, object]:
     return job_manager.get_state()
@@ -49,4 +58,28 @@ def refresh_data_start(
 
 @router.post("/refresh-data/cancel")
 def refresh_data_cancel(_user: str = Depends(require_admin)) -> dict[str, object]:
+    return job_manager.cancel()
+
+
+@router.get("/deploy/status")
+def deploy_status(_user: str = Depends(require_admin)) -> dict[str, object]:
+    # Same snapshot shape as refresh-data — single-slot job manager, so the
+    # status endpoint is shared; clients can branch on result.scope.
+    return job_manager.get_state()
+
+
+@router.post("/deploy")
+def deploy_start(
+    payload: DeployRequest | None = None,
+    _user: str = Depends(require_admin),
+) -> dict[str, object]:
+    payload = payload or DeployRequest()
+    return job_manager.start_or_restart_deploy(
+        skip_frontend=payload.skip_frontend,
+        skip_restart=payload.skip_restart,
+    )
+
+
+@router.post("/deploy/cancel")
+def deploy_cancel(_user: str = Depends(require_admin)) -> dict[str, object]:
     return job_manager.cancel()

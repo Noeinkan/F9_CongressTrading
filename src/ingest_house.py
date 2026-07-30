@@ -843,9 +843,13 @@ def _process_pdf_batch(
     pdf_paths: list[Path],
     fd_lookup: dict[str, dict[str, str | None]],
     start_index: int,
-    total_pdfs: int,
+    total_pending: int,
 ) -> tuple[int, int]:
     """Parse a chunk of PDFs (parallel, in a process pool) and persist their transactions.
+
+    ``start_index`` / ``total_pending`` are 0-based offset and count within the
+    *pending* queue (new/changed PDFs only), not the full on-disk corpus — so
+    logs read ``PDF 1/3`` instead of ``PDF 1131/1690`` on an incremental Refresh.
 
     Returns ``(parsed_count, persisted_count)``. Each call to this function ends with a single
     explicit ``conn.commit()`` so a crash mid-run keeps the dashboard up-to-date with everything
@@ -870,7 +874,7 @@ def _process_pdf_batch(
                 header, rows = future.result()
             except Exception as exc:
                 print(
-                    f"  ✗ PDF {start_index + idx + 1}/{total_pdfs}: {pdf_path.name} — errore: {exc}",
+                    f"  ✗ PDF {start_index + idx + 1}/{total_pending}: {pdf_path.name} — errore: {exc}",
                     flush=True,
                 )
                 continue
@@ -900,7 +904,7 @@ def _process_pdf_batch(
         _filing_hint = header.get("filing_date") or _fd_hint.get("filing_date") or "?"
         _txn_count = len([r for r in rows if (r.get("asset") or "").strip()])
         print(
-            f"  PDF {start_index + pdf_paths.index(pdf_path) + 1}/{total_pdfs}: {pdf_path.name} | "
+            f"  PDF {start_index + pdf_paths.index(pdf_path) + 1}/{total_pending}: {pdf_path.name} | "
             f"{member} | filed {_filing_hint} | {_txn_count} txn",
             flush=True,
         )
@@ -1156,16 +1160,19 @@ def ingest_house(
     persisted_count = 0
 
     # Pre-filter: only PDFs that need parsing get queued. With FORCE_REPARSE_PDFS set, all of them
-    # are queued; without it, anything already in files_ingested (matching sha) is skipped.
-    pending: list[tuple[int, Path]] = []
-    for pdf_index, pdf_path in enumerate(ptr_paths):
-        sha = sha256_file(pdf_path)
-        if not house_ingest_force_reparse_pdfs() and is_file_ingested(conn, str(pdf_path), sha):
+    # are queued; without it, anything already in files_ingested (by path) is skipped without
+    # hashing — Refresh is "new since last scrape", not a content-diff of every PDF on disk.
+    pending: list[Path] = []
+    for pdf_path in ptr_paths:
+        if not house_ingest_force_reparse_pdfs() and is_file_ingested(conn, str(pdf_path), None):
             skipped += 1
             continue
-        pending.append((pdf_index, pdf_path))
-    if skipped:
-        print(f"Skip {skipped} PDF gia ingeriti (HOUSE_INGEST_FORCE_REPARSE_PDFS non attivo).", flush=True)
+        pending.append(pdf_path)
+    print(
+        f"Da processare: {len(pending)} nuovi/changed; skip {skipped} gia ingeriti "
+        f"(su {total_pdfs} su disco).",
+        flush=True,
+    )
 
     if not pending:
         print("Nessun PDF da processare.", flush=True)
@@ -1180,16 +1187,14 @@ def ingest_house(
             # bail out before submitting the next batch so the job ends within
             # at most one chunk's worth of latency after the user clicks Cancel.
             _check_cancel(cancel_event)
-            batch = pending[batch_start : batch_start + chunk]
-            batch_paths = [p for _idx, p in batch]
-            batch_start_index = batch[0][0]
+            batch_paths = pending[batch_start : batch_start + chunk]
             t0 = time.time()
             batch_parsed, batch_persisted = _process_pdf_batch(
                 conn,
                 batch_paths,
                 fd_lookup,
-                batch_start_index,
-                total_pdfs,
+                batch_start,
+                len(pending),
             )
             parsed_count += batch_parsed
             persisted_count += batch_persisted

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -29,6 +30,20 @@ def fd_bulk_extract_dir(year: int) -> Path:
     return HOUSE_RAW_DIR / f"{year}FD"
 
 
+def house_fd_refresh_force_years(now: datetime | None = None) -> set[int]:
+    """Years whose FD bulk zip should be re-fetched even when overwrite=False.
+
+    Always includes the current calendar year so Refresh discovers new FilingType=P
+    rows. In January–February also includes the previous year (Clerk bulk for Y-1
+    can still change early in Y).
+    """
+    now = now or datetime.now()
+    years = {now.year}
+    if now.month <= 2 and now.year - 1 >= START_YEAR:
+        years.add(now.year - 1)
+    return years
+
+
 def _download_zip(url: str, dest: Path, *, headers: dict[str, str]) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     with requests.get(url, headers=headers, stream=True, timeout=120) as resp:
@@ -50,6 +65,7 @@ def download_house_fd_bulk(
     overwrite: bool = False,
     extract: bool = True,
     force_extract: bool = False,
+    force_years: Iterable[int] | None = None,
     cancel_event: threading.Event | None = None,
     progress_hook: Callable[[str, int, int], None] | None = None,
 ) -> list[int]:
@@ -62,6 +78,7 @@ def download_house_fd_bulk(
     - overwrite=True: riscarica lo zip anche se esiste gia localmente. Forza inoltre la re-estrazione
       completa dei file top-level (equivalente a force_extract=True) perche l'utente ha esplicitamente
       chiesto di rinfrescare.
+    - force_years: anni da riscaricare anche se overwrite=False (usato dal Refresh per l'anno corrente).
     - force_extract=True: dopo l'estrazione, wipe completo dei file top-level dello zip nella dest_dir
       e ri-estrai. Sicuro ma piu lento: utile quando i metadata locali sembrano allineati ma in realta
       sono vecchi (succede se la detection basata sulla dimensione del TXT matcha con la dimensione di
@@ -72,11 +89,7 @@ def download_house_fd_bulk(
     ensure_dirs([HOUSE_RAW_DIR])
     headers = {"User-Agent": USER_AGENT}
     completed: list[int] = []
-
-    # Quando l'utente chiede overwrite=True, vogliamo garantire che i TXT/XML sul disco siano
-    # effettivamente aggiornati: zipfile.extractall su Windows a volte non sovrascrive file aperti
-    # da altri processi, quindi forziamo la cancellazione + re-estrazione. Costo: ~ms.
-    effective_force_extract = bool(force_extract or overwrite)
+    force_year_set = {int(y) for y in (force_years or ())}
 
     sorted_years = sorted(set(years))
     total_years = len(sorted_years)
@@ -99,24 +112,32 @@ def download_house_fd_bulk(
         dest_dir = fd_bulk_extract_dir(year)
         dest_txt = dest_dir / f"{year}FD.txt"
 
+        # Per-year overwrite: global flag, or this year is in the incremental refresh set.
+        year_overwrite = bool(overwrite or year in force_year_set)
+        # When l'utente chiede overwrite (o force_years), i TXT/XML sul disco devono
+        # aggiornarsi: zipfile.extractall su Windows a volte non sovrascrive, quindi
+        # forziamo wipe + re-estrazione. Costo: ~ms.
+        year_force_extract = bool(force_extract or year_overwrite)
+
         stale_vs_zip = (
             extract
             and dest_zip.exists()
             and house_fd_bulk_zip_needs_extract(dest_zip, dest_dir)
         )
 
-        if stale_vs_zip and not overwrite:
+        if stale_vs_zip and not year_overwrite:
             print(
                 f"House FD {year}: metadata su disco non coincide con {dest_zip.name}; "
                 f"ri-estraggo senza riscaricare."
             )
-            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=effective_force_extract)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=year_force_extract)
             print(f"Estratto in {dest_dir}")
             completed.append(year)
             _report_year_progress()
             continue
 
-        if effective_force_extract and extract and dest_zip.exists():
+        # force_extract alone (no overwrite): wipe + re-extract existing zip, no re-download.
+        if year_force_extract and not year_overwrite and extract and dest_zip.exists():
             print(f"House FD {year}: force_extract attivo, wipe + re-estrazione di {dest_dir}.")
             extract_house_fd_bulk_zip(dest_zip, dest_dir, force=True)
             print(f"Estratto in {dest_dir}")
@@ -124,12 +145,12 @@ def download_house_fd_bulk(
             _report_year_progress()
             continue
 
-        if not overwrite and dest_txt.exists() and dest_zip.exists() and not stale_vs_zip:
+        if not year_overwrite and dest_txt.exists() and dest_zip.exists() and not stale_vs_zip:
             print(f"Salto {year}: presente {dest_txt} e allineato allo zip")
             _report_year_progress()
             continue
 
-        need_download = overwrite or not dest_zip.exists()
+        need_download = year_overwrite or not dest_zip.exists()
         if need_download:
             try:
                 print(f"Scarico {year} da {url}")
@@ -150,7 +171,7 @@ def download_house_fd_bulk(
             print(f"Uso zip esistente per {year}: {dest_zip}")
 
         if extract:
-            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=effective_force_extract)
+            extract_house_fd_bulk_zip(dest_zip, dest_dir, force=year_force_extract)
             print(f"Estratto in {dest_dir}")
 
         completed.append(year)

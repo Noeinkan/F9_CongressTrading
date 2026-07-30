@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 from collections import deque
@@ -258,13 +259,11 @@ def run_ingest_all(
 ) -> None:
     """Download House FD metadata, then run House + Senate + OGE ingest.
 
-    force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the ingest
-    subprocess so every PDF is re-parsed even if its sha256 is already in
-    ingested_files. OFF by default — a normal "Refresh data" only ingests
-    PDFs that are new or whose sha256 changed (the dedup table already covers
-    that). Enable it explicitly (CLI flag / explicit job option) when you
-    want parser/ticker/date fixes to be re-applied to every PDF on disk
-    without manually clearing the dedup table.
+    force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the duration of
+    this job so every PDF is re-parsed even if already in files_ingested. OFF by
+    default — a normal "Refresh data" only ingests PDFs that are new (path not
+    yet in the dedup table). The env var is scoped with try/finally so a prior
+    force_reparse cannot leak into later Refresh runs in the same process.
     overwrite=True: riscarica gli zip FD dal Clerk anche se gia presenti.
     force_extract=True: dopo l'estrazione, wipe + re-estrazione completa delle dir FD House
     (sicurezza contro metadata locali vecchi non rilevati dal check basato sulla dimensione).
@@ -274,11 +273,21 @@ def run_ingest_all(
     original_stdout = sys.stdout
     tee = _TeeStdout(original_stdout, state.log_lines)
     sys.stdout = tee
+    # Scope HOUSE_INGEST_FORCE_REPARSE_PDFS to this job so a previous
+    # force_reparse=True (or a stale process env) cannot make every later
+    # Refresh re-parse all ~1690 PDFs on disk.
+    _force_reparse_env_key = "HOUSE_INGEST_FORCE_REPARSE_PDFS"
+    _prev_force_reparse_env = os.environ.get(_force_reparse_env_key)
     try:
         from datetime import datetime
 
         from ..config import START_YEAR
-        from ..download_house_fd import download_house_fd_bulk
+        from ..download_house_fd import download_house_fd_bulk, house_fd_refresh_force_years
+
+        if force_reparse:
+            os.environ[_force_reparse_env_key] = "1"
+        else:
+            os.environ.pop(_force_reparse_env_key, None)
 
         phase_total = len(_PIPELINE_PHASES)
         _begin_phase(
@@ -291,7 +300,11 @@ def run_ingest_all(
         )
         _check_cancel(cancel_event)
 
-        years = list(range(START_YEAR, datetime.now().year + 1))
+        now = datetime.now()
+        years = list(range(START_YEAR, now.year + 1))
+        # Even with overwrite=False, always re-fetch the current-year catalog
+        # (and Y-1 early in the year) so new PTR filings are discovered.
+        force_years = set() if overwrite else house_fd_refresh_force_years(now)
         fd_hook = _make_progress_hook(
             state,
             phase="download-house-fd",
@@ -301,11 +314,17 @@ def run_ingest_all(
             progress_start=0,
             progress_span=15,
         )
+        if force_years:
+            print(
+                f"House FD incremental refresh: force re-download years {sorted(force_years)} "
+                f"(historical years skip if already on disk)."
+            )
         completed_years = download_house_fd_bulk(
             years,
             overwrite=overwrite,
             extract=True,
             force_extract=force_extract,
+            force_years=force_years,
             cancel_event=cancel_event,
             progress_hook=fd_hook,
         )
@@ -331,6 +350,7 @@ def run_ingest_all(
             "force_reparse": force_reparse,
             "overwrite": overwrite,
             "force_extract": force_extract,
+            "force_years": sorted(force_years),
             "skip_senate": skip_senate,
             "house_fd_rows_total": total_rows,
             "house_fd_rows_ptr": total_ptr,
@@ -353,9 +373,7 @@ def run_ingest_all(
         if force_reparse:
             # Opt-in only: re-parse every PDF on disk and update transactions
             # via ON CONFLICT upsert. The default Refresh flow relies on the
-            # (path, sha256) dedup so it only touches new/changed PDFs and
-            # therefore stays cheap when nothing changed since last run.
-            os.environ["HOUSE_INGEST_FORCE_REPARSE_PDFS"] = "1"
+            # files_ingested path dedup so it only touches new PDFs.
             print("ingest-house: HOUSE_INGEST_FORCE_REPARSE_PDFS=1 — re-parsing every PDF on disk.")
 
         house_hook = _make_progress_hook(
@@ -505,6 +523,107 @@ def run_ingest_all(
         state.eta_seconds = None
         state.result["scope"] = "ingest-all"
     finally:
+        if _prev_force_reparse_env is None:
+            os.environ.pop(_force_reparse_env_key, None)
+        else:
+            os.environ[_force_reparse_env_key] = _prev_force_reparse_env
+        sys.stdout = original_stdout
+        tee.flush()
+
+
+def run_deploy(
+    state: JobState,
+    cancel_event: threading.Event,
+    *,
+    skip_frontend: bool = False,
+    skip_restart: bool = False,
+) -> None:
+    """Run deploy/deploy.sh in BASE_DIR and stream output into the job log.
+
+    Used by the admin /deploy endpoint so a deploy can be triggered from any
+    client that can reach the API over HTTPS (no SSH required). The script
+    does git pull --ff-only, pip install, npm ci + npm run build, and a
+    systemctl restart of the api/web services when systemd is present.
+
+    skip_frontend / skip_restart are forwarded to the script as env vars
+    (SKIP_FRONTEND=1, SKIP_RESTART=1) so the script's own logic stays the
+    single source of truth for the deploy steps.
+    """
+    from ..config import BASE_DIR
+
+    script = BASE_DIR / "deploy" / "deploy.sh"
+    if not script.is_file():
+        raise FileNotFoundError(f"deploy script missing: {script}")
+
+    env = os.environ.copy()
+    if skip_frontend:
+        env["SKIP_FRONTEND"] = "1"
+    if skip_restart:
+        env["SKIP_RESTART"] = "1"
+
+    original_stdout = sys.stdout
+    tee = _TeeStdout(original_stdout, state.log_lines)
+    sys.stdout = tee
+    try:
+        print(f"Running deploy: bash {script.relative_to(BASE_DIR)} (cwd={BASE_DIR})")
+        if skip_frontend:
+            print("SKIP_FRONTEND=1 — frontend will not be rebuilt")
+        if skip_restart:
+            print("SKIP_RESTART=1 — services will not be restarted")
+
+        _begin_phase(
+            state,
+            phase="deploy",
+            phase_label="Running deploy.sh",
+            phase_index=0,
+            phase_total=1,
+            progress_start=0,
+        )
+        _check_cancel(cancel_event)
+
+        proc = subprocess.Popen(
+            ["bash", str(script)],
+            cwd=str(BASE_DIR),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            # Surface script output through the same tee that mirrors stdout,
+            # so it ends up in the job log and in the FastAPI process logs.
+            sys.stdout.write(line)
+            if cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise CancelledError()
+
+        return_code = proc.wait()
+        if cancel_event.is_set():
+            raise CancelledError()
+
+        state.result = {
+            "scope": "deploy",
+            "return_code": return_code,
+            "skip_frontend": skip_frontend,
+            "skip_restart": skip_restart,
+            "script": str(script.relative_to(BASE_DIR)),
+        }
+        if return_code != 0:
+            raise RuntimeError(f"deploy.sh exited with code {return_code}")
+
+        state.progress = 100
+        state.current_step = "done"
+        state.phase_label = "Deploy complete"
+        state.sub_progress = 100
+        state.eta_seconds = None
+    finally:
         sys.stdout = original_stdout
         tee.flush()
 
@@ -557,6 +676,41 @@ class JobManager:
                 force_extract,
                 skip_senate,
                 skip_oge,
+            )
+            return self._snapshot()
+
+    def start_or_restart_deploy(
+        self,
+        *,
+        skip_frontend: bool = False,
+        skip_restart: bool = False,
+    ) -> dict[str, Any]:
+        """Run deploy/deploy.sh on the VPS, gated by admin auth.
+
+        Same single-slot semantics as start_or_restart: a running job
+        (ingest or deploy) is cancelled before the new one starts.
+        """
+        with self._lock:
+            if self._state.status == "running":
+                self._cancel_event.set()
+            self._cancel_event = threading.Event()
+            cancel_event = self._cancel_event
+            run_id = self._run_id + 1
+            self._run_id = run_id
+            new_state = JobState(
+                status="running",
+                started_at=_utc_now_iso(),
+                current_step="starting",
+                progress=0,
+            )
+            self._state = new_state
+            self._future = self._executor.submit(
+                self._run_wrapper_deploy,
+                run_id,
+                new_state,
+                cancel_event,
+                skip_frontend,
+                skip_restart,
             )
             return self._snapshot()
 
@@ -628,6 +782,41 @@ class JobManager:
                 state.status = "failed"
                 state.finished_at = _utc_now_iso()
                 state.result = {"error": str(exc)}
+                state.log_lines.append(f"ERROR: {exc}")
+
+    def _run_wrapper_deploy(
+        self,
+        run_id: int,
+        state: JobState,
+        cancel_event: threading.Event,
+        skip_frontend: bool = False,
+        skip_restart: bool = False,
+    ) -> None:
+        try:
+            run_deploy(
+                state,
+                cancel_event,
+                skip_frontend=skip_frontend,
+                skip_restart=skip_restart,
+            )
+            with self._lock:
+                if self._run_id != run_id:
+                    return
+                state.status = "cancelled" if cancel_event.is_set() else "succeeded"
+                state.finished_at = _utc_now_iso()
+        except CancelledError:
+            with self._lock:
+                if self._run_id != run_id:
+                    return
+                state.status = "cancelled"
+                state.finished_at = _utc_now_iso()
+        except Exception as exc:
+            with self._lock:
+                if self._run_id != run_id:
+                    return
+                state.status = "failed"
+                state.finished_at = _utc_now_iso()
+                state.result = {"error": str(exc), "scope": "deploy"}
                 state.log_lines.append(f"ERROR: {exc}")
 
 

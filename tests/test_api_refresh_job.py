@@ -23,10 +23,12 @@ def _patch_house_senate(monkeypatch, calls: list[str]) -> None:
         overwrite=False,
         extract=True,
         force_extract=False,
+        force_years=None,
         cancel_event=None,
         progress_hook=None,
     ):
-        calls.append(f"download:{years}:{overwrite}:{force_extract}")
+        fy = sorted(force_years or [])
+        calls.append(f"download:{years}:{overwrite}:{force_extract}:{fy}")
         if progress_hook is not None:
             progress_hook("Downloading House FD metadata", 0, len(years), unit="years")
             for i, _year in enumerate(years):
@@ -112,8 +114,13 @@ def test_job_manager_runs_ingest_all_to_success(monkeypatch):
     assert final["result"]["scope"] == "ingest-all"
     assert "download_years" in final["result"]
     assert calls[0].startswith("download:")
-    # default behaviour: overwrite=False, force_extract=False
-    assert ":False:False" in calls[0]
+    # default behaviour: overwrite=False, force_extract=False; current year is
+    # force-refreshed via force_years so new PTR filings are discovered.
+    assert ":False:False:" in calls[0]
+    assert final["result"]["force_years"]  # at least the current calendar year
+    from datetime import datetime
+
+    assert datetime.now().year in final["result"]["force_years"]
     # OGE is part of the default pipeline now and runs after senate.
     assert any(c.startswith("oge_download") for c in calls)
     assert "oge_ingest" in calls
@@ -153,13 +160,37 @@ def test_refresh_default_skips_force_reparse(monkeypatch):
     assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") != "1"
 
 
-def test_refresh_force_reparse_true_sets_env_var(monkeypatch):
+def test_refresh_force_reparse_true_scopes_and_restores_env(monkeypatch):
     """Opt-in force_reparse=True must set HOUSE_INGEST_FORCE_REPARSE_PDFS=1
-    so the ingest subprocess re-parses every PDF on disk. This covers the
-    branch that previously was the default."""
+    during ingest, then restore the previous env so a later Refresh cannot
+    leak into a full re-parse of every PDF on disk."""
     monkeypatch.delenv("HOUSE_INGEST_FORCE_REPARSE_PDFS", raising=False)
     calls: list[str] = []
-    _patch_house_senate(monkeypatch, calls)
+    seen_during_house: list[str | None] = []
+
+    def fake_download(
+        years,
+        *,
+        overwrite=False,
+        extract=True,
+        force_extract=False,
+        force_years=None,
+        cancel_event=None,
+        progress_hook=None,
+    ):
+        calls.append(f"download:{years}:{overwrite}:{force_extract}:{sorted(force_years or [])}")
+        return years
+
+    def fake_house(cancel_event=None, progress_hook=None) -> None:
+        seen_during_house.append(os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS"))
+        calls.append("house")
+
+    def fake_senate(cancel_event=None, progress_hook=None) -> None:
+        calls.append("senate")
+
+    monkeypatch.setattr("src.download_house_fd.download_house_fd_bulk", fake_download)
+    monkeypatch.setattr("src.ingest_house.ingest_house", fake_house)
+    monkeypatch.setattr("src.ingest_senate.ingest_senate", fake_senate)
     _patch_oge(monkeypatch, calls)
 
     manager = JobManager()
@@ -174,7 +205,59 @@ def test_refresh_force_reparse_true_sets_env_var(monkeypatch):
     final = manager.get_state()
     assert final["status"] == "succeeded"
     assert final["result"]["force_reparse"] is True
-    assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") == "1"
+    assert seen_during_house == ["1"]
+    # Env must be restored after the job — no sticky force-reparse.
+    assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") != "1"
+
+    # A subsequent default Refresh must not re-enable the env during ingest.
+    seen_during_house.clear()
+    manager2 = JobManager()
+    manager2.start_or_restart()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if manager2.get_state()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+    assert manager2.get_state()["status"] == "succeeded"
+    assert seen_during_house == [None]
+    assert os.environ.get("HOUSE_INGEST_FORCE_REPARSE_PDFS") != "1"
+
+
+def test_refresh_forces_current_year_fd_catalog(monkeypatch):
+    """Default Refresh must pass force_years containing the current year so
+    the Clerk catalog is re-fetched even when overwrite=False."""
+    from datetime import datetime
+
+    from src.download_house_fd import house_fd_refresh_force_years
+
+    calls: list[str] = []
+    _patch_house_senate(monkeypatch, calls)
+    _patch_oge(monkeypatch, calls)
+
+    manager = JobManager()
+    manager.start_or_restart()
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if manager.get_state()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.05)
+
+    final = manager.get_state()
+    assert final["status"] == "succeeded"
+    expected = sorted(house_fd_refresh_force_years(datetime.now()))
+    assert final["result"]["force_years"] == expected
+    assert f":{expected}" in calls[0]
+
+
+def test_house_fd_refresh_force_years_includes_prior_early_year():
+    from datetime import datetime
+
+    from src.download_house_fd import house_fd_refresh_force_years
+
+    assert house_fd_refresh_force_years(datetime(2026, 7, 30)) == {2026}
+    assert house_fd_refresh_force_years(datetime(2026, 2, 15)) == {2025, 2026}
+    assert house_fd_refresh_force_years(datetime(2026, 1, 5)) == {2025, 2026}
 
 
 def test_job_manager_propagates_overwrite_true(monkeypatch):
@@ -193,9 +276,10 @@ def test_job_manager_propagates_overwrite_true(monkeypatch):
         time.sleep(0.05)
 
     assert manager.get_state()["status"] == "succeeded"
-    # Fake format: "download:{years}:{overwrite}:{force_extract}" so
-    # overwrite=True, force_extract=False ends as "]:True:False".
-    assert calls and calls[0].endswith(":True:False")
+    # Fake format: "download:{years}:{overwrite}:{force_extract}:{force_years}"
+    # overwrite=True clears force_years (global overwrite covers all years).
+    assert calls and ":True:False:[]" in calls[0]
+    assert manager.get_state()["result"]["force_years"] == []
     assert "oge_download:overwrite=False" in calls
 
 
@@ -216,8 +300,8 @@ def test_job_manager_propagates_force_extract_and_skip_senate(monkeypatch):
 
     final = manager.get_state()
     assert final["status"] == "succeeded"
-    # Fake format ends with the two booleans: "]:{overwrite}:{force_extract}".
-    assert calls[0].endswith(":False:True")
+    # Fake format ends with overwrite:force_extract:force_years.
+    assert ":False:True:" in calls[0]
     assert "house" in calls
     # skip_senate short-circuits the pipeline — OGE must not run.
     assert "oge_download" not in calls
@@ -432,6 +516,210 @@ def test_refresh_status_requires_auth(client):
     assert client.post("/api/admin/refresh-data", json={"restart": True, "skip_senate": True}).status_code == 401
     assert client.post("/api/admin/refresh-data", json={"restart": True, "skip_oge": True}).status_code == 401
     assert client.post("/api/admin/refresh-data/cancel").status_code == 401
+
+
+# --- /api/admin/deploy -----------------------------------------------------
+
+import subprocess as _subprocess  # noqa: E402  (kept local to test file)
+
+
+class _FakePopen:
+    """Minimal Popen double for tests. Configurable via the factory below."""
+
+    instances: list["_FakePopen"] = []
+
+    def __init__(self, *, returncode: int = 0, lines: list[str] | None = None) -> None:
+        self.returncode = returncode
+        self._lines = lines or ["hello from deploy.sh\n"]
+        self.stdout = iter(self._lines)
+        self.terminate_called = False
+        self.kill_called = False
+        self.wait_called = 0
+        self.args: tuple | None = None
+        self.cwd: str | None = None
+        self.env: dict | None = None
+        _FakePopen.instances.append(self)
+
+    def wait(self, timeout=None):  # noqa: ARG002 — Popen signature
+        self.wait_called += 1
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_called = True
+
+    def kill(self) -> None:
+        self.kill_called = True
+
+
+def _patch_popen(monkeypatch, *, returncode: int = 0, lines: list[str] | None = None) -> list[_FakePopen]:
+    """Patch src.api.jobs.subprocess.Popen to return a controllable fake.
+
+    Returns the list of fakes created during the test (so the test can inspect
+    what was passed to Popen).
+    """
+    _FakePopen.instances = []
+
+    def factory(argv, **kwargs):
+        fake = _FakePopen(returncode=returncode, lines=lines)
+        fake.args = tuple(argv)
+        fake.cwd = kwargs.get("cwd")
+        fake.env = kwargs.get("env")
+        return fake
+
+    monkeypatch.setattr("src.api.jobs.subprocess.Popen", factory)
+    return _FakePopen.instances
+
+
+def test_deploy_endpoints_require_auth(client):
+    assert client.get("/api/admin/deploy/status").status_code == 401
+    assert client.post("/api/admin/deploy").status_code == 401
+    assert client.post("/api/admin/deploy", json={"skip_frontend": True}).status_code == 401
+    assert client.post("/api/admin/deploy/cancel").status_code == 401
+
+
+def test_deploy_start_runs_script_and_reports_success(client, monkeypatch):
+    instances = _patch_popen(monkeypatch, returncode=0)
+    _login(client)
+
+    r = client.post("/api/admin/deploy")
+    assert r.status_code == 200
+    snap = r.json()
+    assert snap["status"] in {"running", "succeeded"}
+    for key in (
+        "started_at",
+        "finished_at",
+        "current_step",
+        "progress",
+        "phase_label",
+        "log_tail",
+        "log_lines",
+        "result",
+    ):
+        assert key in snap
+
+    # Wait for completion (the wrapper exits as soon as the fake stdout iter ends).
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/admin/deploy/status").json()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.02)
+
+    final = client.get("/api/admin/deploy/status").json()
+    assert final["status"] == "succeeded"
+    assert final["progress"] == 100
+    assert final["result"]["scope"] == "deploy"
+    assert final["result"]["return_code"] == 0
+    assert final["result"]["skip_frontend"] is False
+    assert final["result"]["skip_restart"] is False
+
+    assert len(instances) == 1
+    assert instances[0].args[0] == "bash"
+    assert str(instances[0].args[1]).replace("\\", "/").endswith("deploy/deploy.sh")
+    assert "SKIP_FRONTEND" not in (instances[0].env or {})
+    assert "SKIP_RESTART" not in (instances[0].env or {})
+
+
+def test_deploy_start_forwards_skip_flags(client, monkeypatch):
+    instances = _patch_popen(monkeypatch, returncode=0)
+    _login(client)
+
+    r = client.post("/api/admin/deploy", json={"skip_frontend": True, "skip_restart": True})
+    assert r.status_code == 200
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/admin/deploy/status").json()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.02)
+
+    assert client.get("/api/admin/deploy/status").json()["status"] == "succeeded"
+    assert len(instances) == 1
+    assert instances[0].env.get("SKIP_FRONTEND") == "1"
+    assert instances[0].env.get("SKIP_RESTART") == "1"
+
+
+def test_deploy_start_fails_when_script_exits_nonzero(client, monkeypatch):
+    _patch_popen(monkeypatch, returncode=2)
+    _login(client)
+
+    r = client.post("/api/admin/deploy")
+    assert r.status_code == 200
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/admin/deploy/status").json()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.02)
+
+    final = client.get("/api/admin/deploy/status").json()
+    assert final["status"] == "failed"
+    assert "exited with code 2" in final["result"]["error"]
+
+
+def test_deploy_cancel_terminates_subprocess(client, monkeypatch):
+    """When the client hits /api/admin/deploy/cancel mid-run, the subprocess
+    must be terminated and the job must end as 'cancelled' (not 'succeeded').
+
+    The fake Popen below mimics the real-world behaviour the production
+    code relies on: terminate() closes the child's stdout, the read loop
+    sees EOF, and the wrapper observes cancel_event.is_set() and raises
+    CancelledError. This is what makes the test exercise the actual
+    cancellation path rather than a busy-wait.
+    """
+    import src.api.jobs as jobs_mod
+
+    # The fake stdout is a generator that yields N lines then terminates,
+    # which is what the wrapper sees after terminate() in real subprocesses
+    # (the OS closes the pipe, EOF arrives, the iterator stops).
+    class _CancellablePopen:
+        def __init__(self, argv, **kwargs):
+            self.args = argv
+            self.env = kwargs.get("env")
+            self.cwd = kwargs.get("cwd")
+            self.terminate_called = False
+            self.kill_called = False
+            self._stop = threading.Event()
+            self._yielded = 0
+
+            def _iter():
+                while not self._stop.is_set():
+                    self._yielded += 1
+                    yield f"line {self._yielded}\n"
+
+            self.stdout = _iter()
+
+        def wait(self, timeout=None):  # noqa: ARG002
+            return -1 if not self._stop.is_set() else 0
+
+        def terminate(self) -> None:
+            self.terminate_called = True
+            # Closing the producer side is what makes the wrapper's
+            # `for line in proc.stdout:` loop exit.
+            self._stop.set()
+
+        def kill(self) -> None:
+            self.kill_called = True
+            self._stop.set()
+
+    blocker = _CancellablePopen([])
+    monkeypatch.setattr(jobs_mod.subprocess, "Popen", lambda argv, **kw: blocker)
+
+    _login(client)
+    client.post("/api/admin/deploy")
+    # Let the wrapper enter its read loop and pull a line or two.
+    time.sleep(0.1)
+    cancel = client.post("/api/admin/deploy/cancel")
+    assert cancel.status_code == 200
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/admin/deploy/status").json()["status"] in {"succeeded", "failed", "cancelled"}:
+            break
+        time.sleep(0.02)
+
+    final = client.get("/api/admin/deploy/status").json()
+    assert final["status"] == "cancelled", final
+    assert blocker.terminate_called is True
 
 
 def test_refresh_start_and_status(client, monkeypatch):

@@ -116,7 +116,7 @@ function SidebarRefreshControls() {
 
   return (
     <Tooltip
-      label="Re-run the full ingest pipeline: pull House FD metadata from the Clerk, re-parse every PDF on disk (force re-parse), then ingest Senate. Use this when the dashboard is missing recent filings or after a parser/ticker update."
+      label="Incremental refresh: re-fetch this year's House FD catalog from the Clerk, download only missing PTR PDFs, and parse only filings not yet ingested. Use this to pick up new disclosures since the last scrape."
       multiline
       w={260}
     >
