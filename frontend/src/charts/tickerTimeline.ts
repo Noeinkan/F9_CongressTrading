@@ -1,12 +1,59 @@
 import type { TickerTimelineRow } from "@/api/types";
 import { formatCurrency } from "@/utils/format";
 
-const TYPE_COLORS: Record<string, string> = {
-  Buy: "#2f6f4e",
-  Sell: "#a64b2a",
-  "Sell (partial)": "#c6922b",
-  Exchange: "#4a6fa5",
-  Unknown: "#64748b",
+/** Visual encoding for each disclosure type — shape + color + plain-language action. */
+type TypeVisual = {
+  color: string;
+  /** ECharts built-in symbol name. */
+  symbol: "triangle" | "diamond" | "circle" | "roundRect";
+  symbolRotate?: number;
+  /** Legend / series label with action cue. */
+  legend: string;
+  /** Short verb for tooltips. */
+  action: string;
+};
+
+const TYPE_VISUAL: Record<string, TypeVisual> = {
+  Buy: {
+    color: "#2f6f4e",
+    symbol: "triangle",
+    legend: "Buy · increased",
+    action: "Bought / increased",
+  },
+  "Sell (partial)": {
+    color: "#c6922b",
+    symbol: "diamond",
+    legend: "Partial sell · reduced",
+    action: "Reduced (partial sell)",
+  },
+  Sell: {
+    color: "#a64b2a",
+    symbol: "triangle",
+    symbolRotate: 180,
+    legend: "Sell · exited",
+    action: "Sold / exited",
+  },
+  Exchange: {
+    color: "#4a6fa5",
+    symbol: "roundRect",
+    legend: "Exchange",
+    action: "Exchanged",
+  },
+  Unknown: {
+    color: "#64748b",
+    symbol: "circle",
+    legend: "Unknown",
+    action: "Unknown type",
+  },
+};
+
+const TYPE_ORDER = ["Buy", "Sell (partial)", "Sell", "Exchange", "Unknown"] as const;
+
+const FALLBACK_VISUAL: TypeVisual = {
+  color: "#64748b",
+  symbol: "circle",
+  legend: "Other",
+  action: "Other",
 };
 
 /** Pixel diameter range for amount-scaled bubbles. */
@@ -40,6 +87,10 @@ function amountHigh(row: TickerTimelineRow): number | null {
   const n = row.amount_high;
   if (n == null || !Number.isFinite(n) || n < 0) return null;
   return n;
+}
+
+function visualFor(type: string): TypeVisual {
+  return TYPE_VISUAL[type] ?? { ...FALLBACK_VISUAL, legend: type, action: type };
 }
 
 /**
@@ -88,6 +139,15 @@ function formatTooltipDate(value: number | string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function orderedTypes(present: Iterable<string>): string[] {
+  const set = new Set(present);
+  const ordered = TYPE_ORDER.filter((t) => set.has(t));
+  for (const t of set) {
+    if (!ordered.includes(t)) ordered.push(t);
+  }
+  return ordered;
+}
+
 export function buildTickerTimelineOption(
   rows: TickerTimelineRow[],
   options?: TimelineChartOptions,
@@ -98,24 +158,36 @@ export function buildTickerTimelineOption(
     options?.yOrder?.length
       ? options.yOrder
       : [...new Set(rows.map((r) => rowCategory(r, yField)))];
-  const types = [...new Set(rows.map((r) => rowTypeLabel(r)))];
-  const series = types.map((type) => ({
-    name: type,
-    type: "scatter",
-    symbolSize: (val: ScatterPoint) => {
-      const amt = val[2];
-      return amountToSymbolSize(Number.isFinite(amt) ? amt : null);
-    },
-    itemStyle: { color: TYPE_COLORS[type] ?? "#64748b", borderColor: "#ffffff", borderWidth: 1 },
-    data: rows
-      .filter((r) => rowTypeLabel(r) === type)
-      .map((r): ScatterPoint => {
-        const amt = amountHigh(r);
-        return [r.transaction_date, rowCategory(r, yField), amt ?? Number.NaN];
-      }),
-  }));
+  const types = orderedTypes(rows.map((r) => rowTypeLabel(r)));
+  const series = types.map((type) => {
+    const visual = visualFor(type);
+    return {
+      // Canonical type id — tooltip reads this for action wording.
+      id: type,
+      name: visual.legend,
+      type: "scatter" as const,
+      symbol: visual.symbol,
+      symbolRotate: visual.symbolRotate ?? 0,
+      cursor: "pointer",
+      symbolSize: (val: ScatterPoint) => {
+        const amt = val[2];
+        return amountToSymbolSize(Number.isFinite(amt) ? amt : null);
+      },
+      itemStyle: {
+        color: visual.color,
+        borderColor: "#ffffff",
+        borderWidth: 1,
+      },
+      data: rows
+        .filter((r) => rowTypeLabel(r) === type)
+        .map((r): ScatterPoint => {
+          const amt = amountHigh(r);
+          return [r.transaction_date, rowCategory(r, yField), amt ?? Number.NaN];
+        }),
+    };
+  });
   return {
-    grid: { left: 140, right: 24, top: 24, bottom: 64, containLabel: false },
+    grid: { left: 140, right: 24, top: 24, bottom: 72, containLabel: false },
     // Time axis: friendly month-year labels, hideOverlap so dense ranges stay
     // legible, faint split lines so the eye can chase a date up to its tick.
     xAxis: {
@@ -163,16 +235,28 @@ export function buildTickerTimelineOption(
         },
       },
     },
-    legend: { bottom: 0 },
-    series: series.map((s) => ({ ...s, cursor: "pointer" })),
+    legend: {
+      bottom: 0,
+      itemWidth: 14,
+      itemHeight: 10,
+      textStyle: { fontSize: 11, color: "#334155" },
+    },
+    series,
     tooltip: {
       trigger: "item",
-      formatter: (p: { seriesName: string; value: ScatterPoint }) => {
+      formatter: (p: { seriesId?: string; seriesName: string; value: ScatterPoint }) => {
         const [date, category, amt] = p.value;
+        const typeKey = p.seriesId || "Unknown";
+        const visual = visualFor(typeKey);
         const amountLine = Number.isFinite(amt)
-          ? `<br/>${formatCurrency(amt)} disclosed (high)`
-          : "";
-        return `${category}<br/>${formatTooltipDate(date)}<br/>${p.seriesName}${amountLine}`;
+          ? `<br/><span style="color:#64748b">Disclosed high:</span> ${formatCurrency(amt)}`
+          : "<br/><span style=\"color:#64748b\">Disclosed high: unknown</span>";
+        return (
+          `<strong>${category}</strong>` +
+          `<br/>${formatTooltipDate(date)}` +
+          `<br/><span style="color:${visual.color};font-weight:600">${visual.action}</span>` +
+          amountLine
+        );
       },
     },
   };
