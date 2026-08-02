@@ -141,7 +141,7 @@ function formatTooltipDate(value: number | string): string {
 
 function orderedTypes(present: Iterable<string>): string[] {
   const set = new Set(present);
-  const ordered = TYPE_ORDER.filter((t) => set.has(t));
+  const ordered: string[] = TYPE_ORDER.filter((t) => set.has(t));
   for (const t of set) {
     if (!ordered.includes(t)) ordered.push(t);
   }
