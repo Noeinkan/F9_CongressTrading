@@ -414,6 +414,55 @@ def test_executive_transactions_filing_doc_id_no_match_returns_empty(client):
     assert data["total_pages"] == 0
 
 
+def test_executive_transactions_hides_undated_ocr_garbage(client, seeded_db):
+    """Undated Yes/No OCR rows must not appear in the Periodic transactions table."""
+    from src.api import repository
+    from src.db import get_connection, insert_transaction
+
+    conn = get_connection()
+    try:
+        filing_id = conn.execute(
+            "SELECT id FROM filings WHERE chamber = 'Executive' AND filing_type = 'OGE278T' LIMIT 1"
+        ).fetchone()[0]
+        insert_transaction(
+            conn,
+            filing_id=filing_id,
+            issuer_id=None,
+            transaction_date=None,
+            owner_type="filer",
+            asset_name_raw="LOWER COLO RIV MITH 5% DUE 05/15135",
+            asset_name_normalized="",
+            asset_type="unknown",
+            ticker="",
+            cusip_or_figi="",
+            transaction_type="1..-",
+            amount_low=None,
+            amount_high=None,
+            amount_range_raw="Yes",
+            confidence_score=0.0,
+            review_status="manual_review",
+            source_page=1,
+            source_row="99",
+            source_hash="ocr-garbage-1",
+        )
+    finally:
+        conn.close()
+
+    repository._cache_transactions = None
+    repository._cache_review = None
+
+    _login(client)
+    r = client.get("/api/executive/transactions?page_size=50")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 3
+    assert all(row.get("transaction_date") for row in data["rows"])
+    assert all(
+        str(row.get("amount_range_raw") or "").casefold().strip() not in {"yes", "no"}
+        for row in data["rows"]
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Holdings
 # --------------------------------------------------------------------------- #

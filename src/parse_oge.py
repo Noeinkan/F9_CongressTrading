@@ -256,6 +256,57 @@ def _normalize_amount_range(value: str) -> str:
     return _clean_cell(repaired)
 
 
+def _asset_looks_like_ocr_garbage(asset: str) -> bool:
+    """True when an asset cell is mostly OCR noise rather than a name."""
+    text = _clean_cell(asset)
+    if len(text) < 3:
+        return True
+    letters = sum(ch.isalpha() for ch in text)
+    if letters < 4:
+        return True
+    # Scanned 278-Ts often yield mojibake / punctuation soups.
+    if letters / len(text) < 0.35:
+        return True
+    weird = sum(1 for ch in text if not ch.isascii() or ch in "~•■▪▫")
+    if weird >= 3 and weird / len(text) > 0.08:
+        return True
+    return False
+
+
+def _amount_looks_plausible(amount: str) -> bool:
+    """True when amount looks like a disclosed dollar range, not Yes/No/noise."""
+    text = _clean_cell(amount)
+    if not text:
+        return False
+    folded = text.casefold().strip(" .\"'")
+    if folded in {"yes", "no", "y", "n", "true", "false"}:
+        return False
+    if _FUZZY_AMOUNT_RE.search(text) or re.search(r"\$\s*[\d,]+", text):
+        return True
+    # Bare ranges like "1001 - 15000" (no $) still count.
+    if re.search(r"\d{3,}\s*[-–—]\s*\$?\d{3,}", text):
+        return True
+    return False
+
+
+def is_usable_278t_row(row: dict[str, object]) -> bool:
+    """Drop undated OCR garbage that would otherwise land in ``transactions``.
+
+    Real 278-T rows always disclose a transaction date and a dollar amount.
+    Scanned filings often emit punctuation soups with Yes/No "amounts" from
+    adjacent form fields — those must not reach the dashboard.
+    """
+    asset = str(row.get("asset") or "")
+    if _asset_looks_like_ocr_garbage(asset):
+        return False
+    if not row.get("transaction_date"):
+        return False
+    amount = str(row.get("amount_range") or "")
+    if not _amount_looks_plausible(amount):
+        return False
+    return True
+
+
 # --------------------------------------------------------------------------- #
 # 278-T parser
 # --------------------------------------------------------------------------- #
@@ -269,8 +320,9 @@ def _parse_278t_table(
 
     header_cells = [repair_ocr_text(_clean_cell(c)) for c in table[0]]
     header_lower = [c.casefold() for c in header_cells]
+    # "Description" alone is the OGE P/S/E type column — never treat it as asset.
     asset_idx = next(
-        (i for i, c in enumerate(header_lower) if "asset" in c or "description" in c),
+        (i for i, c in enumerate(header_lower) if "asset" in c),
         None,
     )
     date_idx = next(
@@ -278,7 +330,13 @@ def _parse_278t_table(
         None,
     )
     type_idx = next(
-        (i for i, c in enumerate(header_lower) if c in {"type", "description"} or "type" in c),
+        (
+            i
+            for i, c in enumerate(header_lower)
+            if c in {"type", "description"}
+            or "transaction type" in c
+            or ("type" in c and "asset" not in c)
+        ),
         None,
     )
     amount_idx = next(
@@ -334,17 +392,17 @@ def _parse_278t_table(
             continue
         tx_type = _normalize_tx_code(code)
         warning = None if transaction_date else "missing_transaction_date"
-        rows.append(
-            {
-                "transaction_date": transaction_date,
-                "asset": asset,
-                "transaction_type": tx_type,
-                "amount_range": amount_range,
-                "owner_type": owner,
-                "source_page": page_number,
-                "parse_warning": warning,
-            }
-        )
+        candidate = {
+            "transaction_date": transaction_date,
+            "asset": asset,
+            "transaction_type": tx_type,
+            "amount_range": amount_range,
+            "owner_type": owner,
+            "source_page": page_number,
+            "parse_warning": warning,
+        }
+        if is_usable_278t_row(candidate):
+            rows.append(candidate)
     return rows
 
 
@@ -386,17 +444,17 @@ def _parse_278t_text(text: str, page_number: int) -> list[dict[str, object]]:
         asset = _clean_cell(match.group("asset"))
         if not asset or asset.casefold() in {"asset", "description"}:
             continue
-        rows.append(
-            {
-                "transaction_date": parse_date(match.group("date")),
-                "asset": asset,
-                "transaction_type": _normalize_tx_code(code),
-                "amount_range": _normalize_amount_range(match.group("amount")),
-                "owner_type": owner,
-                "source_page": page_number,
-                "parse_warning": None,
-            }
-        )
+        candidate = {
+            "transaction_date": parse_date(match.group("date")),
+            "asset": asset,
+            "transaction_type": _normalize_tx_code(code),
+            "amount_range": _normalize_amount_range(match.group("amount")),
+            "owner_type": owner,
+            "source_page": page_number,
+            "parse_warning": None,
+        }
+        if is_usable_278t_row(candidate):
+            rows.append(candidate)
     return rows
 
 

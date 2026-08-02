@@ -39,7 +39,7 @@ import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerLink } from "@/components/TickerLink";
 import { COPY } from "@/copy";
-import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
+import { formatCount, formatCurrency, formatDate, formatNumber } from "@/utils/format";
 import { classifyTransaction, directionColor } from "@/utils/transactions";
 
 const LOOKBACK_OPTIONS = [
@@ -372,7 +372,7 @@ export function Executive() {
                   <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
                     Total transactions
                   </Text>
-                  <Text fw={600}>{formatNumber(totalTransactions)}</Text>
+                  <Text fw={600}>{formatCount(totalTransactions)}</Text>
                   <Text size="xs" c="dimmed">
                     Latest holdings: {holdingsCount}
                   </Text>
@@ -462,7 +462,7 @@ export function Executive() {
                           >
                             <Table.Td>{formatDate(f.filing_date)}</Table.Td>
                             <Table.Td>{f.filing_type || "—"}</Table.Td>
-                            <Table.Td>{formatNumber(f.transaction_count)}</Table.Td>
+                            <Table.Td>{formatCount(f.transaction_count)}</Table.Td>
                             <Table.Td>
                               {f.source_url ? (
                                 <Anchor
@@ -628,7 +628,7 @@ export function Executive() {
                 </Table>
               </Table.ScrollContainer>
               <Text size="sm" c="dimmed" mt="sm" data-testid="executive-tx-total">
-                {formatNumber(totalTransactions)} transactions
+                {formatCount(totalTransactions)} transactions
                 {filingDocId ? " in selected filing" : ""}
               </Text>
             </ChartCard>

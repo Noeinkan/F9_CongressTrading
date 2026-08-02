@@ -147,6 +147,36 @@ def test_parse_unknown_form_raises(tmp_path: Path) -> None:
         parse_oge_278e(pdf)
 
 
+def test_is_usable_278t_row_rejects_ocr_garbage() -> None:
+    """Undated Yes/No / mojibake rows must not count as trades."""
+    from src.parse_oge import is_usable_278t_row
+
+    assert is_usable_278t_row(
+        {
+            "asset": "KEYCORP DP SH PFD",
+            "transaction_date": "2025-11-14",
+            "amount_range": "$50,001-$100,000",
+            "transaction_type": "P (Buy)",
+        }
+    )
+    assert not is_usable_278t_row(
+        {
+            "asset": "LOWER COLO RIV MITH 5% DUE 05/15135",
+            "transaction_date": None,
+            "amount_range": "Yes",
+            "transaction_type": "1..-",
+        }
+    )
+    assert not is_usable_278t_row(
+        {
+            "asset": ".. i'M \"\"'ij~• i ~ 11 ~\"J-· -f il!~;t.'",
+            "transaction_date": None,
+            "amount_range": "0",
+            "transaction_type": ", -~ ..... ourdi■se",
+        }
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Ingest integration tests (in-memory DB)
 # --------------------------------------------------------------------------- #

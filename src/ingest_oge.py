@@ -39,7 +39,7 @@ from .db import (
 )
 from .ocr_pdf import ocr_available
 from .oge_source import TRUMP_OGE_FILINGS, OgeFiling, all_filings
-from .parse_oge import parse_oge_278e_safe, parse_oge_278t_safe
+from .parse_oge import is_usable_278t_row, parse_oge_278e_safe, parse_oge_278t_safe
 from .ticker_lookup import resolve_asset
 from .utils import (
     make_transaction_source_hash,
@@ -154,6 +154,9 @@ def _ingest_one(
         for index, row in enumerate(rows):
             asset = normalize_whitespace(str(row.get("asset") or ""))
             if not asset:
+                continue
+            # Defense in depth: skip OCR garbage even if an older parser emitted it.
+            if not is_usable_278t_row(row if isinstance(row, dict) else dict(row)):
                 continue
             transaction_date = row.get("transaction_date")
             amount_range = normalize_whitespace(str(row.get("amount_range") or ""))

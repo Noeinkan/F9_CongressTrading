@@ -73,6 +73,7 @@ JOIN members m ON m.id = f.member_id
 LEFT JOIN (
     SELECT filing_id, COUNT(*) AS cnt
     FROM transactions
+    WHERE transaction_date IS NOT NULL AND TRIM(transaction_date) != ''
     GROUP BY filing_id
 ) t ON t.filing_id = f.id
 WHERE f.chamber = 'Executive'
@@ -92,6 +93,7 @@ LEFT JOIN filings f ON f.member_id = m.id AND f.chamber = 'Executive'
 LEFT JOIN (
     SELECT filing_id, COUNT(*) AS cnt
     FROM transactions
+    WHERE transaction_date IS NOT NULL AND TRIM(transaction_date) != ''
     GROUP BY filing_id
 ) t ON t.filing_id = f.id
 WHERE m.chamber = 'Executive'
@@ -305,6 +307,24 @@ def executive_transactions(
         if column not in filtered.columns:
             filtered[column] = pd.NA
     prepared = _prepare_transactions(filtered)
+    # Hide undated OCR garbage (Yes/No amounts, mojibake assets) that survives
+    # the "all years selected" period-filter short-circuit.
+    prepared = _executive_analytics.filter_usable_executive_transactions(prepared)
+
+    if prepared.empty:
+        return {
+            "ready": False,
+            "transaction_source": source,
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 0,
+            "rows": [],
+            "summary": _executive_analytics.compute_executive_summary(prepared),
+            "monthly_timeline": [],
+            "by_owner_type": {},
+            "years_available": years_all,
+        }
 
     sorted_frame = prepared.sort_values(
         ["transaction_date", "filing_date"],

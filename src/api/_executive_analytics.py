@@ -6,6 +6,7 @@ loaded via :func:`src.api.repository._prepare_transactions`. Mirrors the
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pandas as pd
@@ -16,6 +17,45 @@ from .repository import (
     is_exchange_transaction_type,
     is_sell_transaction_type,
 )
+
+# Amount cells that mean the OCR grabbed a Yes/No form field, not $.
+_NON_AMOUNT_TOKENS = frozenset({"yes", "no", "y", "n", "true", "false"})
+_DOLLAR_AMOUNT_RE = re.compile(r"\$\s*[\d,]+")
+
+
+def filter_usable_executive_transactions(transactions_df: pd.DataFrame) -> pd.DataFrame:
+    """Drop undated / OCR-garbage rows before the Executive table + KPIs.
+
+    Scanned 278-T PDFs often leave ``transaction_date`` null and put Yes/No
+    (or punctuation) into ``amount_range_raw``. Those rows are not actionable
+    trades and must not appear when the period filter short-circuits to "all".
+    """
+    if transactions_df.empty:
+        return transactions_df
+    work = transactions_df
+    if "transaction_date" in work.columns:
+        dates = pd.to_datetime(work["transaction_date"], errors="coerce")
+        work = work.loc[dates.notna()].copy()
+    if work.empty:
+        return work
+    if "amount_range_raw" not in work.columns:
+        return work
+
+    def _amount_ok(raw: object) -> bool:
+        text = str(raw or "").strip()
+        if not text:
+            # Dated rows with a blank amount still count (parser may miss $).
+            return True
+        folded = text.casefold().strip(" .\"'")
+        if folded in _NON_AMOUNT_TOKENS:
+            return False
+        if _DOLLAR_AMOUNT_RE.search(text):
+            return True
+        # Keep dated rows even when amount OCR is partial ("08", etc.).
+        return True
+
+    mask = work["amount_range_raw"].map(_amount_ok)
+    return work.loc[mask].copy()
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
