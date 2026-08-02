@@ -14,7 +14,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import {
   useTickerCumulativeExposure,
@@ -29,6 +29,7 @@ import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerM
 import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { PillStrip } from "@/components/PillStrip";
 import { PriceOverlayChart } from "@/components/PriceOverlayChart";
@@ -275,13 +276,7 @@ export function Tickers() {
                       return (
                         <Table.Tr key={row.member}>
                           <Table.Td>
-                            <Anchor
-                              component={Link}
-                              to={`/members?member=${encodeURIComponent(row.member)}`}
-                              size="sm"
-                            >
-                              {row.member}
-                            </Anchor>
+                            <MemberLink name={row.member} />
                           </Table.Td>
                           <Table.Td
                             c="teal"
@@ -351,7 +346,9 @@ export function Tickers() {
                           data-testid="tickers-trade-history-row"
                         >
                           <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
-                          <Table.Td>{row.member}</Table.Td>
+                          <Table.Td>
+                            <MemberLink name={row.member} />
+                          </Table.Td>
                           <Table.Td>
                             <DirectionBadge
                               label={row.transaction_type_label}

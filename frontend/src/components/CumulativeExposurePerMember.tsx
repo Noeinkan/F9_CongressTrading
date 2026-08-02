@@ -1,13 +1,16 @@
 import { Alert, Box, Group, Stack, Text } from "@mantine/core";
 import { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
+import { useNavigate } from "react-router-dom";
 
 import type { TickerCumulativeExposureRow } from "@/api/types";
 import {
   buildCumulativeExposurePerMemberOption,
   getCumulativeExposurePerMemberMeta,
 } from "@/charts/cumulativeExposurePerMember";
+import { MemberLink } from "@/components/MemberLink";
 import { COPY } from "@/copy";
+import { hrefFromChartClick } from "@/utils/entityLinks";
 
 type CumulativeExposurePerMemberProps = {
   ticker: string;
@@ -21,6 +24,7 @@ export function CumulativeExposurePerMember({
   rows,
   truncated,
 }: CumulativeExposurePerMemberProps) {
+  const navigate = useNavigate();
   // Same ordering as the chart (largest absolute net first) so the legend
   // matches the swimlanes top-to-bottom.
   const orderedMembers = useMemo(() => {
@@ -106,9 +110,7 @@ export function CumulativeExposurePerMember({
                       background: meta.memberColors[i] ?? "#94a3b8",
                     }}
                   />
-                  <Text size="xs" c="dark.4">
-                    {m}
-                  </Text>
+                  <MemberLink name={m} size="xs" />
                 </Group>
               ))}
             </Group>
@@ -131,6 +133,17 @@ export function CumulativeExposurePerMember({
           option={option}
           style={{ height: Math.max(360, members.length * 100 + 56), width: "100%" }}
           opts={{ renderer: "svg" }}
+          onEvents={{
+            click: (params: {
+              componentType?: string;
+              name?: string;
+              value?: unknown;
+              seriesName?: string;
+            }) => {
+              const href = hrefFromChartClick(params, "member");
+              if (href) navigate(href);
+            },
+          }}
           data-testid="cumulative-exposure-chart"
         />
       ) : null}

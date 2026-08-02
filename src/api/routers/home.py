@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 from .._home_analytics import (
     aggregate_net_trade_amount,
+    monthly_activity_rows,
     net_trade_records,
     ticker_cumulative_rows,
     ticker_timeline_rows,
@@ -171,22 +172,6 @@ def _breakdown(filtered: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _monthly_activity(filtered: pd.DataFrame) -> list[dict[str, Any]]:
-    if filtered.empty:
-        return []
-    monthly = (
-        filtered.dropna(subset=["month"])
-        .groupby("month", as_index=False)
-        .agg(
-            transactions=("member", "size"),
-            amount_low=("amount_low", "sum"),
-            amount_high=("amount_high", "sum"),
-        )
-        .sort_values("month")
-    )
-    return records(monthly, ["month", "transactions", "amount_low", "amount_high"], date_columns=("month",))
-
-
 def _top(filtered: pd.DataFrame, key: str) -> list[dict[str, Any]]:
     if filtered.empty:
         return []
@@ -298,7 +283,7 @@ def home_summary(
             latest, _LATEST_COLUMNS, date_columns=("transaction_date", "filing_date")
         ),
         "breakdown": _breakdown(s.filtered),
-        "monthly_activity": _monthly_activity(s.filtered),
+        "monthly_activity": monthly_activity_rows(s.filtered),
         "top_members": _top(s.filtered, "member"),
         "top_tickers": _top(s.filtered, "ticker"),
         "members_leaderboard": _members_leaderboard(s.filtered),

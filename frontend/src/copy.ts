@@ -1,5 +1,9 @@
 /** Page copy strings for the React dashboard. */
 export const COPY = {
+  home: {
+    monthlyActivity:
+      "Buy/sell counts (bars) and disclosed dollar high (line). Shaded months are often incomplete — STOCK Act filings can lag ~45 days.",
+  },
   review: {
     kicker: "Review Queue",
     title: "Triage unresolved records",

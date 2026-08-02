@@ -117,6 +117,10 @@ _PAREN_TICKER_DENYLIST = frozenset(
         "STOCK",
         "SHARE",
         "SHARES",
+        # House PTR transaction-type codes that sometimes leak into asset text as "(P)".
+        "P",
+        "S",
+        "E",
     }
 )
 
@@ -124,6 +128,11 @@ _PAREN_TICKER_DENYLIST = frozenset(
 # or owner-code prefix without doc ID: "JT Microsoft Corporation - Common"
 _SENATE_DOC_PREFIX_RE = re.compile(r"^\d{7,12}\s+")
 _OWNER_CODE_PREFIX_RE = re.compile(r"^(?:SP|JT|DC|CH|SC|SF)\s+", re.IGNORECASE)
+_BARE_TICKER_RE = re.compile(r"^[A-Z]{1,5}(?:\.[A-Z])?$")
+_GENERIC_EQUITY_NAME_RE = re.compile(
+    r"^(?:common(?:\s+stock)?|stock|shares?|equity|ordinary(?:\s+shares?)?)$",
+    re.IGNORECASE,
+)
 
 
 def _strip_senate_and_owner_prefix(asset: str) -> str:
@@ -141,6 +150,10 @@ def _simplify_for_equity_search(asset: str) -> str:
     s = _strip_senate_and_owner_prefix(s)
     s = re.sub(r"\s*\[[A-Z]{2,4}\]\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*\([A-Z]{1,6}\)\s*$", "", s, flags=re.I)
+    # Keep the post-structure form so we never restore raw "(P)" / "[PS]" junk when share-class
+    # stripping removes the entire remaining string (e.g. asset text is only "Common stock (P)").
+    structural = normalize_whitespace(s).strip(" ,")
+    s = structural
     s = re.sub(r"\s*-?\s*Common Stock\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*Common Shares?\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*,?\s*Common$", "", s, flags=re.I)
@@ -148,7 +161,60 @@ def _simplify_for_equity_search(asset: str) -> str:
     s = re.sub(r"\s*-\s*Class\s+[A-Z]\b.*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*$", "", s)
     s = normalize_whitespace(s).strip(" ,")
-    return s if s else normalize_whitespace(asset)
+    return s if s else structural
+
+
+def _is_generic_equity_name(asset: str) -> bool:
+    """True when disclosure text has no issuer left — only share-class / type boilerplate."""
+    simplified = _simplify_for_equity_search(asset)
+    if not simplified:
+        return True
+    return bool(_GENERIC_EQUITY_NAME_RE.fullmatch(simplified))
+
+
+def _looks_like_bare_ticker(text: str) -> bool:
+    sym = normalize_whitespace(text).upper()
+    return bool(sym) and bool(_BARE_TICKER_RE.fullmatch(sym)) and sym not in _PAREN_TICKER_DENYLIST
+
+
+def _try_bare_ticker_token_match(asset_norm: str) -> AssetMatch | None:
+    """
+    Disclosures like ``MSFT Common Stock [PS]`` simplify to a bare symbol. Treat that as an
+    exact ticker (do not fuzzy-search — Polygon/OpenFIGI otherwise match leveraged ETFs).
+    """
+    simplified = _simplify_for_equity_search(asset_norm)
+    if not _looks_like_bare_ticker(simplified):
+        return None
+    sym = simplified.upper()
+    return AssetMatch(
+        asset_name_normalized=sym,
+        issuer_name=sym,
+        ticker=sym,
+        cusip_or_figi=None,
+        confidence_score=0.98,
+        match_source="disclosure_ticker_token",
+        resolution_status="exact_match",
+    )
+
+
+def _search_name_variants(name: str) -> list[str]:
+    """Alternate vendor queries when disclosure spelling differs from index names."""
+    out: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = normalize_whitespace(value)
+        if cleaned and cleaned.casefold() not in {x.casefold() for x in out}:
+            out.append(cleaned)
+
+    add(name)
+    # Polygon indexes "JPMorgan Chase"; disclosures often use "JP Morgan" / "J.P. Morgan".
+    add(re.sub(r"\bJ\.?\s*P\.?\s*Morgan\b", "JPMorgan", name, flags=re.I))
+    # Apostrophes (straight or curly) break some OpenFIGI/Polygon name searches (Lowe's).
+    add(name.replace("\u2019", "'"))
+    add(name.replace("\u2019", "").replace("'", ""))
+    # Legacy "N.V." suffix (e.g. Schlumberger) often missing from modern vendor names.
+    add(re.sub(r",?\s+N\.?\s*V\.?\s*$", "", name, flags=re.I))
+    return out
 
 
 _CUSIP_IN_PARENS_RE = re.compile(r"\(([0-9A-Z]{9})\)")
@@ -330,13 +396,13 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
     search_queries: list[str] = []
     simplified = _simplify_for_equity_search(asset)
     if simplified and simplified.casefold() != asset.casefold():
-        search_queries.append(simplified)
+        search_queries.extend(_search_name_variants(simplified))
         # The raw-name retry roughly doubles Polygon calls per asset and rarely matches once the
         # name is simplified. Set POLYGON_SEARCH_RAW_FALLBACK=0 to skip it for a faster run.
         if POLYGON_SEARCH_RAW_FALLBACK:
-            search_queries.append(asset)
+            search_queries.extend(_search_name_variants(asset))
     else:
-        search_queries.append(asset)
+        search_queries.extend(_search_name_variants(asset))
     seen_q: set[str] = set()
     best_match: AssetMatch | None = None
     best_score = 0.0
@@ -346,6 +412,7 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
         if qkey in seen_q:
             continue
         seen_q.add(qkey)
+        bare_ticker_query = _looks_like_bare_ticker(search)
         params = {
             "search": search,
             "market": "stocks",
@@ -372,7 +439,21 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
             ticker = normalize_whitespace(item.get("ticker") or "") or None
             if not name or not ticker:
                 continue
-            if _is_exact_match(asset, name):
+            # Bare-symbol queries must hit the symbol itself — fuzzy name search otherwise
+            # prefers leveraged products ("MSFT" → MSFC / MSFW).
+            if bare_ticker_query:
+                if ticker.upper() == search.upper():
+                    return AssetMatch(
+                        asset_name_normalized=name,
+                        issuer_name=name,
+                        ticker=ticker.upper(),
+                        cusip_or_figi=item.get("composite_figi") or None,
+                        confidence_score=1.0,
+                        match_source="polygon_exact",
+                        resolution_status="exact_match",
+                    )
+                continue
+            if _is_exact_match(asset, name) or _is_exact_match(simplified or asset, name):
                 return AssetMatch(
                     asset_name_normalized=name,
                     issuer_name=name,
@@ -382,7 +463,7 @@ def polygon_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Optional[A
                     match_source="polygon_exact",
                     resolution_status="exact_match",
                 )
-            score = _match_score(asset, name)
+            score = max(_match_score(asset, name), _match_score(simplified or asset, name))
             if score >= POLYGON_FUZZY_MIN_SCORE and score > best_score:
                 best_score = score
                 best_match = AssetMatch(
@@ -503,8 +584,8 @@ def _openfigi_search_query_variants(asset: str) -> list[str]:
     """OpenFIGI /v3/search often returns empty for long PTR lines; try shorter keyword queries."""
     base = _simplify_for_equity_search(asset)
     parts: list[str] = []
-    if base:
-        parts.append(base)
+    for variant in _search_name_variants(base or asset):
+        parts.append(variant)
     words = [w for w in re.split(r"[\s,]+", base) if len(w) >= 2]
     for n in (6, 4, 3, 2):
         if len(words) >= n:
@@ -532,6 +613,7 @@ def openfigi_search_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Op
         "X-OPENFIGI-APIKEY": api_key,
         "User-Agent": USER_AGENT,
     }
+    simplified = _simplify_for_equity_search(asset)
     for query in queries:
         payload: dict[str, Any] = {"query": query, "exchCode": "US"}
         if OPENFIGI_NAME_STRICT_COMMON_STOCK:
@@ -555,7 +637,28 @@ def openfigi_search_lookup(asset: str, api_key: str, limiter: RateLimiter) -> Op
         rows = data.get("data") or []
         if not rows:
             continue
-        hit = _best_openfigi_match(asset, rows)
+        if _looks_like_bare_ticker(query):
+            sym = query.upper()
+            for item in rows:
+                ticker = normalize_whitespace(item.get("ticker") or "") or None
+                if ticker and ticker.upper() == sym:
+                    name = normalize_whitespace(
+                        item.get("name")
+                        or item.get("securityDescription")
+                        or item.get("securityDescription2")
+                        or ""
+                    )
+                    return AssetMatch(
+                        asset_name_normalized=name or sym,
+                        issuer_name=name or sym,
+                        ticker=sym,
+                        cusip_or_figi=item.get("figi") or None,
+                        confidence_score=0.99,
+                        match_source="openfigi_exact",
+                        resolution_status="exact_match",
+                    )
+            continue
+        hit = _best_openfigi_match(simplified or asset, rows)
         if hit is not None:
             return hit
     return None
@@ -680,6 +783,14 @@ def bulk_resolve_unique_assets_for_reconcile(
         if paren := _try_disclosure_parenthetical_match(an):
             out[an] = _finalize_resolution_from_match(conn, an, paren, issuer_enrich_hint=an, commit=commit)
             continue
+        if bare := _try_bare_ticker_token_match(an):
+            out[an] = _finalize_resolution_from_match(conn, an, bare, issuer_enrich_hint=an, commit=commit)
+            continue
+        if _is_generic_equity_name(an):
+            out[an] = _finalize_resolution_from_match(
+                conn, an, _manual_review_match(an, "generic_asset_name"), commit=commit
+            )
+            continue
         if house_ingest_skip_external_asset_lookup():
             out[an] = _finalize_resolution_from_match(
                 conn, an, _manual_review_match(an, "skipped_external_lookup"), commit=commit
@@ -740,6 +851,16 @@ def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
     if paren_match := _try_disclosure_parenthetical_match(asset_norm):
         return _finalize_resolution_from_match(
             conn, asset_norm, paren_match, issuer_enrich_hint=asset_norm, commit=commit
+        )
+
+    if bare_match := _try_bare_ticker_token_match(asset_norm):
+        return _finalize_resolution_from_match(
+            conn, asset_norm, bare_match, issuer_enrich_hint=asset_norm, commit=commit
+        )
+
+    if _is_generic_equity_name(asset_norm):
+        return _finalize_resolution_from_match(
+            conn, asset_norm, _manual_review_match(asset_norm, "generic_asset_name"), commit=commit
         )
 
     if cached := get_asset_resolution(conn, asset_norm):

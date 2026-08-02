@@ -1,5 +1,4 @@
 import {
-  Anchor,
   Button,
   Checkbox,
   Group,
@@ -11,7 +10,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useMemo, useState, useEffect } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import {
@@ -25,8 +24,10 @@ import { BarChart } from "@/components/BarChart";
 import { ChartCard } from "@/components/ChartCard";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
 import { COPY } from "@/copy";
 import { formatDate, formatNumber } from "@/utils/format";
 
@@ -308,26 +309,10 @@ export function Review() {
                             <Table.Td>{row.reason}</Table.Td>
                             <Table.Td>{row.status}</Table.Td>
                             <Table.Td>
-                              <Anchor
-                                component={Link}
-                                to={`/members?member=${encodeURIComponent(row.member)}`}
-                                size="sm"
-                              >
-                                {row.member}
-                              </Anchor>
+                              <MemberLink name={row.member} />
                             </Table.Td>
                             <Table.Td>
-                              {row.ticker ? (
-                                <Anchor
-                                  component={Link}
-                                  to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                                  size="sm"
-                                >
-                                  {row.ticker}
-                                </Anchor>
-                              ) : (
-                                "—"
-                              )}
+                              {row.ticker ? <TickerLink ticker={row.ticker} /> : "—"}
                             </Table.Td>
                             <Table.Td>{row.transaction_type_label ?? row.transaction_type}</Table.Td>
                             <Table.Td>{row.amount_range_raw}</Table.Td>
@@ -363,10 +348,14 @@ export function Review() {
                       <Table.Tbody>
                         {data.rows.slice(0, 40).map((row, i) => (
                           <Table.Tr key={`tx-${row.transaction_id ?? i}`}>
-                            <Table.Td>{row.ticker || "—"}</Table.Td>
+                            <Table.Td>
+                              {row.ticker ? <TickerLink ticker={row.ticker} /> : "—"}
+                            </Table.Td>
                             <Table.Td>{row.asset_name_raw || row.asset_name_normalized || "—"}</Table.Td>
                             <Table.Td>{row.transaction_type_label ?? row.transaction_type}</Table.Td>
-                            <Table.Td>{row.member}</Table.Td>
+                            <Table.Td>
+                              <MemberLink name={row.member} />
+                            </Table.Td>
                             <Table.Td>{formatDate(row.filing_date)}</Table.Td>
                             <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
                           </Table.Tr>

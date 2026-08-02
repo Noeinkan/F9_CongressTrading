@@ -16,15 +16,17 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { rawExportCsvUrl, useRawTransactions } from "@/api/raw";
 import type { ColumnMeta, RawParams } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
 import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
+import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
 import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
 import {
   classifyTransaction,
@@ -51,18 +53,10 @@ function cellContent(
       return formatNumber(value);
     default:
       if (col.key === "ticker" && typeof value === "string" && value) {
-        return (
-          <Anchor component={Link} to={`/tickers?ticker=${encodeURIComponent(value)}`} size="sm">
-            {value}
-          </Anchor>
-        );
+        return <TickerLink ticker={value} />;
       }
       if (col.key === "member" && typeof value === "string" && value) {
-        return (
-          <Anchor component={Link} to={`/members?member=${encodeURIComponent(value)}`} size="sm">
-            {value}
-          </Anchor>
-        );
+        return <MemberLink name={value} />;
       }
       if (col.key === "transaction_type_label" && typeof value === "string" && value) {
         return (

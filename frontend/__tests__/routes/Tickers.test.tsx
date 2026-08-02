@@ -143,6 +143,11 @@ describe("Tickers route", () => {
     await waitFor(() => screen.getByTestId("tickers-trade-history-table"));
     const cell = screen.getByTestId("tickers-trade-history-return");
     expect(cell).toHaveTextContent("n/a");
+    const memberLink = within(screen.getByTestId("tickers-trade-history-table")).getByRole(
+      "link",
+      { name: "Alice" },
+    );
+    expect(memberLink).toHaveAttribute("href", "/members?member=Alice");
   });
 
   it("links to the SearchForAlpha Lab dashboard with the active ticker", async () => {

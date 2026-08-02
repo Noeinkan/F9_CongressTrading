@@ -141,10 +141,11 @@ export function buildTickerTimelineOption(
       type: "category",
       data: memberOrder,
       inverse: true,
+      triggerEvent: true,
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
-        color: "#1f2937",
+        color: "#1d4ed8",
         fontSize: 11,
         fontWeight: 500,
         margin: 12,
@@ -152,6 +153,7 @@ export function buildTickerTimelineOption(
         overflow: "truncate",
         ellipsis: "…",
         interval: 0,
+        cursor: "pointer",
       },
       splitLine: { show: true, lineStyle: { color: "#e2e8f0", type: "dashed" } },
       splitArea: {
@@ -162,7 +164,7 @@ export function buildTickerTimelineOption(
       },
     },
     legend: { bottom: 0 },
-    series,
+    series: series.map((s) => ({ ...s, cursor: "pointer" })),
     tooltip: {
       trigger: "item",
       formatter: (p: { seriesName: string; value: ScatterPoint }) => {

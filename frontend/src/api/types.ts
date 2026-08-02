@@ -134,6 +134,9 @@ export type HomeSummaryResponse = {
   monthly_activity: {
     month: string | null;
     transactions: number;
+    buy: number;
+    sell: number;
+    other: number;
     amount_low: number;
     amount_high: number;
   }[];

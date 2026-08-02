@@ -113,7 +113,17 @@ const sampleData = {
     by_chamber: [{ chamber: "House", transactions: 80 }],
     by_type: [{ transaction_type_label: "Buy", transactions: 60 }],
   },
-  monthly_activity: [{ month: "2024-06", transactions: 10, amount_low: 100, amount_high: 500 }],
+  monthly_activity: [
+    {
+      month: "2024-06",
+      transactions: 10,
+      buy: 6,
+      sell: 3,
+      other: 1,
+      amount_low: 100,
+      amount_high: 500,
+    },
+  ],
   top_members: [{ member: "Alice", transactions: 20, amount_low: 100, amount_high: 500, disclosed_range: "$100 – $500" }],
   top_tickers: [{ ticker: "AAPL", transactions: 15, amount_low: 100, amount_high: 500, disclosed_range: "$100 – $500" }],
   members_leaderboard: [
@@ -275,6 +285,10 @@ describe("Home route", () => {
     await user.click(screen.getByText("Table"));
     expect(screen.getByTestId("home-net-table")).toBeInTheDocument();
     expect(screen.getByTestId("home-net-download")).not.toHaveAttribute("data-disabled", "true");
+    const tickerLink = within(screen.getByTestId("home-net-table")).getByRole("link", {
+      name: "AAPL",
+    });
+    expect(tickerLink).toHaveAttribute("href", "/tickers?ticker=AAPL");
   });
 
   it("renders a clickable ticker link that navigates to the Tickers page", async () => {

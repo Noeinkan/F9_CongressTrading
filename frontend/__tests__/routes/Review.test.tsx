@@ -109,10 +109,9 @@ describe("Review route", () => {
     expect(screen.getByTestId("kpi-tile-open")).toBeInTheDocument();
     expect(screen.getByTestId("review-by-reason")).toBeInTheDocument();
     expect(screen.getByTestId("review-summary-table")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Alice" })).toHaveAttribute(
-      "href",
-      "/members?member=Alice",
-    );
+    const aliceLinks = screen.getAllByRole("link", { name: "Alice" });
+    expect(aliceLinks.length).toBeGreaterThan(0);
+    expect(aliceLinks[0]).toHaveAttribute("href", "/members?member=Alice");
     expect(screen.getByTestId("review-resolve-42")).toBeInTheDocument();
     expect(screen.getByTestId("review-accept-42")).toBeInTheDocument();
     expect(screen.getByTestId("review-dismiss-42")).toBeInTheDocument();

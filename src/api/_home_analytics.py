@@ -1,13 +1,20 @@
 """Home page analytics (net trade, ticker drill-down rows)."""
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
 from ..utils import is_non_equity_asset
 from ._format import format_currency_compact, format_cumulative_net_label
 from ._patterns_analytics import signed_trade_notional
-from .repository import transaction_type_display_label
+from .repository import (
+    is_buy_transaction_type,
+    is_sell_transaction_type,
+    transaction_type_display_label,
+)
+from .serialize import records
 
 # Asset kinds that are never equity flow even when a ticker was wrongly attached
 # (e.g. Prudential RILA annuities resolved to PRU/PUK).
@@ -43,6 +50,44 @@ def _net_trade_eligible_mask(frame: pd.DataFrame) -> pd.Series:
         index=frame.index,
     )
     return type_ok & equity_ok
+
+
+def monthly_activity_rows(filtered: pd.DataFrame) -> list[dict[str, Any]]:
+    """Per-month buy/sell/other counts plus disclosed dollar range totals.
+
+    Months follow ``transaction_date`` (via the prepared ``month`` column).
+    ``other`` covers exchanges and unlabeled types that are neither buy nor sell.
+    """
+    if filtered.empty or "month" not in filtered.columns:
+        return []
+    work = filtered.dropna(subset=["month"]).copy()
+    if work.empty:
+        return []
+
+    tt = work["transaction_type"] if "transaction_type" in work.columns else pd.Series("", index=work.index)
+    is_buy = tt.map(is_buy_transaction_type)
+    is_sell = tt.map(is_sell_transaction_type)
+    work["_buy"] = is_buy.astype(int)
+    work["_sell"] = is_sell.astype(int)
+    work["_other"] = (~is_buy & ~is_sell).astype(int)
+
+    monthly = (
+        work.groupby("month", as_index=False)
+        .agg(
+            transactions=("month", "size"),
+            buy=("_buy", "sum"),
+            sell=("_sell", "sum"),
+            other=("_other", "sum"),
+            amount_low=("amount_low", "sum"),
+            amount_high=("amount_high", "sum"),
+        )
+        .sort_values("month")
+    )
+    return records(
+        monthly,
+        ["month", "transactions", "buy", "sell", "other", "amount_low", "amount_high"],
+        date_columns=("month",),
+    )
 
 
 def aggregate_net_trade_amount(

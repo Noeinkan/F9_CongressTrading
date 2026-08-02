@@ -1,6 +1,5 @@
 import {
   Alert,
-  Anchor,
   Badge,
   Group,
   SegmentedControl,
@@ -12,7 +11,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import {
   useMemberActivityTimeline,
@@ -22,16 +21,17 @@ import {
 } from "@/api/members";
 import type { MemberActivityRow, TickerTimelineRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
+import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTileSimple } from "@/components/KpiTileSimple";
 import { PageState } from "@/components/PageState";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
 import { formatCurrency, formatDate, formatSignedPercent, returnColor } from "@/utils/format";
 import { rangeOpacity, parseRangeHigh } from "@/utils/transactions";
-import { DirectionBadge } from "@/components/DirectionBadge";
 
 const COMMITTEE_VIEW = "committee_relevance";
 
@@ -234,13 +234,7 @@ export function Members() {
                           {committeeData.data.rows.map((row, i) => (
                             <Table.Tr key={`${row.ticker}-${i}`}>
                               <Table.Td>
-                                <Anchor
-                                  component={Link}
-                                  to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                                  size="sm"
-                                >
-                                  {row.ticker}
-                                </Anchor>
+                                <TickerLink ticker={row.ticker} />
                               </Table.Td>
                               <Table.Td>{row.sector}</Table.Td>
                               <Table.Td>{row.matching_committees}</Table.Td>
@@ -290,13 +284,7 @@ export function Members() {
                           <Table.Tr key={`${row.ticker}-${row.transaction_date ?? ""}-${i}`}>
                             <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
                             <Table.Td>
-                              <Anchor
-                                component={Link}
-                                to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                                size="sm"
-                              >
-                                {row.ticker}
-                              </Anchor>
+                              <TickerLink ticker={row.ticker} />
                             </Table.Td>
                             <Table.Td c="dimmed">{row.issuer_name || "—"}</Table.Td>
                             <Table.Td>
@@ -374,7 +362,12 @@ export function Members() {
               </ChartCard>
 
               <ChartCard collapsible title={COPY.members.topTickers}>
-                <RankBars testId="members-top-tickers" color="#c6922b" rows={topTickerRows} />
+                <RankBars
+                  testId="members-top-tickers"
+                  color="#c6922b"
+                  linkKind="ticker"
+                  rows={topTickerRows}
+                />
               </ChartCard>
             </Stack>
           ) : null}

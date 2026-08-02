@@ -7,10 +7,16 @@ export function buildNetTradeOption(rows: NetTradeRow[]): Record<string, unknown
   return {
     grid: { left: 80, right: 24, top: 12, bottom: 24 },
     xAxis: { type: "value", axisLabel: { formatter: (v: number) => `$${Math.abs(v / 1000).toFixed(0)}K` } },
-    yAxis: { type: "category", data: tickers },
+    yAxis: {
+      type: "category",
+      data: tickers,
+      triggerEvent: true,
+      axisLabel: { color: "#1d4ed8", cursor: "pointer" },
+    },
     series: [
       {
         type: "bar",
+        cursor: "pointer",
         data: values.map((v) => ({
           value: v,
           itemStyle: { color: v >= 0 ? "#2f6f4e" : "#a64b2a" },

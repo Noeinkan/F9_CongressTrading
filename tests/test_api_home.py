@@ -83,6 +83,10 @@ def test_login_then_home_summary_shape(client):
         keys = {k["key"] for k in data["kpis"]}
         assert keys == {"transactions", "members", "tickers", "open_reviews", "disclosed_range"}
         assert isinstance(data["breakdown"]["by_chamber"], list)
+        if data["monthly_activity"]:
+            month = data["monthly_activity"][0]
+            for key in ("month", "transactions", "buy", "sell", "other", "amount_low", "amount_high"):
+                assert key in month, f"missing monthly_activity key: {key}"
 
 
 def test_logout_clears_session(client):

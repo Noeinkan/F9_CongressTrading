@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from ._home_analytics import monthly_activity_rows
 from .repository import (
     is_buy_transaction_type,
     is_exchange_transaction_type,
@@ -108,24 +109,24 @@ def compute_executive_summary(transactions_df: pd.DataFrame) -> dict[str, Any]:
 
 
 def compute_monthly_timeline(transactions_df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Per-month transaction counts for the active Executive slice.
+    """Per-month buy/sell/other counts + disclosed $ for the Executive slice.
 
-    Returns ``[{month: 'YYYY-MM-DD', count: int, ...}, ...]`` sorted ascending.
-    Empty list when there are no dated transactions.
+    Returns rows shaped like Home ``monthly_activity``, plus a ``count`` alias
+    for older clients. Empty list when there are no dated transactions.
     """
     if transactions_df.empty or "transaction_date" not in transactions_df.columns:
         return []
     work = transactions_df.copy()
-    work["transaction_date"] = pd.to_datetime(work["transaction_date"], errors="coerce")
-    work = work.dropna(subset=["transaction_date"])
-    if work.empty:
-        return []
-    work["month"] = work["transaction_date"].dt.to_period("M").dt.to_timestamp()
-    agg = work.groupby("month").size().reset_index(name="count").sort_values("month")
-    return [
-        {"month": row["month"].strftime("%Y-%m-%d"), "count": int(row["count"])}
-        for _, row in agg.iterrows()
-    ]
+    if "month" not in work.columns:
+        work["transaction_date"] = pd.to_datetime(work["transaction_date"], errors="coerce")
+        work = work.dropna(subset=["transaction_date"])
+        if work.empty:
+            return []
+        work["month"] = work["transaction_date"].dt.to_period("M").dt.to_timestamp()
+    rows = monthly_activity_rows(work)
+    for row in rows:
+        row["count"] = int(row.get("transactions") or 0)
+    return rows
 
 
 def compute_by_owner_type(transactions_df: pd.DataFrame) -> dict[str, Any]:

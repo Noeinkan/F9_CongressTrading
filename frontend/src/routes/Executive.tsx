@@ -37,6 +37,8 @@ import { MonthlyActivityChart } from "@/components/MonthlyActivityChart";
 import { PageState } from "@/components/PageState";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
+import { COPY } from "@/copy";
 import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
 import { classifyTransaction, directionColor } from "@/utils/transactions";
 
@@ -110,11 +112,19 @@ export function Executive() {
     return raw.map((row) => {
       const r = asRecord(row);
       const count = Number(r.count ?? r.transactions ?? 0);
+      const buy = Number(r.buy ?? 0);
+      const sell = Number(r.sell ?? 0);
+      const other = Number(r.other ?? 0);
+      const amountLow = Number(r.amount_low ?? 0);
+      const amountHigh = Number(r.amount_high ?? 0);
       return {
         month: typeof r.month === "string" ? r.month : null,
         transactions: Number.isFinite(count) ? count : 0,
-        amount_low: 0,
-        amount_high: 0,
+        buy: Number.isFinite(buy) ? buy : 0,
+        sell: Number.isFinite(sell) ? sell : 0,
+        other: Number.isFinite(other) ? other : 0,
+        amount_low: Number.isFinite(amountLow) ? amountLow : 0,
+        amount_high: Number.isFinite(amountHigh) ? amountHigh : 0,
       };
     });
   }, [transactionsQuery.data?.monthly_timeline]);
@@ -206,9 +216,11 @@ export function Executive() {
           const v = getValue();
           if (typeof v === "string" && v.trim()) {
             return (
-              <Badge variant="light" color="navy" size="sm">
-                {v}
-              </Badge>
+              <TickerLink ticker={v}>
+                <Badge variant="light" color="navy" size="sm">
+                  {v}
+                </Badge>
+              </TickerLink>
             );
           }
           return <Text c="dimmed">—</Text>;
@@ -485,7 +497,7 @@ export function Executive() {
               <ChartCard
                 collapsible
                 title="Monthly activity"
-                caption="Transaction counts by month for the active Executive filters."
+                caption={COPY.home.monthlyActivity}
                 testId="executive-monthly-card"
               >
                 <MonthlyActivityChart rows={monthlyTimeline} />

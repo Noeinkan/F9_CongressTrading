@@ -23,6 +23,7 @@ import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposure } from "@/components/CumulativeExposure";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTile } from "@/components/KpiTile";
+import { MemberLink } from "@/components/MemberLink";
 import { MonthlyActivityChart } from "@/components/MonthlyActivityChart";
 import { NetTradeChart } from "@/components/NetTradeChart";
 import { PageState } from "@/components/PageState";
@@ -30,8 +31,10 @@ import { PillStrip } from "@/components/PillStrip";
 import { PriceOverlayChart } from "@/components/PriceOverlayChart";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
+import { tickerHref } from "@/utils/entityLinks";
 import { formatDate, formatDisclosedRange } from "@/utils/format";
 import {
   classifyTransaction,
@@ -109,15 +112,6 @@ function SortableTh({ label, sortKey, active, onSort }: SortableThProps) {
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
   return quarters.join(",");
-}
-
-/** Deep-link into the Tickers workspace for the same symbol (incl. override). */
-function tickersPageHref(ticker: string, override: string): string {
-  const params = new URLSearchParams();
-  params.set("ticker", ticker);
-  const ov = override.trim().toUpperCase();
-  if (ov) params.set("ticker_override", ov);
-  return `/tickers?${params.toString()}`;
 }
 
 export function Home() {
@@ -295,25 +289,15 @@ export function Home() {
                         data-testid="home-latest-row"
                       >
                         <Table.Td>
-                          <Text
-                            component={Link}
-                            to={`/members?member=${encodeURIComponent(row.member)}`}
-                            size="sm"
-                          >
-                            {row.member}
-                          </Text>
+                          <MemberLink name={row.member} />
                         </Table.Td>
                         <Table.Td>
                           {row.ticker ? (
-                            <Text
-                              component={Link}
-                              to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                              size="sm"
+                            <TickerLink
+                              ticker={row.ticker}
                               fw={500}
                               data-testid="home-latest-ticker"
-                            >
-                              {row.ticker}
-                            </Text>
+                            />
                           ) : (
                             <Text size="sm" fw={500}>
                               —
@@ -430,7 +414,9 @@ export function Home() {
                 <Table.Tbody>
                   {data.net_trade_amounts.map((row) => (
                     <Table.Tr key={row.ticker}>
-                      <Table.Td>{row.ticker}</Table.Td>
+                      <Table.Td>
+                        <TickerLink ticker={row.ticker} />
+                      </Table.Td>
                       <Table.Td>{row.direction}</Table.Td>
                       <Table.Td>{row.net_label}</Table.Td>
                       <Table.Td>{row.trades}</Table.Td>
@@ -441,7 +427,7 @@ export function Home() {
             )}
           </ChartCard>
 
-          <ChartCard collapsible title="Monthly activity">
+          <ChartCard collapsible title="Monthly activity" caption={COPY.home.monthlyActivity}>
             <MonthlyActivityChart rows={data.monthly_activity} />
           </ChartCard>
 
@@ -450,6 +436,7 @@ export function Home() {
               <RankBars
                 testId="home-top-members"
                 color="#20344a"
+                linkKind="member"
                 rows={data.top_members.map((r) => ({
                   label: r.member ?? "",
                   value: r.transactions,
@@ -460,6 +447,7 @@ export function Home() {
               <RankBars
                 testId="home-top-tickers"
                 color="#c6922b"
+                linkKind="ticker"
                 rows={data.top_tickers.map((r) => ({
                   label: r.ticker ?? "",
                   value: r.transactions,
@@ -498,14 +486,7 @@ export function Home() {
                         data-testid="home-leaderboard-row"
                       >
                         <Table.Td>
-                          <Text
-                            component={Link}
-                            to={`/members?member=${encodeURIComponent(row.member)}`}
-                            size="sm"
-                            fw={500}
-                          >
-                            {row.member}
-                          </Text>
+                          <MemberLink name={row.member} fw={500} />
                         </Table.Td>
                         <Table.Td>{row.trades}</Table.Td>
                         <Table.Td>{row.tickers}</Table.Td>
@@ -550,7 +531,7 @@ export function Home() {
                   {tickerForChart ? (
                     <Button
                       component={Link}
-                      to={tickersPageHref(tickerForChart, manualTicker)}
+                      to={tickerHref(tickerForChart, manualTicker)}
                       variant="light"
                       data-testid="home-open-tickers"
                     >

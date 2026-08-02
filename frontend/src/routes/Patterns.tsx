@@ -1,14 +1,5 @@
-import {
-  Anchor,
-  Select,
-  SimpleGrid,
-  Slider,
-  Stack,
-  Table,
-  Text,
-} from "@mantine/core";
+import { Select, SimpleGrid, Slider, Stack, Table, Text } from "@mantine/core";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import {
   usePatternsCommitteeRelevant,
@@ -20,8 +11,11 @@ import { CallPutAreaChart } from "@/components/CallPutAreaChart";
 import { CallPutRatioChart } from "@/components/CallPutRatioChart";
 import { ChartCard } from "@/components/ChartCard";
 import { useFilters } from "@/components/FilterContext";
+import { MemberLink } from "@/components/MemberLink";
+import { MemberNamesLinks } from "@/components/MemberNamesLinks";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
+import { TickerLink } from "@/components/TickerLink";
 import { COPY } from "@/copy";
 import { formatDate, formatNumber } from "@/utils/format";
 
@@ -140,25 +134,18 @@ export function Patterns() {
                   {data.committee.summary.map((row) => (
                     <Table.Tr key={row.member}>
                       <Table.Td>
-                        <Anchor
-                          component={Link}
-                          to={`/members?member=${encodeURIComponent(row.member)}`}
-                          size="sm"
-                        >
-                          {row.member}
-                        </Anchor>
+                        <MemberLink name={row.member} />
                       </Table.Td>
                       <Table.Td>{row.chamber}</Table.Td>
                       <Table.Td>{row.party}</Table.Td>
                       <Table.Td>{row.total_trades}</Table.Td>
                       <Table.Td>
-                        <Anchor
-                          component={Link}
-                          to={`/members?member=${encodeURIComponent(row.member)}&view=${COMMITTEE_VIEW}`}
-                          size="sm"
+                        <MemberLink
+                          name={row.member}
+                          extraParams={{ view: COMMITTEE_VIEW }}
                         >
                           {row.relevant_trades}
-                        </Anchor>
+                        </MemberLink>
                       </Table.Td>
                       <Table.Td>{formatNumber(row.relevance_pct, 1)}%</Table.Td>
                       <Table.Td>{row.top_committee}</Table.Td>
@@ -197,7 +184,9 @@ export function Patterns() {
                   <Table.Tbody>
                     {committeeDrill.data.rows.map((row, i) => (
                       <Table.Tr key={`${row.ticker}-${i}`}>
-                        <Table.Td>{row.ticker}</Table.Td>
+                        <Table.Td>
+                          <TickerLink ticker={row.ticker} />
+                        </Table.Td>
                         <Table.Td>{row.sector}</Table.Td>
                         <Table.Td>{row.matching_committees}</Table.Td>
                         <Table.Td>{row.transaction_type_label}</Table.Td>
@@ -229,17 +218,13 @@ export function Patterns() {
                   {data.coordinated.map((row) => (
                     <Table.Tr key={`${row.ticker}-${row.pattern}`}>
                       <Table.Td>
-                        <Anchor
-                          component={Link}
-                          to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                          size="sm"
-                        >
-                          {row.ticker}
-                        </Anchor>
+                        <TickerLink ticker={row.ticker} />
                       </Table.Td>
                       <Table.Td>{row.pattern}</Table.Td>
                       <Table.Td>{row.members}</Table.Td>
-                      <Table.Td>{row.member_names}</Table.Td>
+                      <Table.Td>
+                        <MemberNamesLinks names={row.member_names} />
+                      </Table.Td>
                       <Table.Td>{row.trades}</Table.Td>
                       <Table.Td>{formatDate(row.date_from)}</Table.Td>
                       <Table.Td>{formatDate(row.date_to)}</Table.Td>
@@ -276,8 +261,12 @@ export function Patterns() {
                   <Table.Tbody>
                     {coordinatedTx.data.rows.map((row, i) => (
                       <Table.Tr key={`${row.member}-${i}`}>
-                        <Table.Td>{row.member}</Table.Td>
-                        <Table.Td>{row.ticker}</Table.Td>
+                        <Table.Td>
+                          <MemberLink name={row.member} />
+                        </Table.Td>
+                        <Table.Td>
+                          <TickerLink ticker={row.ticker} />
+                        </Table.Td>
                         <Table.Td>{row.transaction_type_label}</Table.Td>
                         <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
                         <Table.Td>{row.amount_range_raw}</Table.Td>
@@ -320,13 +309,7 @@ export function Patterns() {
                   {data.volume_anomalies.map((row) => (
                     <Table.Tr key={row.ticker}>
                       <Table.Td>
-                        <Anchor
-                          component={Link}
-                          to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                          size="sm"
-                        >
-                          {row.ticker}
-                        </Anchor>
+                        <TickerLink ticker={row.ticker} />
                       </Table.Td>
                       <Table.Td>{row.recent_disclosures}</Table.Td>
                       <Table.Td>{formatNumber(row.recent_per_month, 2)}</Table.Td>
@@ -357,18 +340,14 @@ export function Patterns() {
                   {data.bipartisan.map((row) => (
                     <Table.Tr key={row.ticker}>
                       <Table.Td>
-                        <Anchor
-                          component={Link}
-                          to={`/tickers?ticker=${encodeURIComponent(row.ticker)}`}
-                          size="sm"
-                        >
-                          {row.ticker}
-                        </Anchor>
+                        <TickerLink ticker={row.ticker} />
                       </Table.Td>
                       <Table.Td>{row.members}</Table.Td>
                       <Table.Td>{row.democrat_trades}</Table.Td>
                       <Table.Td>{row.republican_trades}</Table.Td>
-                      <Table.Td>{row.member_names}</Table.Td>
+                      <Table.Td>
+                        <MemberNamesLinks names={row.member_names} />
+                      </Table.Td>
                       <Table.Td>{formatDate(row.date_from)}</Table.Td>
                       <Table.Td>{formatDate(row.date_to)}</Table.Td>
                     </Table.Tr>
