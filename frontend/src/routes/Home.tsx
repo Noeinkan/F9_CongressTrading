@@ -20,7 +20,7 @@ import { useTickerDrilldown } from "@/api/tickerDrilldown";
 import { useTickerPriceOverlay } from "@/api/tickers";
 import type { HomeTransactionRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
-import { CumulativeExposure } from "@/components/CumulativeExposure";
+import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerMember";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTile } from "@/components/KpiTile";
 import { MemberLink } from "@/components/MemberLink";
@@ -570,9 +570,11 @@ export function Home() {
                       <Title order={5} mb="xs">
                         Cumulative exposure
                       </Title>
-                      <CumulativeExposure
+                      <CumulativeExposurePerMember
                         ticker={tickerForChart}
-                        rows={drilldown.data?.ticker_cumulative ?? []}
+                        members={drilldown.data?.ticker_cumulative?.members ?? []}
+                        rows={drilldown.data?.ticker_cumulative?.rows ?? []}
+                        truncated={drilldown.data?.ticker_cumulative?.truncated}
                       />
                     </div>
                   </Stack>

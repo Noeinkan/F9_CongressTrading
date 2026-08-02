@@ -175,7 +175,10 @@ describe("Home route", () => {
     useTickerDrilldown.mockReset();
     useTickerPriceOverlay.mockReset();
     useTickerDrilldown.mockReturnValue({
-      data: { ticker_timeline: [], ticker_cumulative: [] },
+      data: {
+        ticker_timeline: [],
+        ticker_cumulative: { ticker: "", members: [], truncated: false, rows: [] },
+      },
       isLoading: false,
       isError: false,
     });

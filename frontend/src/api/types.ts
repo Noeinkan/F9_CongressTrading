@@ -101,19 +101,27 @@ export type TickerTimelineRow = {
   owner_type?: string;
 };
 
-export type TickerCumulativeRow = {
+export type TickerCumulativeExposureRow = {
   member: string;
-  date: string;
+  transaction_date: string;
   cumulative_net: number;
   cumulative_label: string;
   txn_type_label: string;
+  amount_range_raw: string;
+};
+
+export type TickerCumulativeExposureResponse = {
+  ticker: string;
+  members: string[];
+  truncated: boolean;
+  rows: TickerCumulativeExposureRow[];
 };
 
 export type TickerDrilldownResponse = {
   ready: boolean;
   ticker: string;
   ticker_timeline: TickerTimelineRow[];
-  ticker_cumulative: TickerCumulativeRow[];
+  ticker_cumulative: TickerCumulativeExposureResponse;
 };
 
 export type HealthResponse = {
@@ -569,22 +577,6 @@ export type TickerMemberTimelineResponse = {
   ticker: string;
   members: string[];
   rows: TickerTimelineRow[];
-};
-
-export type TickerCumulativeExposureRow = {
-  member: string;
-  transaction_date: string;
-  cumulative_net: number;
-  cumulative_label: string;
-  txn_type_label: string;
-  amount_range_raw: string;
-};
-
-export type TickerCumulativeExposureResponse = {
-  ticker: string;
-  members: string[];
-  truncated: boolean;
-  rows: TickerCumulativeExposureRow[];
 };
 
 export type TickersListParams = PeriodParams & {

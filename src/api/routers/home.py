@@ -17,11 +17,11 @@ from .._home_analytics import (
     aggregate_net_trade_amount,
     monthly_activity_rows,
     net_trade_records,
-    ticker_cumulative_rows,
     ticker_timeline_rows,
     tickers_available,
 )
 from .._patterns_analytics import member_leaderboard
+from .._tickers_analytics import ticker_cumulative_exposure_payload
 from .._sparklines import build_slice_kpi_sparklines, month_over_month_delta
 from .._format import (
     format_currency_full,
@@ -324,17 +324,22 @@ def ticker_drilldown(
     _user: str = Depends(require_auth),
 ) -> dict[str, Any]:
     """Per-ticker drill-down rows for timeline and cumulative exposure."""
+    t = ticker.strip().upper()
     if not s.ready:
         return {
             "ready": False,
-            "ticker": ticker.strip().upper(),
+            "ticker": t,
             "ticker_timeline": [],
-            "ticker_cumulative": [],
+            "ticker_cumulative": {
+                "ticker": t,
+                "members": [],
+                "truncated": False,
+                "rows": [],
+            },
         }
-    t = ticker.strip().upper()
     return {
         "ready": True,
         "ticker": t,
         "ticker_timeline": ticker_timeline_rows(s.filtered, t),
-        "ticker_cumulative": ticker_cumulative_rows(s.filtered, t),
+        "ticker_cumulative": ticker_cumulative_exposure_payload(s.filtered, t),
     }

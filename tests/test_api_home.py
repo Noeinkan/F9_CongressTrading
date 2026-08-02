@@ -128,7 +128,23 @@ def test_home_ticker_drilldown_shape(client):
     assert data["ticker"] == "MSFT"
     assert isinstance(data["ticker_timeline"], list)
     assert "ticker_3d" not in data
-    assert isinstance(data["ticker_cumulative"], list)
+    cum = data["ticker_cumulative"]
+    assert isinstance(cum, dict)
+    for key in ("ticker", "members", "truncated", "rows"):
+        assert key in cum, f"missing ticker_cumulative.{key}"
+    assert cum["ticker"] == "MSFT"
+    assert isinstance(cum["members"], list)
+    assert isinstance(cum["rows"], list)
+    if cum["rows"]:
+        row = cum["rows"][0]
+        for key in (
+            "member",
+            "transaction_date",
+            "cumulative_net",
+            "cumulative_label",
+            "txn_type_label",
+        ):
+            assert key in row, f"missing cumulative row key: {key}"
 
 
 def test_home_net_trade_amounts_row_shape(client):

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ..utils import is_non_equity_asset
-from ._format import format_currency_compact, format_cumulative_net_label
+from ._format import format_currency_compact
 from ._patterns_analytics import signed_trade_notional
 from .repository import (
     is_buy_transaction_type,
@@ -205,37 +205,6 @@ def _dedupe_cumulative_trades(sub: pd.DataFrame) -> pd.DataFrame:
     if not keys:
         return sub
     return sub.drop_duplicates(subset=keys, keep="first")
-
-
-def ticker_cumulative_rows(frame: pd.DataFrame, ticker: str, *, top_n: int = 16) -> list[dict[str, object]]:
-    sub = _ticker_slice(frame, ticker)
-    if sub.empty:
-        return []
-
-    sub = _dedupe_cumulative_trades(sub)
-    sub["_signed"] = sub.apply(signed_trade_notional, axis=1)
-    member_counts = sub["member"].value_counts()
-    member_order = member_counts.head(top_n).index.tolist()
-    sub = sub[sub["member"].isin(member_order)]
-    if sub.empty:
-        return []
-
-    sub = sub.sort_values(["member", "transaction_date", "filing_date"], ascending=[True, True, True])
-    sub["cumulative_net"] = sub.groupby("member", observed=True)["_signed"].cumsum()
-
-    rows: list[dict[str, object]] = []
-    for _, row in sub.iterrows():
-        cum = float(row["cumulative_net"])
-        rows.append(
-            {
-                "member": str(row["member"]),
-                "date": pd.Timestamp(row["transaction_date"]).strftime("%Y-%m-%d"),
-                "cumulative_net": cum,
-                "cumulative_label": format_cumulative_net_label(cum),
-                "txn_type_label": transaction_type_display_label(row.get("transaction_type")),
-            }
-        )
-    return rows
 
 
 def net_trade_records(agg: pd.DataFrame | None) -> list[dict[str, object]]:
