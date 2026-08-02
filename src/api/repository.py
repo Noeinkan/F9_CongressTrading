@@ -422,12 +422,24 @@ def available_years(data: pd.DataFrame) -> list[int]:
 
 
 def lookback_years(years_available: list[int], n_years: int | None) -> list[int]:
-    """Calendar years included for a given lookback window (None = all)."""
+    """Calendar years included for a given lookback window (None = all).
+
+    Uses today's calendar year as the anchor. When that window is entirely
+    ahead of the data (e.g. only 2025 transaction dates with lookback=1 in
+    2026), fall back to the newest ``n_years`` of available years so pages
+    with sparse/lagged dates are not blanked.
+    """
     if n_years is None:
         return years_available
+    if not years_available:
+        return []
     current_year = date.today().year
     cutoff_year = current_year - n_years + 1
-    return [y for y in years_available if y >= cutoff_year]
+    selected = [y for y in years_available if y >= cutoff_year]
+    if selected:
+        return selected
+    newest = sorted(years_available, reverse=True)[:n_years]
+    return sorted(newest)
 
 
 def apply_period_filter(

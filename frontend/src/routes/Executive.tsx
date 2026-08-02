@@ -76,8 +76,10 @@ export function Executive() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
-  // Persist "all" explicitly so clearing the param does not fall back to 1y.
-  const lookbackRaw = searchParams.get("lookback") ?? "1";
+  // Default to all-time: OGE 278-T trade dates often sit in the prior calendar
+  // year (and OCR rows may lack dates), so a "1 year" window blanked the table
+  // even when filings showed non-zero transaction counts.
+  const lookbackRaw = searchParams.get("lookback") ?? "all";
   const lookbackSelectValue =
     lookbackRaw === "" || lookbackRaw === "all" || lookbackRaw === "0" ? "all" : lookbackRaw;
   const filingDocId = searchParams.get("filing_doc_id") ?? "";
