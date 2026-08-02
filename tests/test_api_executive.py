@@ -271,6 +271,38 @@ def test_executive_filings_shape(client):
     assert by_type["OGE278e"]["transaction_count"] == 0
 
 
+def test_executive_filings_dedupes_duplicate_doc_ids(client, seeded_db):
+    """Mantine Select crashes if /filings returns the same doc_id twice."""
+    from src.db import get_connection, insert_filing
+
+    conn = get_connection()
+    try:
+        member_id = conn.execute(
+            "SELECT id FROM members WHERE chamber = 'Executive' LIMIT 1"
+        ).fetchone()[0]
+        insert_filing(
+            conn,
+            member_id=member_id,
+            chamber="Executive",
+            filing_type="OGE278T",
+            filing_date="2026-02-26",
+            doc_id="174165F6E1E120B185258DB000347F54",
+            source_url="https://extapps2.oge.gov/duplicate.pdf",
+            raw_document_path="/tmp/duplicate_278t.pdf",
+            source_hash="dup-hash",
+        )
+    finally:
+        conn.close()
+
+    _login(client)
+    r = client.get("/api/executive/filings")
+    assert r.status_code == 200
+    filings = r.json()["filings"]
+    doc_ids = [f["doc_id"] for f in filings]
+    assert len(doc_ids) == len(set(doc_ids))
+    assert doc_ids.count("174165F6E1E120B185258DB000347F54") == 1
+
+
 # --------------------------------------------------------------------------- #
 # Transactions
 # --------------------------------------------------------------------------- #

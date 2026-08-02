@@ -143,16 +143,32 @@ export function Executive() {
   }, [transactionsQuery.data?.by_owner_type]);
 
   const primaryFiler: ExecutiveFiler | undefined = filers[0];
-  const latestFiling: ExecutiveFiling | undefined = filings[0];
-  const filingTxTotal = filings.reduce((sum, f) => sum + (f.transaction_count || 0), 0);
+
+  // Mantine Select rejects duplicate option values; ingest can leave multiple
+  // filings rows for the same OGE doc_id after force-reparse.
+  const uniqueFilings = useMemo(() => {
+    const byDoc = new Map<string, ExecutiveFiling>();
+    for (const f of filings) {
+      const key = String(f.doc_id || "").trim();
+      if (!key) continue;
+      const prev = byDoc.get(key);
+      if (!prev || (f.transaction_count || 0) > (prev.transaction_count || 0)) {
+        byDoc.set(key, f);
+      }
+    }
+    return Array.from(byDoc.values());
+  }, [filings]);
+
+  const latestFiling: ExecutiveFiling | undefined = uniqueFilings[0];
+  const filingTxTotal = uniqueFilings.reduce((sum, f) => sum + (f.transaction_count || 0), 0);
 
   const filingOptions = useMemo(
     () =>
-      filings.map((f) => ({
+      uniqueFilings.map((f) => ({
         value: f.doc_id,
         label: `${formatDate(f.filing_date)} · ${f.filing_type} (${f.transaction_count})`,
       })),
-    [filings],
+    [uniqueFilings],
   );
 
   const columns = useMemo<ColumnDef<ExecutiveTransactionRow>[]>(
@@ -294,9 +310,9 @@ export function Executive() {
     filteredHoldings.length > 0;
 
   const hasLoaded = !filingsQuery.isLoading && !filersQuery.isLoading;
-  const hasNoData = hasLoaded && filers.length === 0 && filings.length === 0;
+  const hasNoData = hasLoaded && filers.length === 0 && uniqueFilings.length === 0;
   const hasFilingsButNoTx =
-    hasLoaded && filings.length > 0 && filingTxTotal === 0 && totalTransactions === 0;
+    hasLoaded && uniqueFilings.length > 0 && filingTxTotal === 0 && totalTransactions === 0;
 
   const buyCount = Number(summary.buy_count ?? 0) || 0;
   const sellCount = Number(summary.sell_count ?? 0) || 0;
@@ -416,7 +432,7 @@ export function Executive() {
               caption="Click a filing to filter the transactions table below by document ID."
               testId="executive-filings-card"
             >
-              {filings.length === 0 ? (
+              {uniqueFilings.length === 0 ? (
                 <Text c="dimmed" data-testid="executive-filings-empty">
                   No filings available yet.
                 </Text>
@@ -433,11 +449,11 @@ export function Executive() {
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {filings.map((f) => {
+                      {uniqueFilings.map((f) => {
                         const active = filingDocId === f.doc_id;
                         return (
                           <Table.Tr
-                            key={f.doc_id}
+                            key={f.filing_id ?? f.doc_id}
                             data-testid="executive-filing-row"
                             onClick={() => setParam("filing_doc_id", active ? "" : f.doc_id)}
                             style={{ cursor: "pointer" }}

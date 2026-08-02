@@ -201,19 +201,35 @@ def executive_filings(_user: str = Depends(require_auth)) -> dict[str, Any]:
     finally:
         conn.close()
 
-    filings = [
-        {
+    # Dedupe by doc_id: force-reparse / re-ingest can leave multiple filings
+    # rows for the same OGE document. Prefer the row with more transactions,
+    # then the newest filing_id. Mantine Select crashes on duplicate values.
+    best: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        doc_id = str(r["doc_id"] or "").strip()
+        if not doc_id:
+            continue
+        candidate = {
             "filing_id": int(r["filing_id"]),
             "filer_name": str(r["filer_name"]),
             "filing_type": str(r["filing_type"]),
             "filing_date": r["filing_date"],
-            "doc_id": str(r["doc_id"] or ""),
+            "doc_id": doc_id,
             "source_url": str(r["source_url"] or ""),
             "raw_document_path": str(r["raw_document_path"] or ""),
             "transaction_count": int(r["transaction_count"] or 0),
         }
-        for r in rows
-    ]
+        prev = best.get(doc_id)
+        if prev is None or candidate["transaction_count"] > prev["transaction_count"] or (
+            candidate["transaction_count"] == prev["transaction_count"]
+            and candidate["filing_id"] > prev["filing_id"]
+        ):
+            best[doc_id] = candidate
+    filings = sorted(
+        best.values(),
+        key=lambda f: (str(f.get("filing_date") or ""), int(f["filing_id"])),
+        reverse=True,
+    )
     return {"ready": bool(filings), "filings": filings}
 
 
