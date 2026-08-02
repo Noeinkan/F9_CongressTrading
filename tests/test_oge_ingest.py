@@ -177,6 +177,37 @@ def test_is_usable_278t_row_rejects_ocr_garbage() -> None:
     )
 
 
+def test_parse_278t_text_skips_notification_yes_no_column() -> None:
+    """Official 278-T has Yes/No *before* Amount — do not treat it as $."""
+    from src.parse_oge import _parse_278t_text
+
+    text = """
+    1 ARLINGTON TEX INDPT 5% DUE 02/15/31 sale 02/15/2026 Yes $500,001-$1,000,000
+    2 ENERGY NORTHWEST 3.503% DUE 07/01/26 sale 02/20/2026 Yes $1,000,001-$5,000,000
+    3 LOWER COLO RIV AUTH 5% DUE 05/15/35 purchase 01/22/2026 No $100,001 - $250,000
+    4 TEXAS WTR DEV BOARD REV B/E 4.00% purchase 01/18/2026 No $15,001 - $50,000
+    """
+    rows = _parse_278t_text(text, page_number=2)
+    assert len(rows) >= 4
+    amounts = {r["amount_range"] for r in rows}
+    assert not any(str(a).casefold() in {"yes", "no"} for a in amounts)
+    assert any("$500,001" in str(a) for a in amounts)
+    types = {r["transaction_type"] for r in rows}
+    assert "S (Sell)" in types
+    assert "P (Buy)" in types
+    assert all(r["transaction_date"] for r in rows)
+
+
+def test_parse_278t_text_handles_ocr_purchase_typos() -> None:
+    from src.parse_oge import _parse_278t_text
+
+    text = "BANK OF AMERICA CORPORATION purchaso 11/13/2025 Yes $15,001 - $50,000"
+    rows = _parse_278t_text(text, page_number=1)
+    assert len(rows) == 1
+    assert rows[0]["transaction_type"] == "P (Buy)"
+    assert rows[0]["amount_range"].startswith("$15,001")
+
+
 # --------------------------------------------------------------------------- #
 # Ingest integration tests (in-memory DB)
 # --------------------------------------------------------------------------- #

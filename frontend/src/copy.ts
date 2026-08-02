@@ -29,9 +29,6 @@ export const COPY = {
     committeeRelevant: "Committee relevant",
     byTicker: "By ticker",
     activity: "Activity over time",
-    activityGuideTitle: "How to read this chart",
-    activityGuideLines:
-      "▲ green = bought / increased · ◆ amber = partial sell / reduced · ▼ brown = sold / exited · Larger mark = higher disclosed $ high",
     topTickers: "Top tickers by trade count",
     committeeCard: "Committee-relevant trades",
   },

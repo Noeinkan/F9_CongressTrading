@@ -50,9 +50,13 @@ def ocr_page_text(
     pdf_path: Path,
     page_index: int,
     *,
-    dpi: int = 200,
+    dpi: int = 300,
+    psm: int = 6,
 ) -> str:
     """OCR a single 0-based page and return plain text.
+
+    Defaults favor scanned OGE 278-T tables: 300 DPI + Tesseract PSM 6
+    (assume a uniform block of text).
 
     Raises
     ------
@@ -102,8 +106,19 @@ def ocr_page_text(
     if not images:
         raise ValueError(f"No image rendered for page {page_index} of {pdf_path}")
 
+    image = images[0]
     try:
-        return pytesseract.image_to_string(images[0]) or ""
+        from PIL import ImageEnhance, ImageOps
+
+        # Light preprocessing helps dense municipal-bond tables on scans.
+        gray = ImageOps.grayscale(image)
+        image = ImageEnhance.Contrast(gray).enhance(1.4)
+    except Exception:
+        pass
+
+    try:
+        config = f"--psm {int(psm)}"
+        return pytesseract.image_to_string(image, config=config) or ""
     except pytesseract.TesseractNotFoundError as exc:
         raise OcrUnavailableError(
             "Tesseract is not installed or not on PATH. "

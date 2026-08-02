@@ -148,13 +148,23 @@ def _normalize_tx_code(code: str) -> str:
     letter = re.sub(r"[^A-Z]", "", raw)
     if letter in _DESCRIPTION_CODE_MAP:
         return _DESCRIPTION_CODE_MAP[letter]
-    if "PURCHASE" in raw or raw == "BUY":
+    # OCR mangling: "purchaso" / "ourthase" / "purd…" → purchase; "salo" → sale.
+    compact = letter
+    if (
+        "PURCHASE" in raw
+        or raw == "BUY"
+        or "PURCH" in compact
+        or "URCHAS" in compact
+        or "URTHAS" in compact  # ourthase
+        or "PURD" in compact
+        or (compact.endswith("HASE") and "EX" not in compact)
+    ):
         return "P (Buy)"
-    if "SALE" in raw or raw == "SELL":
+    if "SALE" in raw or raw == "SELL" or compact in {"SALE", "SELL", "SALO"}:
         return "S (Sell)"
-    if "EXCHANGE" in raw:
+    if "EXCHANGE" in raw or "XCHANG" in compact:
         return "E (Exchange)"
-    return _clean_cell(code)
+    return ""
 
 
 def _detect_form_type(pdf_path: Path) -> str:
@@ -248,12 +258,29 @@ def _owner_from_cells(cells: list[str]) -> str:
     return "filer"
 
 
+def _fix_ocr_amount_separators(value: str) -> str:
+    """Rewrite OCR ``$1.000.001`` / ``$15.001`` thousands-dots into commas."""
+
+    def _fix_one(match: re.Match[str]) -> str:
+        body = match.group(1)
+        body = re.sub(r"\.(?=\d{3}(?:\D|$))", ",", body)
+        return f"${body}"
+
+    return re.sub(r"\$\s*([\d.,]+(?:\s*[-–—•]\s*\$?[\d.,]+)?)", _fix_one, value)
+
+
 def _normalize_amount_range(value: str) -> str:
-    repaired = repair_ocr_text(value)
+    repaired = _fix_ocr_amount_separators(repair_ocr_text(value))
+    repaired = repaired.replace("•", "-").replace("–", "-").replace("—", "-")
     match = _FUZZY_AMOUNT_RE.search(repaired) or _AMOUNT_RE.search(repaired)
     if match:
         return _clean_cell(match.group(0))
     return _clean_cell(repaired)
+
+
+def _is_notify_cell(value: str) -> bool:
+    folded = _clean_cell(value).casefold().strip(" .\"'|")
+    return folded in {"yes", "no", "y", "n", "ya", "ye"}
 
 
 def _asset_looks_like_ocr_garbage(asset: str) -> bool:
@@ -275,13 +302,17 @@ def _asset_looks_like_ocr_garbage(asset: str) -> bool:
 
 def _amount_looks_plausible(amount: str) -> bool:
     """True when amount looks like a disclosed dollar range, not Yes/No/noise."""
-    text = _clean_cell(amount)
+    text = _normalize_amount_range(amount)
     if not text:
         return False
     folded = text.casefold().strip(" .\"'")
     if folded in {"yes", "no", "y", "n", "true", "false"}:
         return False
-    if _FUZZY_AMOUNT_RE.search(text) or re.search(r"\$\s*[\d,]+", text):
+    digits = re.sub(r"\D", "", text)
+    # Truncated OCR crumbs like "$250" are not OGE buckets.
+    if len(digits) < 4:
+        return False
+    if re.search(r"\$\s*[\d,]+", text):
         return True
     # Bare ranges like "1001 - 15000" (no $) still count.
     if re.search(r"\d{3,}\s*[-–—]\s*\$?\d{3,}", text):
@@ -304,12 +335,124 @@ def is_usable_278t_row(row: dict[str, object]) -> bool:
     amount = str(row.get("amount_range") or "")
     if not _amount_looks_plausible(amount):
         return False
+    tx = str(row.get("transaction_type") or "")
+    if tx not in {"P (Buy)", "S (Sell)", "E (Exchange)"}:
+        tx = _normalize_tx_code(tx)
+    if tx not in {"P (Buy)", "S (Sell)", "E (Exchange)"}:
+        return False
+    # Reject absurd OCR dates (e.g. year 0201 / 0202 from digit confusion).
+    date_s = str(row.get("transaction_date") or "")
+    if date_s:
+        try:
+            year = int(date_s[:4])
+        except ValueError:
+            return False
+        if year < 2000 or year > 2100:
+            return False
     return True
+
+
+def _rows_quality_score(rows: list[dict[str, object]]) -> tuple[int, int]:
+    """Prefer canonical types + plausible assets over raw row count."""
+    score = 0
+    for row in rows:
+        tx = str(row.get("transaction_type") or "")
+        if tx in {"P (Buy)", "S (Sell)", "E (Exchange)"}:
+            score += 3
+        if _amount_looks_plausible(str(row.get("amount_range") or "")):
+            score += 1
+        asset = str(row.get("asset") or "")
+        if asset and not _asset_looks_like_ocr_garbage(asset):
+            score += 2
+        if "OGE" in asset.upper() and "278" in asset:
+            score -= 5
+    return score, len(rows)
+
+
+# Official OGE 278-T row shape (Integrity / paper form):
+#   # | Description | Type | Date | Notification Received Over 30 Days Ago | Amount
+# The Yes/No column is NOT the amount — earlier parses treated it as such.
+# Word forms for free-text / OCR. Bare P/S/E are only accepted in ``_TX_ROW_RE``
+# where a date must follow immediately (avoids matching random letters in bonds).
+_TX_TYPE_WORD = (
+    r"(?:purchase|sale|exchange|purchaso|ourthase|purd\w*|salo)"
+)
+_TX_ROW_RE = re.compile(
+    r"(?:(?P<owner>SP|JT|DC|Filer|Self|Spouse|Dependent)\s+)?"
+    r"(?P<asset>[A-Za-z][A-Za-z0-9 ,.&'/*\-_%()]{2,}?)\s+"
+    rf"(?P<code>{_TX_TYPE_WORD}|[PSE])\b\s*[,.]?\s*"
+    r"(?P<date>\d{1,2}[/Jl|]\d{1,2}[/Jl|]\d{2,4})\s+"
+    r"(?:(?P<notify>yes|no|ya|ye)\b[\s|:]*)?"
+    r"(?P<amount>\$\s*[\d,]+(?:\.\d+)?(?:\s*[-–—•]\s*\$?\s*[\d,]+(?:\.\d+)?)?)",
+    re.IGNORECASE,
+)
 
 
 # --------------------------------------------------------------------------- #
 # 278-T parser
 # --------------------------------------------------------------------------- #
+def _candidate_from_fields(
+    *,
+    asset: str,
+    code: str,
+    transaction_date: str | None,
+    amount_range: str,
+    owner: str,
+    page_number: int,
+    parse_warning: str | None = None,
+) -> dict[str, object] | None:
+    asset = _clean_cell(asset)
+    if not asset or len(asset) < 2:
+        return None
+    if asset.casefold() in {"asset", "description", "asset description"}:
+        return None
+    # Strip a leading row index that leaked into the asset cell ("12 APPLE…").
+    asset = re.sub(r"^\d{1,3}\s+", "", asset).strip()
+    warning = parse_warning if parse_warning is not None else (
+        None if transaction_date else "missing_transaction_date"
+    )
+    candidate = {
+        "transaction_date": transaction_date,
+        "asset": asset,
+        "transaction_type": _normalize_tx_code(code),
+        "amount_range": _normalize_amount_range(amount_range),
+        "owner_type": owner,
+        "source_page": page_number,
+        "parse_warning": warning,
+    }
+    return candidate if is_usable_278t_row(candidate) else None
+
+
+def _parse_positional_278t_cells(cells: list[str]) -> tuple[str, str, str | None, str, str] | None:
+    """Map a row of cells to (owner, asset, date, code, amount).
+
+    Handles the official 6-col layout (with # + Yes/No notification) as well as
+    older 4/5-col variants without the notification column.
+    """
+    # Drop trailing empty cells but keep interior blanks.
+    while cells and not cells[-1]:
+        cells = cells[:-1]
+    if len(cells) < 4:
+        return None
+
+    # # | Asset | Type | Date | Yes/No | Amount
+    if len(cells) >= 6 and _is_notify_cell(cells[4]) and _amount_looks_plausible(cells[5]):
+        return "filer", cells[1], _parse_ocr_date(cells[3]), cells[2], cells[5]
+    # Asset | Type | Date | Yes/No | Amount
+    if len(cells) >= 5 and _is_notify_cell(cells[3]) and _amount_looks_plausible(cells[4]):
+        return "filer", cells[0], _parse_ocr_date(cells[2]), cells[1], cells[4]
+    # # | Asset | Type | Date | Amount  (notification blank / missing)
+    if len(cells) >= 5 and cells[0].isdigit() and _amount_looks_plausible(cells[4]):
+        return "filer", cells[1], _parse_ocr_date(cells[3]), cells[2], cells[4]
+    # Owner | Asset | Type | Date | Amount
+    if len(cells) >= 5 and _amount_looks_plausible(cells[4]) and not _is_notify_cell(cells[4]):
+        return _owner_from_cells([cells[0]]), cells[1], _parse_ocr_date(cells[3]), cells[2], cells[4]
+    # Asset | Type | Date | Amount
+    if len(cells) >= 4 and _amount_looks_plausible(cells[3]):
+        return "filer", cells[0], _parse_ocr_date(cells[2]), cells[1], cells[3]
+    return None
+
+
 def _parse_278t_table(
     table: list[list[object]], page_number: int
 ) -> list[dict[str, object]]:
@@ -320,27 +463,38 @@ def _parse_278t_table(
 
     header_cells = [repair_ocr_text(_clean_cell(c)) for c in table[0]]
     header_lower = [c.casefold() for c in header_cells]
-    # "Description" alone is the OGE P/S/E type column — never treat it as asset.
+    # "Description" alone is the asset column on modern 278-T; "Type" is P/S/E.
     asset_idx = next(
-        (i for i, c in enumerate(header_lower) if "asset" in c),
+        (
+            i
+            for i, c in enumerate(header_lower)
+            if "asset" in c or c == "description" or "description" == c.strip()
+        ),
+        None,
+    )
+    # Prefer an explicit Type header over a bare "description".
+    type_idx = next(
+        (
+            i
+            for i, c in enumerate(header_lower)
+            if c == "type" or "transaction type" in c or (c.startswith("type") and "asset" not in c)
+        ),
         None,
     )
     date_idx = next(
         (i for i, c in enumerate(header_lower) if "transaction date" in c or c == "date"),
         None,
     )
-    type_idx = next(
+    amount_idx = next(
+        (i for i, c in enumerate(header_lower) if "amount" in c),
+        None,
+    )
+    notify_idx = next(
         (
             i
             for i, c in enumerate(header_lower)
-            if c in {"type", "description"}
-            or "transaction type" in c
-            or ("type" in c and "asset" not in c)
+            if "notification" in c or "30 days" in c or c in {"yes/no", "over 30"}
         ),
-        None,
-    )
-    amount_idx = next(
-        (i for i, c in enumerate(header_lower) if "amount" in c),
         None,
     )
     owner_idx = next(
@@ -348,8 +502,6 @@ def _parse_278t_table(
         None,
     )
 
-    # When headers are illegible, fall back to positional columns used by OGE:
-    # Owner | Asset | Type | Date | Amount (5+ cols) or Asset | Type | Date | Amount.
     use_positional = asset_idx is None and len(header_cells) >= 4
 
     for raw in table[1:]:
@@ -357,105 +509,176 @@ def _parse_278t_table(
             continue
         cells = [repair_ocr_text(_clean_cell(c)) for c in raw]
         if use_positional:
-            if len(cells) >= 5:
-                owner = _owner_from_cells([cells[0]])
-                asset = cells[1]
-                code = cells[2]
-                transaction_date = _parse_ocr_date(cells[3])
-                amount_range = _normalize_amount_range(cells[4])
-            else:
-                owner = _owner_from_cells(cells)
-                asset = cells[0] if cells else ""
-                code = cells[1] if len(cells) > 1 else ""
-                transaction_date = _parse_ocr_date(cells[2]) if len(cells) > 2 else None
-                amount_range = _normalize_amount_range(cells[3]) if len(cells) > 3 else ""
+            mapped = _parse_positional_278t_cells(cells)
+            if mapped is None:
+                continue
+            owner, asset, transaction_date, code, amount_range = mapped
         else:
             asset = cells[asset_idx] if asset_idx is not None and asset_idx < len(cells) else ""
             transaction_date = (
                 _parse_ocr_date(cells[date_idx]) if date_idx is not None and date_idx < len(cells) else None
             )
             code = cells[type_idx] if type_idx is not None and type_idx < len(cells) else ""
-            amount_range = (
-                _normalize_amount_range(cells[amount_idx])
-                if amount_idx is not None and amount_idx < len(cells)
-                else ""
-            )
+            # Never treat the notification Yes/No column as the amount.
+            if amount_idx is not None and amount_idx < len(cells):
+                amount_range = cells[amount_idx]
+            elif notify_idx is not None and notify_idx + 1 < len(cells):
+                amount_range = cells[notify_idx + 1]
+            else:
+                amount_range = ""
+            if _is_notify_cell(amount_range):
+                # Header mis-detect: slide one column right looking for $.
+                for cell in cells:
+                    if _amount_looks_plausible(cell):
+                        amount_range = cell
+                        break
             owner = (
                 _owner_from_cells(cells)
                 if owner_idx is None
                 else _owner_from_cells([cells[owner_idx]] if owner_idx < len(cells) else [])
             )
-        if not asset or len(asset) < 2:
-            continue
-        # Skip header-like repeats.
-        if asset.casefold() in {"asset", "description", "asset description"}:
-            continue
-        tx_type = _normalize_tx_code(code)
-        warning = None if transaction_date else "missing_transaction_date"
-        candidate = {
-            "transaction_date": transaction_date,
-            "asset": asset,
-            "transaction_type": tx_type,
-            "amount_range": amount_range,
-            "owner_type": owner,
-            "source_page": page_number,
-            "parse_warning": warning,
-        }
-        if is_usable_278t_row(candidate):
+        candidate = _candidate_from_fields(
+            asset=asset,
+            code=code,
+            transaction_date=transaction_date,
+            amount_range=amount_range,
+            owner=owner,
+            page_number=page_number,
+        )
+        if candidate:
             rows.append(candidate)
+
+    # Scanned 278-Ts often collapse every trade into one mega-cell. Fall back to
+    # the text heuristics on the joined cell blob when column parsing is thin.
+    if len(rows) < 2:
+        blob = "\n".join(
+            repair_ocr_text(_clean_cell(c))
+            for raw in table
+            for c in (raw or [])
+            if _clean_cell(c)
+        )
+        text_rows = _parse_278t_text(blob, page_number)
+        if len(text_rows) > len(rows):
+            return text_rows
+    return rows
+
+
+def _append_unique_278t_row(
+    rows: list[dict[str, object]],
+    seen: set[tuple[str, str, str]],
+    candidate: dict[str, object] | None,
+) -> None:
+    if not candidate:
+        return
+    key = (
+        str(candidate["transaction_date"] or ""),
+        str(candidate["asset"] or "")[:80],
+        str(candidate["amount_range"] or ""),
+    )
+    if key in seen:
+        return
+    seen.add(key)
+    rows.append(candidate)
+
+
+def _parse_278t_numbered_chunks(text: str, page_number: int) -> list[dict[str, object]]:
+    """Split on leading row indexes (``1 ASSET…``) and parse each chunk.
+
+    Scanned pages often omit the transaction date between type and Yes/No, or
+    put the date on the next wrapped line. Per-chunk extraction is more
+    tolerant than a single-line regex.
+    """
+    rows: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    chunks = re.split(r"(?m)(?=^\s*\d{1,3}\s+[A-Za-z*])", text)
+    amount_re = re.compile(
+        r"\$\s*[\d,]+(?:\.\d+)?(?:\s*[-–—•]\s*\$?\s*[\d,]+(?:\.\d+)?)?",
+        re.IGNORECASE,
+    )
+    type_re = re.compile(rf"\b({_TX_TYPE_WORD}|[PSE])\b", re.IGNORECASE)
+    date_re = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        amount_match = amount_re.search(chunk)
+        type_match = type_re.search(chunk)
+        if not amount_match or not type_match:
+            continue
+        if type_match.start() > amount_match.start():
+            continue
+        dates = list(date_re.finditer(chunk))
+        # Prefer a date that sits after the type token (transaction date), not a
+        # maturity date embedded earlier in the bond description ("DUE 02/15/31").
+        transaction_date = None
+        for d in dates:
+            if d.start() >= type_match.start():
+                transaction_date = _parse_ocr_date(d.group(0))
+                if transaction_date:
+                    break
+        asset = chunk[: type_match.start()]
+        asset = re.sub(r"^\d{1,3}\s+", "", asset).strip(" -\t")
+        candidate = _candidate_from_fields(
+            asset=asset,
+            code=type_match.group(1),
+            transaction_date=transaction_date,
+            amount_range=amount_match.group(0),
+            owner="filer",
+            page_number=page_number,
+        )
+        _append_unique_278t_row(rows, seen, candidate)
     return rows
 
 
 def _parse_278t_text(text: str, page_number: int) -> list[dict[str, object]]:
-    """Regex fallback for 278-T pages where the table layout broke."""
+    """Regex fallback for 278-T pages where the table layout broke.
+
+    Accepts the official Yes/No notification token between date and amount:
+    ``… purchase 1/22/2026 Yes $100,001 - $250,000``.
+    """
     rows: list[dict[str, object]] = []
     if not text:
         return rows
-    repaired = repair_ocr_text(text)
-    # Strict line shape first.
-    strict = re.compile(
-        r"^(?:(?P<owner>SP|JT|DC|Filer|Self|Spouse|Dependent)\s+)?"
-        r"(?P<asset>.+?)\s+"
-        r"(?P<code>P|S|E|Purchase|Sale|Exchange)\s+"
-        r"(?P<date>\d{1,2}/\d{1,2}/\d{2,4})\s+"
-        r"(?P<amount>\$?[\d,]+(?:\s*-\s*\$?[\d,]+)?)\s*$",
-        re.IGNORECASE,
-    )
-    # Looser: asset … code … date … amount anywhere on the line.
-    loose = re.compile(
-        r"(?:(?P<owner>SP|JT|DC|Filer|Self|Spouse|Dependent)\s+)?"
-        r"(?P<asset>[A-Za-z][A-Za-z0-9 ,.&'/\-]{2,}?)\s+"
-        r"(?P<code>P|S|E|Purchase|Sale|Exchange)\s+"
-        r"(?P<date>\d{1,2}/\d{1,2}/\d{2,4})\s+"
-        r"(?P<amount>\$?[\d,]+(?:\s*-\s*\$?[\d,]+)?)",
-        re.IGNORECASE,
-    )
-    for line in repaired.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        match = strict.search(line) or loose.search(line)
-        if not match:
-            continue
+    repaired = _fix_ocr_amount_separators(repair_ocr_text(text))
+    # Normalize common OCR date separators (J / | standing in for /).
+    repaired = re.sub(r"(\d{1,2})[Jl|](\d{1,2})[Jl|](\d{2,4})", r"\1/\2/\3", repaired)
+
+    seen: set[tuple[str, str, str]] = set()
+    for match in _TX_ROW_RE.finditer(repaired):
         owner_code_raw = match.group("owner")
         owner_code = owner_code_raw.upper() if owner_code_raw else "FILER"
         owner = _OWNER_CODE_MAP.get(owner_code, owner_code.lower())
-        code = match.group("code")
         asset = _clean_cell(match.group("asset"))
-        if not asset or asset.casefold() in {"asset", "description"}:
-            continue
-        candidate = {
-            "transaction_date": parse_date(match.group("date")),
-            "asset": asset,
-            "transaction_type": _normalize_tx_code(code),
-            "amount_range": _normalize_amount_range(match.group("amount")),
-            "owner_type": owner,
-            "source_page": page_number,
-            "parse_warning": None,
-        }
-        if is_usable_278t_row(candidate):
-            rows.append(candidate)
+        # Drop leading "#." row markers left inside the asset capture.
+        asset = re.sub(r"^\d{1,3}[\).:\-]\s*", "", asset).strip()
+        transaction_date = _parse_ocr_date(match.group("date")) or parse_date(match.group("date"))
+        candidate = _candidate_from_fields(
+            asset=asset,
+            code=match.group("code"),
+            transaction_date=transaction_date,
+            amount_range=match.group("amount"),
+            owner=owner,
+            page_number=page_number,
+        )
+        _append_unique_278t_row(rows, seen, candidate)
+
+    # Numbered-chunk pass recovers rows the single-regex pass missed (wrapped
+    # dates, missing date between type and Yes/No, etc.).
+    for candidate in _parse_278t_numbered_chunks(repaired, page_number):
+        _append_unique_278t_row(rows, seen, candidate)
     return rows
+
+
+def _embedded_text_is_garbage(text: str) -> bool:
+    """Heuristic: scanned PDFs leave a high-noise embedded text layer."""
+    if not text or len(text) < 40:
+        return True
+    letters = sum(ch.isalpha() for ch in text)
+    ratio = letters / max(len(text), 1)
+    if ratio < 0.45:
+        return True
+    weird = sum(1 for ch in text if not ch.isascii() or ch in "~•■▪▫")
+    return weird / max(len(text), 1) > 0.03
 
 
 def _rows_from_page_text_and_table(
@@ -463,11 +686,15 @@ def _rows_from_page_text_and_table(
     table: list[list[object]] | None,
     page_number: int,
 ) -> list[dict[str, object]]:
+    table_rows: list[dict[str, object]] = []
     if table:
         table_rows = _parse_278t_table(table, page_number)
-        if table_rows:
-            return table_rows
-    return _parse_278t_text(text, page_number)
+    text_rows = _parse_278t_text(text, page_number)
+    if len(table_rows) >= len(text_rows) and table_rows:
+        return table_rows
+    if text_rows:
+        return text_rows
+    return table_rows
 
 
 def parse_oge_278t(pdf_path: Path) -> tuple[dict[str, str | None], list[dict[str, object]]]:
@@ -503,25 +730,31 @@ def parse_oge_278t(pdf_path: Path) -> tuple[dict[str, str | None], list[dict[str
                 header["filing_date"] = _extract_filing_date(text)
             table = page.extract_table()
             page_rows = _rows_from_page_text_and_table(text, table, page_index + 1)
-            if page_rows:
-                rows.extend(page_rows)
-                continue
 
-            # pdfplumber found nothing usable — try real OCR on this page.
-            try:
-                ocr_text = ocr_page_text(pdf_path, page_index)
-                ocr_used = True
-                if page_index == 0 and not header.get("filer_name"):
-                    header["filer_name"] = _extract_filer_name(ocr_text)
-                if page_index == 0 and not header.get("filing_date"):
-                    header["filing_date"] = _extract_filing_date(ocr_text)
-                ocr_rows = _parse_278t_text(ocr_text, page_index + 1)
-                rows.extend(ocr_rows)
-            except OcrUnavailableError:
-                ocr_unavailable = True
-            except Exception:
-                # Page-level OCR failure should not abort the whole PDF.
-                continue
+            # Scanned filings often have a junk embedded layer that still yields
+            # a few partial rows. Prefer real OCR whenever the page looks noisy
+            # or embedded parsing found nothing.
+            needs_ocr = (not page_rows) or _embedded_text_is_garbage(text)
+            if needs_ocr:
+                try:
+                    ocr_text = ocr_page_text(pdf_path, page_index)
+                    ocr_used = True
+                    if page_index == 0 and not header.get("filer_name"):
+                        header["filer_name"] = _extract_filer_name(ocr_text)
+                    if page_index == 0 and not header.get("filing_date"):
+                        header["filing_date"] = _extract_filing_date(ocr_text)
+                    ocr_rows = _parse_278t_text(ocr_text, page_index + 1)
+                    # Keep the higher-quality source (not merely the longer list —
+                    # OCR can invent many low-quality false positives).
+                    if _rows_quality_score(ocr_rows) >= _rows_quality_score(page_rows):
+                        page_rows = ocr_rows
+                except OcrUnavailableError:
+                    ocr_unavailable = True
+                except Exception:
+                    # Page-level OCR failure should not abort the whole PDF.
+                    pass
+
+            rows.extend(page_rows)
 
     if ocr_used:
         header["ocr_status"] = "used"

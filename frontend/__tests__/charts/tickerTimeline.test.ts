@@ -49,67 +49,35 @@ describe("buildTickerTimelineOption", () => {
       }),
     ]);
     expect(option).not.toBeNull();
-    const series = option!.series as Array<{ name: string; data: unknown[]; id?: string }>;
-    const buy = series.find((s) => s.id === "Buy");
+    const series = option!.series as Array<{ name: string; data: unknown[] }>;
+    const buy = series.find((s) => s.name === "Buy");
     expect(buy?.data[0]).toEqual(["2024-03-01", "Alice", 15_000]);
   });
 
-  it("uses distinct shapes and action-oriented legend labels per type", () => {
-    const option = buildTickerTimelineOption([
-      row({ member: "A", transaction_date: "2024-01-01", txn_type_label: "Buy" }),
-      row({
-        member: "A",
-        transaction_date: "2024-01-02",
-        txn_type_label: "Sell (partial)",
-        transaction_type: "S (partial)",
-      }),
-      row({
-        member: "A",
-        transaction_date: "2024-01-03",
-        txn_type_label: "Sell",
-        transaction_type: "S",
-      }),
-    ]);
+  it("puts tickers on the Y axis when yField is ticker", () => {
+    const option = buildTickerTimelineOption(
+      [
+        row({
+          member: "Hon. Example",
+          ticker: "NVDA",
+          transaction_date: "2024-03-01",
+          txn_type_label: "Buy",
+        }),
+        row({
+          member: "Hon. Example",
+          ticker: "AAPL",
+          transaction_date: "2024-04-01",
+          txn_type_label: "Sell",
+          transaction_type: "S",
+        }),
+      ],
+      { yField: "ticker", yOrder: ["NVDA", "AAPL"] },
+    );
     expect(option).not.toBeNull();
-    const series = option!.series as Array<{
-      name: string;
-      id?: string;
-      symbol?: string;
-      symbolRotate?: number;
-    }>;
-
-    const buy = series.find((s) => s.id === "Buy");
-    expect(buy?.symbol).toBe("triangle");
-    expect(buy?.symbolRotate ?? 0).toBe(0);
-    expect(buy?.name).toMatch(/increased/i);
-
-    const partial = series.find((s) => s.id === "Sell (partial)");
-    expect(partial?.symbol).toBe("diamond");
-    expect(partial?.name).toMatch(/reduced/i);
-
-    const sell = series.find((s) => s.id === "Sell");
-    expect(sell?.symbol).toBe("triangle");
-    expect(sell?.symbolRotate).toBe(180);
-    expect(sell?.name).toMatch(/exited/i);
-  });
-
-  it("orders legend types Buy → partial → Sell", () => {
-    const option = buildTickerTimelineOption([
-      row({
-        member: "A",
-        transaction_date: "2024-01-03",
-        txn_type_label: "Sell",
-        transaction_type: "S",
-      }),
-      row({ member: "A", transaction_date: "2024-01-01", txn_type_label: "Buy" }),
-      row({
-        member: "A",
-        transaction_date: "2024-01-02",
-        txn_type_label: "Sell (partial)",
-        transaction_type: "S (partial)",
-      }),
-    ]);
-    const series = option!.series as Array<{ id?: string }>;
-    expect(series.map((s) => s.id)).toEqual(["Buy", "Sell (partial)", "Sell"]);
+    const yAxis = option!.yAxis as { data: string[] };
+    expect(yAxis.data).toEqual(["NVDA", "AAPL"]);
+    const series = option!.series as Array<{ name: string; data: unknown[] }>;
+    const buy = series.find((s) => s.name === "Buy");
+    expect(buy?.data[0]).toEqual(["2024-03-01", "NVDA", expect.any(Number)]);
   });
 });
