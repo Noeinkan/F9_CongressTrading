@@ -115,6 +115,24 @@ def test_tickers_list_param_validation(client):
     assert client.get("/api/tickers?page_size=999").status_code == 422
 
 
+def test_tickers_list_include_returns_false(client):
+    """Dropdown path skips Polygon return aggregation but keeps list shape."""
+    _login(client)
+    r = client.get("/api/tickers?include_returns=false&page_size=10")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["include_returns"] is False
+    assert isinstance(data["rows"], list)
+    if not data["rows"]:
+        pytest.skip("No data on disk to assert return fields.")
+    row = data["rows"][0]
+    assert "return_pct" in row
+    assert "return_trade_count" in row
+    # Without the Polygon pass, aggregate returns stay empty/zero.
+    assert row["return_pct"] is None
+    assert row["return_trade_count"] in (0, None)
+
+
 def test_ticker_detail_requires_auth(client):
     assert client.get("/api/tickers/AAPL").status_code == 401
 

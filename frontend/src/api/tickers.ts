@@ -12,10 +12,16 @@ import type {
   TickersListResponse,
 } from "./types";
 
+/** Keep period-scoped ticker payloads warm across navigations. */
+const TICKERS_STALE_MS = 5 * 60_000;
+const TICKERS_GC_MS = 10 * 60_000;
+
 export function useTickersList(params?: TickersListParams) {
   return useQuery({
     queryKey: ["tickers", "list", params ?? {}],
     queryFn: () => apiFetch<TickersListResponse>(`/api/tickers${buildTickersSearch(params)}`),
+    staleTime: TICKERS_STALE_MS,
+    gcTime: TICKERS_GC_MS,
   });
 }
 
@@ -28,6 +34,8 @@ export function useTickerProfile(ticker: string | null, params?: PeriodParams) {
         `/api/tickers/${encodeURIComponent(normalized)}${buildPeriodSearch(params)}`,
       ),
     enabled: normalized.length > 0,
+    staleTime: TICKERS_STALE_MS,
+    gcTime: TICKERS_GC_MS,
   });
 }
 
@@ -40,6 +48,8 @@ export function useTickerPriceOverlay(ticker: string | null, params?: PeriodPara
         `/api/tickers/${encodeURIComponent(normalized)}/price_overlay${buildPeriodSearch(params)}`,
       ),
     enabled: normalized.length > 0,
+    staleTime: TICKERS_STALE_MS,
+    gcTime: TICKERS_GC_MS,
   });
 }
 
@@ -52,6 +62,8 @@ export function useTickerMemberTimeline(ticker: string | null, params?: PeriodPa
         `/api/tickers/${encodeURIComponent(normalized)}/member_timeline${buildPeriodSearch(params)}`,
       ),
     enabled: normalized.length > 0,
+    staleTime: TICKERS_STALE_MS,
+    gcTime: TICKERS_GC_MS,
   });
 }
 
@@ -64,5 +76,7 @@ export function useTickerCumulativeExposure(ticker: string | null, params?: Peri
         `/api/tickers/${encodeURIComponent(normalized)}/cumulative_exposure${buildPeriodSearch(params)}`,
       ),
     enabled: normalized.length > 0,
+    staleTime: TICKERS_STALE_MS,
+    gcTime: TICKERS_GC_MS,
   });
 }

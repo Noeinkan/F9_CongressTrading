@@ -593,6 +593,8 @@ export type TickersListParams = PeriodParams & {
   search?: string;
   page?: number;
   page_size?: number;
+  /** When false, skip Polygon return aggregation on the server. */
+  include_returns?: boolean;
 };
 
 export type ReviewParams = PeriodParams & {

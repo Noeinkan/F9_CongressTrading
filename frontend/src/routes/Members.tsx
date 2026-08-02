@@ -2,6 +2,7 @@ import {
   Alert,
   Badge,
   Group,
+  Loader,
   SegmentedControl,
   Select,
   SimpleGrid,
@@ -66,7 +67,7 @@ export function Members() {
     [lookback, quarters],
   );
 
-  const selectedMember = searchParams.get("member") ?? "";
+  const selectedMember = (searchParams.get("member") ?? "").trim();
   const tradeView = searchParams.get("view") === COMMITTEE_VIEW ? COMMITTEE_VIEW : "all";
 
   const { data, isLoading, isError } = useMembersSummary(periodParams);
@@ -77,10 +78,20 @@ export function Members() {
   );
   const activityData = useMemberActivityTimeline(selectedMember || null, periodParams);
 
-  const memberOptions = useMemo(
-    () => (data?.leaderboard ?? []).map((r) => r.member),
-    [data?.leaderboard],
-  );
+  // Deep-link (`?member=`) should paint immediately; only block on the
+  // summary leaderboard when we still need it to browse.
+  const deepLinked = selectedMember.length > 0;
+  const pageLoading = deepLinked ? false : isLoading;
+  const pageError = deepLinked ? false : isError;
+  const pageReady = deepLinked ? true : (data?.ready ?? false);
+
+  const memberOptions = useMemo(() => {
+    const fromBoard = (data?.leaderboard ?? []).map((r) => r.member);
+    if (selectedMember && !fromBoard.includes(selectedMember)) {
+      return [selectedMember, ...fromBoard];
+    }
+    return fromBoard;
+  }, [data?.leaderboard, selectedMember]);
 
   const setMember = (member: string | null) => {
     if (!member) return;
@@ -114,9 +125,8 @@ export function Members() {
   }, [memberTickers.data?.rows]);
 
   return (
-    <PageState isLoading={isLoading} isError={isError} ready={data?.ready ?? false}>
-      {data ? (
-        <Stack gap="md" data-testid="members-page">
+    <PageState isLoading={pageLoading} isError={pageError} ready={pageReady}>
+      <Stack gap="md" data-testid="members-page">
           <SectionIntro
             kicker={COPY.members.kicker}
             title={COPY.members.title}
@@ -129,7 +139,11 @@ export function Members() {
             caption="Quick scan of the most active filers in the active slice. The full leaderboard lives on the Home page."
             testId="members-browse"
           >
-            {data.leaderboard.length === 0 ? (
+            {isLoading && !data ? (
+              <Group justify="center" py="md">
+                <Loader size="sm" />
+              </Group>
+            ) : !data || data.leaderboard.length === 0 ? (
               <Text c="dimmed">No members in the current slice.</Text>
             ) : (
               <Group gap="xs" data-testid="members-browse-chips" wrap="wrap">
@@ -161,8 +175,18 @@ export function Members() {
             value={selectedMember || null}
             onChange={setMember}
             searchable
+            disabled={isLoading && !selectedMember}
             data-testid="members-select"
           />
+
+          {selectedMember && memberTickers.isLoading ? (
+            <Stack align="center" py="xl" data-testid="members-profile-loading">
+              <Loader size="md" />
+              <Text size="sm" c="dimmed">
+                Loading {selectedMember}…
+              </Text>
+            </Stack>
+          ) : null}
 
           {selectedMember && kpis ? (
             <Stack gap="md" data-testid="members-profile">
@@ -372,7 +396,6 @@ export function Members() {
             </Stack>
           ) : null}
         </Stack>
-      ) : null}
     </PageState>
   );
 }

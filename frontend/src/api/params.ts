@@ -67,6 +67,9 @@ export function buildTickersSearch(params?: TickersListParams): string {
       search.set(key, String(value));
     }
   }
+  if (params.include_returns !== undefined) {
+    search.set("include_returns", params.include_returns ? "true" : "false");
+  }
   const qs = search.toString();
   return qs ? `?${qs}` : "";
 }

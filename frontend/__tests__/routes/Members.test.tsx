@@ -134,6 +134,17 @@ describe("Members route", () => {
     });
   });
 
+  it("does not block the page shell on summary load when deep-linked", async () => {
+    useMembersSummary.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    useMemberTickers.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    renderMembers(["/?member=Alice"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("members-page")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("members-profile-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("page-loading")).not.toBeInTheDocument();
+  });
+
   it("toggles committee view pill", async () => {
     const user = userEvent.setup();
     renderMembers(["/?member=Alice"]);

@@ -489,7 +489,9 @@ def weighted_aggregate_return(metrics: list[dict[str, Any]]) -> dict[str, Any] |
 # --------------------------------------------------------------------------- #
 # Ticker leaderboard (the page's top section, used as a server-paginated list)
 # --------------------------------------------------------------------------- #
-def ticker_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
+def ticker_leaderboard(
+    frame: pd.DataFrame, *, include_returns: bool = True
+) -> pd.DataFrame:
     """One row per distinct resolved ticker in ``frame``.
 
     Columns: ``ticker``, ``trades``, ``members``, ``buy``, ``sell``, ``call``,
@@ -503,6 +505,10 @@ def ticker_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
     The ``return_pct`` column is a notional-weighted average of the per-trade
     market return (price as-of-today vs. price on the trade date) for every
     trade with a Polygon cache hit. ``None`` when the cache has no data.
+
+    Set ``include_returns=False`` to skip the Polygon bulk load + per-ticker
+    return loop — the dominant cost when the caller only needs a dropdown /
+    browse list (ticker + issuer + trade counts).
     """
     if frame.empty or "ticker" not in frame.columns:
         return pd.DataFrame()
@@ -581,6 +587,11 @@ def ticker_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
     agg["issuer_name"] = [issuer_map.get(t, {}).get("issuer_name", "") for t in ticker_list]
     agg["sector"] = [issuer_map.get(t, {}).get("sector", "") for t in ticker_list]
 
+    if not include_returns:
+        return agg.sort_values(["trades", "amount_high"], ascending=[False, False]).reset_index(
+            drop=True
+        )
+
     # Per-trade return metrics: load Polygon bars for every ticker that has
     # trades in one round-trip, then drive ``_metrics_from_bars`` per ticker
     # (still per-ticker, but now the bars come from the in-memory dict).
@@ -607,7 +618,7 @@ def ticker_leaderboard(frame: pd.DataFrame) -> pd.DataFrame:
 # Process-local cache for the leaderboard (mtime + period key)
 # --------------------------------------------------------------------------- #
 _leaderboard_cache_lock = Lock()
-_leaderboard_cache_key: Optional[tuple[str, str, int]] = None
+_leaderboard_cache_key: Optional[tuple[str, str, int, bool]] = None
 _leaderboard_cache_value: Optional[pd.DataFrame] = None
 
 
@@ -621,6 +632,7 @@ def ticker_leaderboard_cached(
     *,
     lookback: int | None,
     quarters: list[int] | None,
+    include_returns: bool = True,
 ) -> pd.DataFrame:
     """Same as :func:`ticker_leaderboard` but memoised on (db mtime, period).
 
@@ -632,11 +644,16 @@ def ticker_leaderboard_cached(
     files are untouched.
     """
     global _leaderboard_cache_key, _leaderboard_cache_value
-    key = (_data_cache_key(), _period_cache_token(lookback, quarters), len(frame))
+    key = (
+        _data_cache_key(),
+        _period_cache_token(lookback, quarters),
+        len(frame),
+        bool(include_returns),
+    )
     with _leaderboard_cache_lock:
         if _leaderboard_cache_key == key and _leaderboard_cache_value is not None:
             return _leaderboard_cache_value
-        value = ticker_leaderboard(frame)
+        value = ticker_leaderboard(frame, include_returns=include_returns)
         _leaderboard_cache_key = key
         _leaderboard_cache_value = value
         return value

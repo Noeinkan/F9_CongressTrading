@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Group,
+  Loader,
   Select,
   SimpleGrid,
   Stack,
@@ -62,8 +63,15 @@ export function Tickers() {
     [lookback, quarters],
   );
 
-  const listQuery = useTickersList({ ...periodParams, page: 1, page_size: 200 });
-  const selectedTicker = searchParams.get("ticker") ?? listQuery.data?.rows[0]?.ticker ?? "";
+  const urlTicker = (searchParams.get("ticker") ?? "").trim().toUpperCase();
+  // Dropdown only needs identity + counts — skip the Polygon return pass.
+  const listQuery = useTickersList({
+    ...periodParams,
+    page: 1,
+    page_size: 200,
+    include_returns: false,
+  });
+  const selectedTicker = urlTicker || listQuery.data?.rows[0]?.ticker || "";
   const tickerForView = manualTicker.trim().toUpperCase() || selectedTicker;
   // Reset the amount-range filter whenever the active ticker changes; a
   // bucket that has rows for one ticker may be empty for another, and
@@ -77,17 +85,27 @@ export function Tickers() {
   const memberTimeline = useTickerMemberTimeline(tickerForView || null, periodParams);
   const cumulative = useTickerCumulativeExposure(tickerForView || null, periodParams);
 
-  const tickerOptions = useMemo(
-    () =>
-      (listQuery.data?.rows ?? []).map((r) => {
-        const name = r.issuer_name?.trim();
-        return {
-          value: r.ticker,
-          label: name ? `${r.ticker} — ${name}` : r.ticker,
-        };
-      }),
-    [listQuery.data?.rows],
-  );
+  // Deep-link (`?ticker=`) should paint immediately; only block on the list
+  // when we still need it to pick a default symbol.
+  const deepLinked = urlTicker.length > 0 || manualTicker.trim().length > 0;
+  const pageLoading = deepLinked ? false : listQuery.isLoading;
+  const pageError = deepLinked ? false : listQuery.isError;
+  const pageReady = deepLinked ? true : (listQuery.data?.ready ?? false);
+
+  const tickerOptions = useMemo(() => {
+    const rows = listQuery.data?.rows ?? [];
+    const options = rows.map((r) => {
+      const name = r.issuer_name?.trim();
+      return {
+        value: r.ticker,
+        label: name ? `${r.ticker} — ${name}` : r.ticker,
+      };
+    });
+    if (urlTicker && !options.some((o) => o.value === urlTicker)) {
+      return [{ value: urlTicker, label: urlTicker }, ...options];
+    }
+    return options;
+  }, [listQuery.data?.rows, urlTicker]);
 
   const setSelectedTicker = (value: string | null) => {
     if (!value) return;
@@ -120,11 +138,7 @@ export function Tickers() {
   }, [allTransactions, amountRange]);
 
   return (
-    <PageState
-      isLoading={listQuery.isLoading}
-      isError={listQuery.isError}
-      ready={listQuery.data?.ready ?? false}
-    >
+    <PageState isLoading={pageLoading} isError={pageError} ready={pageReady}>
       <Stack gap="md" data-testid="tickers-page">
         <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
           <SectionIntro
@@ -167,6 +181,7 @@ export function Tickers() {
             value={selectedTicker || null}
             onChange={setSelectedTicker}
             searchable
+            disabled={listQuery.isLoading && !urlTicker}
             data-testid="tickers-select"
           />
           <TextInput
@@ -180,6 +195,13 @@ export function Tickers() {
 
         {!tickerForView ? (
           <Text c="dimmed">Select a ticker to view its profile.</Text>
+        ) : profile.isLoading ? (
+          <Stack align="center" py="xl" data-testid="tickers-profile-loading">
+            <Loader size="md" />
+            <Text size="sm" c="dimmed">
+              Loading {tickerForView}…
+            </Text>
+          </Stack>
         ) : (
           <Stack gap="md">
             {issuer?.issuer_name ? (

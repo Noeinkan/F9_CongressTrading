@@ -102,6 +102,28 @@ describe("Tickers route", () => {
       "href",
       "/members?member=Alice",
     );
+    expect(useTickersList).toHaveBeenCalledWith(
+      expect.objectContaining({ include_returns: false }),
+    );
+  });
+
+  it("does not block the page shell on list load when deep-linked", async () => {
+    useTickersList.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    });
+    useTickerProfile.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    });
+    renderTickers(["/?ticker=AAPL"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("tickers-page")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("tickers-profile-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("page-loading")).not.toBeInTheDocument();
   });
 
   it("renders 'n/a' for non-equity trades in the Trade history table", async () => {

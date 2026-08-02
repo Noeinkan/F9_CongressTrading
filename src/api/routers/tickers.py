@@ -135,6 +135,13 @@ def tickers_list(
     ),
     page: int = Query(1, ge=1, description="1-based page number."),
     page_size: int = Query(50, ge=1, le=200, description="Rows per page (max 200)."),
+    include_returns: bool = Query(
+        True,
+        description=(
+            "When false, skip Polygon return aggregation. Use for dropdown / "
+            "browse lists that only need ticker identity + trade counts."
+        ),
+    ),
     _user: str = Depends(require_auth),
 ) -> dict[str, Any]:
     """Paginated ticker leaderboard for the current period slice.
@@ -162,10 +169,14 @@ def tickers_list(
             "search": search or "",
             "rows": [],
             "source": s.transaction_source,
+            "include_returns": include_returns,
         }
 
     board = ticker_leaderboard_cached(
-        s.filtered, lookback=s.lookback, quarters=s.quarters
+        s.filtered,
+        lookback=s.lookback,
+        quarters=s.quarters,
+        include_returns=include_returns,
     )
     if board.empty:
         return {
@@ -178,6 +189,7 @@ def tickers_list(
             "search": search or "",
             "rows": [],
             "source": s.transaction_source,
+            "include_returns": include_returns,
         }
 
     if search:
@@ -218,6 +230,7 @@ def tickers_list(
         "search": search or "",
         "rows": rows,
         "source": s.transaction_source,
+        "include_returns": include_returns,
     }
 
 
