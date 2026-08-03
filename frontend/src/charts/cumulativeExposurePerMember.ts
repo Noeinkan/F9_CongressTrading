@@ -36,6 +36,13 @@ function memberColor(index: number): string {
   return MEMBER_PALETTE[index % MEMBER_PALETTE.length] ?? "#94a3b8";
 }
 
+/** Collapse near-equal floor/ceiling (matches backend `_RANGE_EPS`). */
+const RANGE_EPS = 0.5;
+
+function hasWideRange(lo: number | undefined, hi: number | undefined): boolean {
+  return typeof lo === "number" && typeof hi === "number" && Math.abs(hi - lo) > RANGE_EPS;
+}
+
 function compactCurrency(v: number): string {
   if (v === 0) return "$0";
   const abs = Math.abs(v);
@@ -150,13 +157,14 @@ export function buildCumulativeExposurePerMemberOption(
 
   // All panels share the same y-domain too — otherwise you can't compare
   // members at a glance (one person's $5K step looks identical to another's
-  // $50K step because each panel auto-scales).
+  // $50K step because each panel auto-scales). Include floor/ceiling so the
+  // uncertainty band is never clipped.
   const dataMin = rows.reduce(
-    (acc, r) => Math.min(acc, r.cumulative_net),
+    (acc, r) => Math.min(acc, r.cumulative_net, r.cumulative_low),
     Number.POSITIVE_INFINITY,
   );
   const dataMax = rows.reduce(
-    (acc, r) => Math.max(acc, r.cumulative_net),
+    (acc, r) => Math.max(acc, r.cumulative_net, r.cumulative_high),
     Number.NEGATIVE_INFINITY,
   );
   const sharedYDomain = computeSharedDomain(dataMin, dataMax);
@@ -177,9 +185,9 @@ export function buildCumulativeExposurePerMemberOption(
     const laneFill = i % 2 === 0 ? `${accent}33` : `${accent}1f`;
     grids.push({
       // Left padding holds the member-name pill (see yAxis.name below); right
-      // padding holds the trailing end-of-row value label.
+      // padding holds the trailing end-of-row value label (includes range).
       left: 200,
-      right: 124,
+      right: 196,
       top,
       height,
       containLabel: false,
@@ -273,7 +281,52 @@ export function buildCumulativeExposurePerMemberOption(
       .sort((a, b) => (a.transaction_date < b.transaction_date ? -1 : 1));
     const lineData = memberRows.map((r) => [r.transaction_date, r.cumulative_net]);
 
-    // Stepped cumulative line, muted but tinted with the member accent.
+    // Uncertainty band: stacked stepped areas from cumulative_low up to
+    // cumulative_high (ECharts confidence-band pattern — base + difference).
+    const hasBand = memberRows.some((r) => hasWideRange(r.cumulative_low, r.cumulative_high));
+    if (hasBand) {
+      const lowData = memberRows.map((r) => [r.transaction_date, r.cumulative_low]);
+      const bandHeight = memberRows.map((r) => [
+        r.transaction_date,
+        Math.max(0, r.cumulative_high - r.cumulative_low),
+      ]);
+      series.push({
+        name: `${member} · band-base`,
+        type: "line",
+        step: "end",
+        xAxisIndex: i,
+        yAxisIndex: i,
+        data: lowData,
+        showSymbol: false,
+        symbol: "none",
+        lineStyle: { opacity: 0, width: 0 },
+        areaStyle: { opacity: 0 },
+        stack: `band-${i}`,
+        silent: true,
+        tooltip: { show: false },
+        z: 1,
+        animationDuration: 250,
+      });
+      series.push({
+        name: `${member} · band`,
+        type: "line",
+        step: "end",
+        xAxisIndex: i,
+        yAxisIndex: i,
+        data: bandHeight,
+        showSymbol: false,
+        symbol: "none",
+        lineStyle: { opacity: 0, width: 0 },
+        areaStyle: { color: `${accent}55` },
+        stack: `band-${i}`,
+        silent: true,
+        tooltip: { show: false },
+        z: 1,
+        animationDuration: 250,
+      });
+    }
+
+    // Stepped cumulative median line, muted but tinted with the member accent.
     series.push({
       name: member,
       type: "line",
@@ -293,6 +346,8 @@ export function buildCumulativeExposurePerMemberOption(
       const markerData = memberRows.map((r, idx) => ({
         name: r.txn_type_label ?? "Trade",
         value: [r.transaction_date, r.cumulative_net],
+        cumulative_low: r.cumulative_low,
+        cumulative_high: r.cumulative_high,
         itemStyle: {
           color: TYPE_COLORS[r.txn_type_label ?? "Unknown"] ?? "#64748b",
           borderColor: "#ffffff",
@@ -406,7 +461,12 @@ export function buildCumulativeExposurePerMemberOption(
         seriesName?: string;
         name?: string;
         value: [string, number] | number;
-        data?: { name?: string; value?: [string, number] };
+        data?: {
+          name?: string;
+          value?: [string, number];
+          cumulative_low?: number;
+          cumulative_high?: number;
+        };
         color?: string;
       }) => {
         const date =
@@ -419,6 +479,12 @@ export function buildCumulativeExposurePerMemberOption(
         const member = (params.seriesName ?? "").replace(/ · trades$/, "");
         const type = params.data?.name ?? "";
         const typeColor = TYPE_COLORS[type] ?? "#94a3b8";
+        const lo = params.data?.cumulative_low;
+        const hi = params.data?.cumulative_high;
+        const netLine =
+          typeof lo === "number" && typeof hi === "number" && hasWideRange(lo, hi)
+            ? `~${compactCurrency(net)} median<br/><span style="opacity:0.85;font-weight:400;">range ${compactCurrency(lo)} – ${compactCurrency(hi)}</span>`
+            : `${compactCurrency(net)} net`;
         return `
           <div style="font-weight:600;margin-bottom:2px;">${member}</div>
           <div style="opacity:0.8;font-size:11px;margin-bottom:4px;">${date}</div>
@@ -426,7 +492,7 @@ export function buildCumulativeExposurePerMemberOption(
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${typeColor};"></span>
             <span>${type}</span>
           </div>
-          <div style="margin-top:4px;font-weight:600;">${compactCurrency(net)} net</div>
+          <div style="margin-top:4px;font-weight:600;">${netLine}</div>
         `;
       },
     },

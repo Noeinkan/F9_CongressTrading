@@ -29,9 +29,15 @@ from ..config import price_cache_source
 from ..db import get_connection, init_db
 from ..polygon_prices import CACHE_TABLE_BY_SOURCE, PriceSource
 from ..utils import is_non_equity_asset
-from ._format import format_cumulative_net_label
+from ._format import format_cumulative_range_label
 from ._home_analytics import _dedupe_cumulative_trades
-from ._patterns_analytics import add_trade_categories, signed_trade_notional, ticker_member_breakdown
+from ._patterns_analytics import (
+    add_trade_categories,
+    signed_trade_ceiling,
+    signed_trade_floor,
+    signed_trade_notional,
+    ticker_member_breakdown,
+)
 from .repository import (
     _data_cache_key,
     is_buy_transaction_type,
@@ -941,6 +947,8 @@ def ticker_cumulative_exposure_payload(
 
     sub = _dedupe_cumulative_trades(sub)
     sub["_signed"] = sub.apply(signed_trade_notional, axis=1)
+    sub["_signed_low"] = sub.apply(signed_trade_floor, axis=1)
+    sub["_signed_high"] = sub.apply(signed_trade_ceiling, axis=1)
     member_counts = sub["member"].value_counts()
     total_members = len(member_counts)
     truncated = total_members > top_n
@@ -950,17 +958,24 @@ def ticker_cumulative_exposure_payload(
         return {"ticker": t, "members": [], "truncated": truncated, "rows": []}
 
     sub = sub.sort_values(["member", "transaction_date", "filing_date"], ascending=[True, True, True])
-    sub["cumulative_net"] = sub.groupby("member", observed=True)["_signed"].cumsum()
+    grouped = sub.groupby("member", observed=True)
+    sub["cumulative_net"] = grouped["_signed"].cumsum()
+    sub["cumulative_low"] = grouped["_signed_low"].cumsum()
+    sub["cumulative_high"] = grouped["_signed_high"].cumsum()
 
     rows: list[dict[str, object]] = []
     for _, row in sub.iterrows():
         cum = float(row["cumulative_net"])
+        cum_lo = float(row["cumulative_low"])
+        cum_hi = float(row["cumulative_high"])
         rows.append(
             {
                 "member": str(row["member"]),
                 "transaction_date": pd.Timestamp(row["transaction_date"]).strftime("%Y-%m-%d"),
                 "cumulative_net": cum,
-                "cumulative_label": format_cumulative_net_label(cum),
+                "cumulative_low": cum_lo,
+                "cumulative_high": cum_hi,
+                "cumulative_label": format_cumulative_range_label(cum, cum_lo, cum_hi),
                 "txn_type_label": transaction_type_display_label(row.get("transaction_type")),
                 "amount_range_raw": str(row.get("amount_range_raw") or ""),
             }

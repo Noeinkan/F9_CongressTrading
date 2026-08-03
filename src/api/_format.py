@@ -48,20 +48,55 @@ def format_currency_compact(value: object) -> str:
     return f"{sign}${abs_v:,.0f}"
 
 
+_RANGE_EPS = 0.5
+
+
+def _as_float(value: object) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def format_cumulative_net_label(value: object) -> str:
     """Running net total for cumulative exposure charts ($0 net, -$4.2K net)."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    v = _as_float(value)
+    if v is None:
         return "— net"
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return "— net"
-    if abs(v) < 0.5:
+    if abs(v) < _RANGE_EPS:
         return "$0 net"
     compact = format_currency_compact(v)
     if compact == "—":
         return "$0 net"
     return f"{compact} net"
+
+
+def format_cumulative_range_label(median: object, low: object, high: object) -> str:
+    """End-of-line label that surfaces midpoint uncertainty.
+
+    Collapsed range → same as :func:`format_cumulative_net_label`.
+    Wide range → ``~$95.0K (range $1.0K – $15.0K)``.
+    """
+    med_v = _as_float(median)
+    lo_v = _as_float(low)
+    hi_v = _as_float(high)
+    if med_v is None:
+        return "— net"
+    if lo_v is None or hi_v is None or abs(hi_v - lo_v) < _RANGE_EPS:
+        return format_cumulative_net_label(med_v)
+
+    med_s = format_currency_compact(med_v)
+    if med_s == "—" or abs(med_v) < _RANGE_EPS:
+        med_s = "$0"
+    lo_s = format_currency_compact(lo_v)
+    hi_s = format_currency_compact(hi_v)
+    if lo_s == "—":
+        lo_s = "$0"
+    if hi_s == "—":
+        hi_s = "$0"
+    return f"~{med_s} (range {lo_s} – {hi_s})"
 
 
 def format_disclosed_range(low: object, high: object) -> str:

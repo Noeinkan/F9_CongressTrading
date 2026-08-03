@@ -42,9 +42,9 @@ export const COPY = {
     cumulativeExposure: "Net disclosed dollars over time",
     cumulativeGuideTitle: "How to read this chart",
     cumulativeGuideLines:
-      "Colored line = one member · Step up = buy · Step down = sell · Flat = no new trades · Dashed $0 line = buys and sells balance out so far",
+      "Colored step line = median net per member · Shaded band = cumulative floor–ceiling from disclosure ranges · Step up = buy · Step down = sell · Flat = no new trades · Dashed $0 line = buys and sells balance out so far",
     cumulativeGuideNote:
-      "Congress filings report dollar ranges (e.g. $1k–$15k), not shares. This is a rough activity proxy, not portfolio value or current holdings.",
+      "Congress filings report dollar ranges (e.g. $1k–$15k), not exact amounts or shares. The line is the midpoint estimate; the band shows how wide that range can be. This is a rough activity proxy, not portfolio value or current holdings.",
     noPolygon: "No Polygon cache data for this ticker — run python -m src.main warm-polygon-price-cache",
   },
   patterns: {

@@ -15,12 +15,70 @@ from .repository import (
 )
 
 
+def _positive_amount(value: object) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def _signed_amount_median(row: pd.Series) -> float:
-    low, high = row.get("amount_low"), row.get("amount_high")
-    vals = [float(v) for v in (low, high) if pd.notna(v) and float(v) > 0]
+    vals = [v for v in (_positive_amount(row.get("amount_low")), _positive_amount(row.get("amount_high"))) if v is not None]
     if not vals:
         return 0.0
     return float(pd.Series(vals).median())
+
+
+def _amount_low_high(row: pd.Series) -> tuple[float, float]:
+    """Return positive disclosure bounds, collapsing to one value when a side is missing."""
+    lo = _positive_amount(row.get("amount_low"))
+    hi = _positive_amount(row.get("amount_high"))
+    if lo is None and hi is None:
+        return 0.0, 0.0
+    if lo is None:
+        lo = hi
+    if hi is None:
+        hi = lo
+    # After the collapses above, both sides are set whenever either was present.
+    if lo is None or hi is None:
+        return 0.0, 0.0
+    if hi < lo:
+        lo, hi = hi, lo
+    return float(lo), float(hi)
+
+
+def _signed_trade_bound(row: pd.Series, *, use_floor: bool) -> float:
+    """Signed disclosure bound: floor = most bearish, ceiling = most bullish."""
+    lo, hi = _amount_low_high(row)
+    if lo == 0.0 and hi == 0.0:
+        return 0.0
+    tt = row.get("transaction_type", "")
+    if is_buy_transaction_type(tt):
+        return lo if use_floor else hi
+    if is_sell_transaction_type(tt):
+        return -hi if use_floor else -lo
+    return 0.0
+
+
+def signed_trade_floor(row: pd.Series) -> float:
+    """Signed lower bound of a trade's disclosed range (most bearish / least bullish).
+
+    Buys contribute ``+amount_low``; sells contribute ``-amount_high`` so a larger
+    sell widens the band downward. Unknown types contribute 0.
+    """
+    return _signed_trade_bound(row, use_floor=True)
+
+
+def signed_trade_ceiling(row: pd.Series) -> float:
+    """Signed upper bound of a trade's disclosed range (most bullish / least bearish).
+
+    Buys contribute ``+amount_high``; sells contribute ``-amount_low``. Unknown
+    types contribute 0.
+    """
+    return _signed_trade_bound(row, use_floor=False)
 
 
 def signed_trade_notional(row: pd.Series) -> float:

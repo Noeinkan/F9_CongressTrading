@@ -352,6 +352,8 @@ _CUMULATIVE_ROW_COLUMNS = [
     "member",
     "transaction_date",
     "cumulative_net",
+    "cumulative_low",
+    "cumulative_high",
     "cumulative_label",
     "txn_type_label",
     "amount_range_raw",

@@ -303,10 +303,13 @@ def test_ticker_cumulative_exposure_for_real_symbol(client):
             "member",
             "transaction_date",
             "cumulative_net",
+            "cumulative_low",
+            "cumulative_high",
             "cumulative_label",
             "txn_type_label",
         ):
             assert key in row, f"missing cumulative row key: {key}"
+        assert row["cumulative_low"] <= row["cumulative_high"]
 
 
 def test_resolve_session_close_returns_price_first():

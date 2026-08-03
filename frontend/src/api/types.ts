@@ -105,6 +105,10 @@ export type TickerCumulativeExposureRow = {
   member: string;
   transaction_date: string;
   cumulative_net: number;
+  /** Cumulative signed floor (sum of buy lows / -sell highs). */
+  cumulative_low: number;
+  /** Cumulative signed ceiling (sum of buy highs / -sell lows). */
+  cumulative_high: number;
   cumulative_label: string;
   txn_type_label: string;
   amount_range_raw: string;

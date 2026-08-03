@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.api._patterns_analytics import add_trade_categories, signed_trade_notional
+from src.api._patterns_analytics import (
+    add_trade_categories,
+    signed_trade_ceiling,
+    signed_trade_floor,
+    signed_trade_notional,
+)
 from src.api.repository import (
     is_buy_transaction_type,
     is_exchange_transaction_type,
@@ -55,6 +60,44 @@ def test_signed_trade_notional_oge_sell():
         }
     )
     assert signed_trade_notional(row) < 0
+
+
+def test_signed_trade_floor_ceiling_buy():
+    row = pd.Series(
+        {
+            "transaction_type": "P",
+            "amount_low": 1000.0,
+            "amount_high": 15000.0,
+        }
+    )
+    assert signed_trade_floor(row) == 1000.0
+    assert signed_trade_ceiling(row) == 15000.0
+
+
+def test_signed_trade_floor_ceiling_sell_widens_downward():
+    """Sells: floor is -amount_high (more negative); ceiling is -amount_low."""
+    row = pd.Series(
+        {
+            "transaction_type": "S",
+            "amount_low": 1000.0,
+            "amount_high": 15000.0,
+        }
+    )
+    assert signed_trade_floor(row) == -15000.0
+    assert signed_trade_ceiling(row) == -1000.0
+    assert signed_trade_floor(row) < signed_trade_ceiling(row)
+
+
+def test_signed_trade_floor_ceiling_unknown_is_zero():
+    row = pd.Series(
+        {
+            "transaction_type": "E",
+            "amount_low": 1000.0,
+            "amount_high": 15000.0,
+        }
+    )
+    assert signed_trade_floor(row) == 0.0
+    assert signed_trade_ceiling(row) == 0.0
 
 
 def test_add_trade_categories_oge():
