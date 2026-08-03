@@ -34,6 +34,7 @@ TRANSACTION_COLUMNS = [
     "source_url",
     "raw_document_path",
     "doc_id",
+    "source_hash",
 ]
 
 REVIEW_COLUMNS = [
@@ -116,7 +117,8 @@ SELECT
     t.review_status AS review_status,
     f.source_url AS source_url,
     f.raw_document_path AS raw_document_path,
-    f.doc_id AS doc_id
+    f.doc_id AS doc_id,
+    t.source_hash AS source_hash
 FROM transactions t
 JOIN filings f ON f.id = t.filing_id
 JOIN members m ON m.id = f.member_id

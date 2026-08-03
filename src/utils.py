@@ -266,17 +266,110 @@ def make_transaction_source_hash(
     )
 
 
+# Standard House/Senate PTR disclosure buckets (lower → upper). Used to repair
+# OCR/truncated highs like "$15,001 - 5" back to "$15,001 - $50,000".
+_DISCLOSURE_BUCKET_HIGHS: dict[int, int] = {
+    1_001: 15_000,
+    15_001: 50_000,
+    50_001: 100_000,
+    100_001: 250_000,
+    250_001: 500_000,
+    500_001: 1_000_000,
+    1_000_001: 5_000_000,
+    5_000_001: 25_000_000,
+    25_000_001: 50_000_000,
+}
+
+# Match full money tokens including cents so "$584.22" is one value, not 584 + 22.
+_MONEY_TOKEN_RE = re.compile(r"\$?\s*([\d,]+(?:\.\d+)?)")
+
+
+def _repair_disclosure_high(low: int, high: int) -> int:
+    """Replace truncated/junk upper bounds using the standard disclosure bucket."""
+    expected = _DISCLOSURE_BUCKET_HIGHS.get(low)
+    if expected is None:
+        return high if high >= low else low
+    if high == expected:
+        return high
+    # Junk/truncated: inverted, or tiny relative to the known bucket high.
+    if high < low or high < max(1_000, expected // 100):
+        return expected
+    return high
+
+
 def parse_amount_range(value: str | None) -> tuple[int | None, int | None]:
+    """Parse a disclosure amount or range into integer (low, high) bounds.
+
+    Handles exact dollar amounts with cents (``$584.22`` → 584/584) and repairs
+    truncated bucket highs (``$15,001 - 5`` → 15001/50000) when the lower bound
+    matches a standard PTR bucket.
+    """
     if not value:
         return None, None
 
     cleaned = normalize_whitespace(value)
-    numbers = [int(match.replace(",", "")) for match in re.findall(r"\$?([\d,]+)", cleaned)]
+    numbers: list[float] = []
+    for match in _MONEY_TOKEN_RE.findall(cleaned):
+        try:
+            numbers.append(float(match.replace(",", "")))
+        except ValueError:
+            continue
     if not numbers:
         return None, None
+
     if len(numbers) == 1:
-        return numbers[0], numbers[0]
-    return numbers[0], numbers[1]
+        n = int(round(numbers[0]))
+        return n, n
+
+    low = int(round(numbers[0]))
+    high = int(round(numbers[1]))
+    high = _repair_disclosure_high(low, high)
+    if high < low:
+        low, high = high, low
+    return low, high
+
+
+def coerce_amount_bounds(
+    low: object,
+    high: object,
+    raw: object = None,
+) -> tuple[float | None, float | None]:
+    """Prefer re-parsing ``amount_range_raw``; fall back to numeric bounds + repair."""
+    raw_s = ""
+    if raw is not None and not (isinstance(raw, float) and raw != raw):
+        raw_s = str(raw).strip()
+        if raw_s.lower() == "nan":
+            raw_s = ""
+
+    if raw_s:
+        parsed_low, parsed_high = parse_amount_range(raw_s)
+        if parsed_low is not None:
+            ph = float(parsed_high if parsed_high is not None else parsed_low)
+            return float(parsed_low), ph
+
+    def _num(v: object) -> float | None:
+        if v is None:
+            return None
+        if isinstance(v, float) and v != v:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    lo = _num(low)
+    hi = _num(high)
+    if lo is None and hi is None:
+        return None, None
+    if lo is None:
+        return hi, hi
+    if hi is None:
+        return lo, lo
+    lo_i, hi_i = int(round(lo)), int(round(hi))
+    hi_i = _repair_disclosure_high(lo_i, hi_i)
+    if hi_i < lo_i:
+        lo_i, hi_i = hi_i, lo_i
+    return float(lo_i), float(hi_i)
 
 
 def split_state_district(value: str | None) -> tuple[str, str]:

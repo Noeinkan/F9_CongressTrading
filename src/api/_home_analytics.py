@@ -197,14 +197,131 @@ def ticker_timeline_rows(frame: pd.DataFrame, ticker: str) -> list[dict[str, obj
 
 
 def _dedupe_cumulative_trades(sub: pd.DataFrame) -> pd.DataFrame:
+    """Drop exact duplicate PTR lines without collapsing distinct trades.
+
+    Prefer ``source_hash`` (unique per PDF line). Fall back to a composite that
+    includes ``owner_type`` + ``asset_name_raw`` so spouse/self lots and
+    differently labeled shares of the same ticker are not merged. Over-merging
+    previously flipped cumulative net signs vs the Home net-trade chart.
+    """
+    if "source_hash" in sub.columns:
+        hashed = sub["source_hash"].fillna("").astype(str).str.strip()
+        if hashed.ne("").any():
+            # Rows with a hash dedupe on hash alone; blank-hash rows keep the
+            # composite key so we do not treat every empty hash as one trade.
+            with_hash = sub.loc[hashed.ne("")].drop_duplicates(subset=["source_hash"], keep="first")
+            blank = sub.loc[hashed.eq("")]
+            if blank.empty:
+                out = with_hash
+            else:
+                fallback_keys = [
+                    c
+                    for c in (
+                        "member",
+                        "transaction_date",
+                        "transaction_type",
+                        "amount_low",
+                        "amount_high",
+                        "filing_date",
+                        "owner_type",
+                        "asset_name_raw",
+                    )
+                    if c in blank.columns
+                ]
+                blank_out = (
+                    blank.drop_duplicates(subset=fallback_keys, keep="first")
+                    if fallback_keys
+                    else blank
+                )
+                out = pd.concat([with_hash, blank_out], ignore_index=False)
+            before = len(sub)
+            # #region agent log
+            dropped = before - len(out)
+            if dropped:
+                try:
+                    import json
+                    import time
+                    from pathlib import Path
+
+                    with (Path(__file__).resolve().parents[2] / "debug-ce707b.log").open(
+                        "a", encoding="utf-8"
+                    ) as _fh:
+                        _fh.write(
+                            json.dumps(
+                                {
+                                    "sessionId": "ce707b",
+                                    "runId": "post-fix",
+                                    "hypothesisId": "E",
+                                    "location": "_home_analytics.py:_dedupe_cumulative_trades",
+                                    "message": "dedupe_counts",
+                                    "data": {
+                                        "before": int(before),
+                                        "after": int(len(out)),
+                                        "dropped": int(dropped),
+                                        "mode": "source_hash",
+                                    },
+                                    "timestamp": int(time.time() * 1000),
+                                }
+                            )
+                            + "\n"
+                        )
+                except Exception:
+                    pass
+            # #endregion
+            return out
+
     keys = [
         c
-        for c in ("member", "transaction_date", "transaction_type", "amount_low", "amount_high", "filing_date")
+        for c in (
+            "member",
+            "transaction_date",
+            "transaction_type",
+            "amount_low",
+            "amount_high",
+            "filing_date",
+            "owner_type",
+            "asset_name_raw",
+        )
         if c in sub.columns
     ]
     if not keys:
         return sub
-    return sub.drop_duplicates(subset=keys, keep="first")
+    before = len(sub)
+    out = sub.drop_duplicates(subset=keys, keep="first")
+    # #region agent log
+    dropped = before - len(out)
+    if dropped:
+        try:
+            import json
+            import time
+            from pathlib import Path
+
+            with (Path(__file__).resolve().parents[2] / "debug-ce707b.log").open(
+                "a", encoding="utf-8"
+            ) as _fh:
+                _fh.write(
+                    json.dumps(
+                        {
+                            "sessionId": "ce707b",
+                            "runId": "post-fix",
+                            "hypothesisId": "E",
+                            "location": "_home_analytics.py:_dedupe_cumulative_trades",
+                            "message": "dedupe_counts",
+                            "data": {
+                                "before": int(before),
+                                "after": int(len(out)),
+                                "dropped": int(dropped),
+                                "keys": keys,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+    # #endregion
+    return out
 
 
 def net_trade_records(agg: pd.DataFrame | None) -> list[dict[str, object]]:
