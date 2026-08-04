@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Alert,
   Badge,
   Group,
@@ -35,6 +36,42 @@ import { formatCurrency, formatDate, formatSignedPercent, returnColor } from "@/
 import { rangeOpacity, parseRangeHigh } from "@/utils/transactions";
 
 const COMMITTEE_VIEW = "committee_relevance";
+
+function ChevronLeftIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -98,6 +135,26 @@ export function Members() {
     const next = new URLSearchParams(searchParams);
     next.set("member", member);
     setSearchParams(next);
+  };
+
+  const selectedIndex = selectedMember ? memberOptions.indexOf(selectedMember) : -1;
+
+  const goPrevMember = () => {
+    if (memberOptions.length === 0) return;
+    if (selectedIndex <= 0) {
+      setMember(memberOptions[memberOptions.length - 1]);
+      return;
+    }
+    setMember(memberOptions[selectedIndex - 1]);
+  };
+
+  const goNextMember = () => {
+    if (memberOptions.length === 0) return;
+    if (selectedIndex < 0 || selectedIndex >= memberOptions.length - 1) {
+      setMember(memberOptions[0]);
+      return;
+    }
+    setMember(memberOptions[selectedIndex + 1]);
   };
 
   const setTradeView = (value: string) => {
@@ -168,16 +225,50 @@ export function Members() {
             )}
           </ChartCard>
 
-          <Select
-            label={COPY.members.profile}
-            placeholder="Select a member"
-            data={memberOptions}
-            value={selectedMember || null}
-            onChange={setMember}
-            searchable
-            disabled={isLoading && !selectedMember}
-            data-testid="members-select"
-          />
+          <Stack gap={6}>
+            <Group justify="space-between" align="baseline" gap="xs">
+              <Text size="sm" fw={500}>
+                {COPY.members.profile}
+              </Text>
+              {memberOptions.length > 0 ? (
+                <Text size="xs" c="dimmed" data-testid="members-nav-position">
+                  {selectedIndex >= 0 ? selectedIndex + 1 : "—"} / {memberOptions.length}
+                </Text>
+              ) : null}
+            </Group>
+            <Group gap="xs" wrap="nowrap" align="center">
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Previous member"
+                onClick={goPrevMember}
+                disabled={memberOptions.length === 0 || (isLoading && !selectedMember)}
+                data-testid="members-prev"
+              >
+                <ChevronLeftIcon />
+              </ActionIcon>
+              <Select
+                placeholder="Select a member"
+                data={memberOptions}
+                value={selectedMember || null}
+                onChange={setMember}
+                searchable
+                disabled={isLoading && !selectedMember}
+                data-testid="members-select"
+                style={{ flex: 1 }}
+              />
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Next member"
+                onClick={goNextMember}
+                disabled={memberOptions.length === 0 || (isLoading && !selectedMember)}
+                data-testid="members-next"
+              >
+                <ChevronRightIcon />
+              </ActionIcon>
+            </Group>
+          </Stack>
 
           {selectedMember && memberTickers.isLoading ? (
             <Stack align="center" py="xl" data-testid="members-profile-loading">

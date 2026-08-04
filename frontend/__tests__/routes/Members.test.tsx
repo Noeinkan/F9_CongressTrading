@@ -38,6 +38,26 @@ const summary = {
       party: "Democrat",
       state: "CA",
     },
+    {
+      member: "Bob",
+      trades: 7,
+      tickers: 2,
+      amount_low: 1000,
+      amount_high: 5000,
+      chamber: "Senate",
+      party: "Republican",
+      state: "TX",
+    },
+    {
+      member: "Carol",
+      trades: 4,
+      tickers: 1,
+      amount_low: 1000,
+      amount_high: 5000,
+      chamber: "House",
+      party: "Democrat",
+      state: "NY",
+    },
   ],
   kpi_sparklines: { members: [], tickers: [], transactions: [] },
 };
@@ -119,12 +139,44 @@ describe("Members route", () => {
     });
     const chips = screen.getByTestId("members-browse-chips");
     expect(chips).toBeInTheDocument();
-    const alice = within(chips).getByTestId("members-browse-chip");
+    const alice = within(chips).getAllByTestId("members-browse-chip")[0];
     expect(alice).toHaveTextContent("Alice");
     await user.click(alice);
     await waitFor(() => {
       expect(screen.getByTestId("members-profile")).toBeInTheDocument();
     });
+  });
+
+  it("cycles members with prev/next arrows", async () => {
+    const user = userEvent.setup();
+    renderMembers(["/?member=Alice"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("members-nav-position")).toHaveTextContent("1 / 3");
+    });
+
+    await user.click(screen.getByTestId("members-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("members-nav-position")).toHaveTextContent("2 / 3");
+    });
+    expect(screen.getByTestId("members-select")).toHaveValue("Bob");
+
+    await user.click(screen.getByTestId("members-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("members-nav-position")).toHaveTextContent("3 / 3");
+    });
+    expect(screen.getByTestId("members-select")).toHaveValue("Carol");
+
+    await user.click(screen.getByTestId("members-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("members-nav-position")).toHaveTextContent("1 / 3");
+    });
+    expect(screen.getByTestId("members-select")).toHaveValue("Alice");
+
+    await user.click(screen.getByTestId("members-prev"));
+    await waitFor(() => {
+      expect(screen.getByTestId("members-nav-position")).toHaveTextContent("3 / 3");
+    });
+    expect(screen.getByTestId("members-select")).toHaveValue("Carol");
   });
 
   it("shows profile when member query is set", async () => {
