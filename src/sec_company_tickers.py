@@ -183,7 +183,7 @@ def match_sec_company_ticker(
     result = rf_process.extractOne(
         key,
         keys,
-        scorer=fuzz.WRatio,
+        scorer=fuzz.token_set_ratio,
         score_cutoff=cutoff,
     )
     if result is None:

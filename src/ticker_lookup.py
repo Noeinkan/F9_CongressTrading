@@ -320,7 +320,27 @@ def _try_sec_company_ticker_match(asset_norm: str) -> AssetMatch | None:
     search_name = _simplify_for_equity_search(asset_norm)
     if not search_name or _is_generic_equity_name(asset_norm):
         return None
-    queries = _search_name_variants(search_name)
+    # Keep the SEC query set small — each fuzzy pass scans ~8k titles.
+    queries: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = normalize_whitespace(value)
+        if cleaned and cleaned.casefold() not in {x.casefold() for x in queries}:
+            queries.append(cleaned)
+
+    add(search_name)
+    for alias in _apply_disclosure_aliases(search_name):
+        add(alias)
+    add(search_name.replace("\u2019", "").replace("'", ""))
+    add(
+        re.sub(
+            r",?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|PLC|LLC)\s*$",
+            "",
+            search_name,
+            flags=re.I,
+        )
+    )
+
     for query in queries:
         hit = match_sec_company_ticker(query)
         if hit is None:
