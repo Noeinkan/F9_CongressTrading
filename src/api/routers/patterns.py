@@ -23,6 +23,7 @@ from .._patterns_analytics import (
     detect_coordinated_trades,
     load_committee_assignments_live,
     score_committee_relevance,
+    sector_monthly,
     summarize_committee_relevance,
     volume_anomalies,
 )
@@ -134,6 +135,39 @@ def _call_put(filtered: pd.DataFrame) -> dict[str, Any]:
     return {"monthly": monthly, "ratio": ratio_records}
 
 
+def _sector_monthly(filtered: pd.DataFrame) -> list[dict[str, Any]]:
+    return records(
+        sector_monthly(filtered),
+        ["month", "sector", "transactions"],
+        date_columns=("month",),
+    )
+
+
+def _volume_anomalies(filtered: pd.DataFrame, *, window_days: int) -> list[dict[str, Any]]:
+    out = volume_anomalies(filtered, recent_days=window_days)
+    if out.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, row in out.iterrows():
+        spark_raw = row.get("sparkline") or []
+        sparkline = [
+            {"month": iso_date(point.get("month")), "value": float(point.get("value") or 0)}
+            for point in spark_raw
+            if isinstance(point, dict)
+        ]
+        rows.append(
+            {
+                "ticker": str(row["ticker"]),
+                "recent_disclosures": int(row["recent_disclosures"]),
+                "recent_per_month": float(row["recent_per_month"]),
+                "prior_per_month": float(row["prior_per_month"]),
+                "spike_ratio": float(row["spike_ratio"]),
+                "sparkline": sparkline,
+            }
+        )
+    return rows
+
+
 def _summary(
     s: Slice,
     *,
@@ -156,10 +190,8 @@ def _summary(
             limit=coordinated_limit,
         ),
         "call_put": _call_put(s.filtered),
-        "volume_anomalies": records(
-            volume_anomalies(s.filtered, recent_days=window_days),
-            ["ticker", "recent_disclosures", "recent_per_month", "prior_per_month", "spike_ratio"],
-        ),
+        "sector_monthly": _sector_monthly(s.filtered),
+        "volume_anomalies": _volume_anomalies(s.filtered, window_days=window_days),
         "bipartisan": records(
             bipartisan_tickers(s.filtered, window_days=window_days),
             [
@@ -194,6 +226,7 @@ def patterns_summary(
             "committee": _committee_relevance(s.filtered, {}),
             "coordinated": [],
             "call_put": {"monthly": [], "ratio": []},
+            "sector_monthly": [],
             "volume_anomalies": [],
             "bipartisan": [],
         }

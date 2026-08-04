@@ -51,14 +51,18 @@ export const COPY = {
   patterns: {
     kicker: "Patterns",
     title: "Signals & coordination",
-    copy: "Committee overlap, coordinated trades, call/put trends, disclosure spikes, and bipartisan activity.",
+    copy: "Committee overlap, coordinated trades, sector flow, call/put trends, disclosure spikes, and bipartisan activity.",
     committee: "Committee relevance",
     coordinated: "Coordinated buying / selling",
+    sectorHeatmap: "Sector concentration",
+    sectorHeatmapCaption:
+      "Trade counts by GICS sector over time. Darker cells mean more disclosures that month. Recent months may be incomplete due to filing lag.",
     callPut: "Call vs put trends",
     callPutNote: ">1 means more calls than puts that month.",
     tickerFilter: "Filter call/put chart by ticker (optional)",
     volumeSpikes: "Disclosure spikes",
     volumeCaption: "≥3 recent disclosures AND recent_per_month ≥ 2× prior_per_month",
+    volumeSpikeChart: "Top spike ratios",
     bipartisan: "Bipartisan trades",
     bipartisanEmpty:
       "No bipartisan ticker overlap in this window. Try a longer lookback window, or run enrich-member-parties if party data is missing.",

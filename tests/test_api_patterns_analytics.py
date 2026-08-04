@@ -16,6 +16,7 @@ from src.api._patterns_analytics import (
     member_ticker_breakdown,
     member_transactions,
     score_committee_relevance,
+    sector_monthly,
     summarize_committee_relevance,
     ticker_member_breakdown,
     volume_anomalies,
@@ -193,6 +194,58 @@ def test_volume_anomalies_spike_ratio():
     assert int(row["recent_disclosures"]) == 3
     assert row["prior_per_month"] < row["recent_per_month"]
     assert row["spike_ratio"] >= 2.0
+    spark = row["sparkline"]
+    assert isinstance(spark, list)
+    assert len(spark) >= 2
+    assert all("month" in point and "value" in point for point in spark)
+    assert sum(int(point["value"]) for point in spark) == 4
+
+
+def test_sector_monthly_counts():
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "sector": "Information Technology",
+                "transaction_date": pd.Timestamp("2024-06-01"),
+            },
+            {
+                "ticker": "MSFT",
+                "sector": "Information Technology",
+                "transaction_date": pd.Timestamp("2024-06-15"),
+            },
+            {
+                "ticker": "XOM",
+                "sector": "Energy",
+                "transaction_date": pd.Timestamp("2024-07-01"),
+            },
+            {
+                "ticker": "BLANK",
+                "sector": "",
+                "transaction_date": pd.Timestamp("2024-07-01"),
+            },
+        ]
+    )
+    out = sector_monthly(frame)
+    assert not out.empty
+    assert set(out.columns) >= {"month", "sector", "transactions"}
+    assert "" not in set(out["sector"].astype(str))
+    it_june = out.loc[
+        (out["sector"] == "Information Technology")
+        & (out["month"] == pd.Timestamp("2024-06-01"))
+    ]
+    assert int(it_june["transactions"].iloc[0]) == 2
+    energy_july = out.loc[
+        (out["sector"] == "Energy") & (out["month"] == pd.Timestamp("2024-07-01"))
+    ]
+    assert int(energy_july["transactions"].iloc[0]) == 1
+
+
+def test_sector_monthly_empty_without_sector_column():
+    frame = pd.DataFrame(
+        [{"ticker": "AAPL", "transaction_date": pd.Timestamp("2024-06-01")}]
+    )
+    assert sector_monthly(frame).empty
 
 
 def test_score_committee_relevance_overlap():

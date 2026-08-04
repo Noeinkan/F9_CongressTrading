@@ -55,7 +55,24 @@ const sample = {
     },
   ],
   call_put: { monthly: [], ratio: [] },
-  volume_anomalies: [],
+  sector_monthly: [
+    { month: "2024-06-01", sector: "Information Technology", transactions: 4 },
+    { month: "2024-07-01", sector: "Energy", transactions: 2 },
+  ],
+  volume_anomalies: [
+    {
+      ticker: "SPIKE",
+      recent_disclosures: 5,
+      recent_per_month: 1.67,
+      prior_per_month: 0.2,
+      spike_ratio: 8.35,
+      sparkline: [
+        { month: "2024-05-01", value: 0 },
+        { month: "2024-06-01", value: 2 },
+        { month: "2024-07-01", value: 3 },
+      ],
+    },
+  ],
   bipartisan: [],
 };
 
@@ -88,6 +105,10 @@ describe("Patterns route", () => {
     });
     expect(screen.getByTestId("patterns-committee-table")).toBeInTheDocument();
     expect(screen.getByTestId("patterns-coordinated-table")).toBeInTheDocument();
+    expect(screen.getByTestId("patterns-sector-heatmap")).toBeInTheDocument();
+    expect(screen.getByTestId("patterns-volume-spike-bars")).toBeInTheDocument();
+    expect(screen.getByTestId("patterns-volume-table")).toBeInTheDocument();
+    expect(screen.getByTestId("mini-sparkline")).toBeInTheDocument();
     expect(screen.getByTestId("patterns-bipartisan-empty")).toBeInTheDocument();
   });
 

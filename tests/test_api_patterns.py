@@ -48,6 +48,7 @@ def test_patterns_summary_shape(client):
         "committee",
         "coordinated",
         "call_put",
+        "sector_monthly",
         "volume_anomalies",
         "bipartisan",
     ):
@@ -64,10 +65,29 @@ def test_patterns_summary_shape(client):
         assert key in call_put
 
     assert isinstance(data["coordinated"], list)
+    assert isinstance(data["sector_monthly"], list)
     assert isinstance(data["volume_anomalies"], list)
     assert isinstance(data["bipartisan"], list)
     assert isinstance(call_put["monthly"], list)
     assert isinstance(call_put["ratio"], list)
+
+    for row in data["sector_monthly"]:
+        for key in ("month", "sector", "transactions"):
+            assert key in row, f"missing sector_monthly.{key}"
+
+    for row in data["volume_anomalies"]:
+        for key in (
+            "ticker",
+            "recent_disclosures",
+            "recent_per_month",
+            "prior_per_month",
+            "spike_ratio",
+            "sparkline",
+        ):
+            assert key in row, f"missing volume_anomalies.{key}"
+        assert isinstance(row["sparkline"], list)
+        for point in row["sparkline"]:
+            assert "month" in point and "value" in point
 
 
 def test_patterns_summary_respects_window(client):

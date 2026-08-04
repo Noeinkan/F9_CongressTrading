@@ -13,13 +13,17 @@ import { ChartCard } from "@/components/ChartCard";
 import { useFilters } from "@/components/FilterContext";
 import { MemberLink } from "@/components/MemberLink";
 import { MemberNamesLinks } from "@/components/MemberNamesLinks";
+import { MiniSparkline } from "@/components/MiniSparkline";
 import { PageState } from "@/components/PageState";
+import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
+import { SectorHeatmapChart } from "@/components/SectorHeatmapChart";
 import { TickerLink } from "@/components/TickerLink";
 import { COPY } from "@/copy";
 import { formatDate, formatNumber } from "@/utils/format";
 
 const COMMITTEE_VIEW = "committee_relevance";
+const VOLUME_SPIKE_CHART_LIMIT = 12;
 
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
@@ -69,6 +73,16 @@ export function Patterns() {
   const coordinatedOptions = useMemo(
     () => (data?.coordinated ?? []).map(coordinatedOptionKey),
     [data?.coordinated],
+  );
+
+  const volumeSpikeBars = useMemo(
+    () =>
+      (data?.volume_anomalies ?? []).slice(0, VOLUME_SPIKE_CHART_LIMIT).map((row) => ({
+        label: row.ticker,
+        value: Number(row.spike_ratio) || 0,
+        detail: `${row.recent_disclosures} recent`,
+      })),
+    [data?.volume_anomalies],
   );
 
   return (
@@ -302,6 +316,19 @@ export function Patterns() {
             ) : null}
           </ChartCard>
 
+          <ChartCard collapsible title={COPY.patterns.sectorHeatmap} testId="patterns-sector-heatmap">
+            <Text size="sm" c="dimmed" mb="sm">
+              {COPY.patterns.sectorHeatmapCaption}
+            </Text>
+            {data.sector_monthly.length ? (
+              <SectorHeatmapChart rows={data.sector_monthly} />
+            ) : (
+              <Text c="dimmed" data-testid="patterns-sector-heatmap-empty">
+                No sector-tagged trades in this slice.
+              </Text>
+            )}
+          </ChartCard>
+
           <ChartCard collapsible title={COPY.patterns.callPut} testId="patterns-call-put">
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
               <CallPutAreaChart rows={data.call_put.monthly} />
@@ -318,7 +345,19 @@ export function Patterns() {
             <Text size="sm" c="dimmed" mb="sm">
               {COPY.patterns.volumeCaption}
             </Text>
-            <Table.ScrollContainer minWidth={700}>
+            {volumeSpikeBars.length ? (
+              <Stack gap="xs" mb="md">
+                <Text size="sm" fw={500}>
+                  {COPY.patterns.volumeSpikeChart}
+                </Text>
+                <RankBars
+                  rows={volumeSpikeBars}
+                  linkKind="ticker"
+                  testId="patterns-volume-spike-bars"
+                />
+              </Stack>
+            ) : null}
+            <Table.ScrollContainer minWidth={780}>
               <Table striped data-testid="patterns-volume-table">
                 <Table.Thead>
                   <Table.Tr>
@@ -327,6 +366,7 @@ export function Patterns() {
                     <Table.Th>Recent/mo</Table.Th>
                     <Table.Th>Prior/mo</Table.Th>
                     <Table.Th>Spike</Table.Th>
+                    <Table.Th style={{ minWidth: 96 }}>Trend</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -339,6 +379,13 @@ export function Patterns() {
                       <Table.Td>{formatNumber(row.recent_per_month, 2)}</Table.Td>
                       <Table.Td>{formatNumber(row.prior_per_month, 2)}</Table.Td>
                       <Table.Td>{formatNumber(row.spike_ratio, 2)}</Table.Td>
+                      <Table.Td>
+                        {row.sparkline?.length ? (
+                          <MiniSparkline points={row.sparkline} height={32} />
+                        ) : (
+                          "—"
+                        )}
+                      </Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>

@@ -291,6 +291,13 @@ export type PatternsVolumeRow = {
   recent_per_month: number;
   prior_per_month: number;
   spike_ratio: number;
+  sparkline?: SparklinePoint[];
+};
+
+export type PatternsSectorMonthlyRow = {
+  month: string | null;
+  sector: string;
+  transactions: number;
 };
 
 export type PatternsBipartisanRow = {
@@ -342,6 +349,7 @@ export type PatternsSummaryResponse = {
     monthly: PatternsCallPutMonthlyRow[];
     ratio: PatternsCallPutRatioRow[];
   };
+  sector_monthly: PatternsSectorMonthlyRow[];
   volume_anomalies: PatternsVolumeRow[];
   bipartisan: PatternsBipartisanRow[];
 };

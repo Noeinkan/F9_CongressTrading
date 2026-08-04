@@ -393,6 +393,44 @@ def call_put_monthly(frame: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
+def sector_monthly(frame: pd.DataFrame) -> pd.DataFrame:
+    """Month × sector transaction counts (empty sector labels dropped)."""
+    sub = frame.dropna(subset=["transaction_date"]).copy()
+    if sub.empty or "sector" not in sub.columns:
+        return pd.DataFrame()
+    sub["sector"] = sub["sector"].fillna("").astype(str).str.strip()
+    sub = sub[sub["sector"] != ""]
+    if sub.empty:
+        return pd.DataFrame()
+    sub["month"] = pd.to_datetime(sub["transaction_date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    sub = sub.dropna(subset=["month"])
+    if sub.empty:
+        return pd.DataFrame()
+    return (
+        sub.groupby(["month", "sector"], observed=True)
+        .size()
+        .reset_index(name="transactions")
+        .sort_values(["month", "sector"])
+    )
+
+
+def _ticker_monthly_sparkline(sub: pd.DataFrame, ticker: str) -> list[dict[str, object]]:
+    """Continuous monthly disclosure counts for one ticker (oldest → newest)."""
+    t = sub[sub["ticker"].astype(str) == str(ticker)].copy()
+    if t.empty:
+        return []
+    t["month"] = pd.to_datetime(t["transaction_date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    t = t.dropna(subset=["month"])
+    if t.empty:
+        return []
+    counts = t.groupby("month").size()
+    start = counts.index.min()
+    end = counts.index.max()
+    full_idx = pd.period_range(start.to_period("M"), end.to_period("M"), freq="M").to_timestamp()
+    filled = counts.reindex(full_idx, fill_value=0)
+    return [{"month": month, "value": int(value)} for month, value in filled.items()]
+
+
 def volume_anomalies(frame: pd.DataFrame, *, recent_days: int = 90) -> pd.DataFrame:
     sub = frame.dropna(subset=["transaction_date"]).copy()
     sub = sub[sub["ticker"].astype(str).str.strip() != ""]
@@ -422,6 +460,7 @@ def volume_anomalies(frame: pd.DataFrame, *, recent_days: int = 90) -> pd.DataFr
                     "recent_per_month": round(recent_per_month, 2),
                     "prior_per_month": round(prior_per_month, 2),
                     "spike_ratio": round(spike_ratio, 2),
+                    "sparkline": _ticker_monthly_sparkline(sub, str(ticker)),
                 }
             )
     if not rows:
