@@ -11,7 +11,10 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `db.py` | SQLite connection, schema init, shared queries |
 | `utils.py` | Shared utilities (`normalize_key`, text helpers) |
 | `main.py` | CLI entrypoint (argparse) |
-| `ingest_house.py` | House PTR + FD ingest pipeline |
+| `ingest_house.py` | House PTR + FD ingest orchestrator (batch parse/persist) |
+| `house_ptr_download.py` | House PTR PDF autodownload + local zip extract |
+| `house_ptr_repair.py` | House PTR filing/date repair, duplicate merge, backfill |
+| `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 | `ingest_senate.py` | Senate PTR ingest pipeline |
 | `ingest_oge.py` | OGE Executive (278-T + 278e) ingest pipeline |
 | `parse_ptr.py` | PTR PDF parsing (layout-sensitive) |
@@ -21,7 +24,8 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `download_house_fd.py` | Bulk download from House Clerk |
 | `download_oge.py` | Conservative OGE PDF downloader (1 req/sec) |
 | `house_coverage.py` | House coverage tracking |
-| `ticker_lookup.py` | Ticker/CUSIP resolution |
+| `ticker_lookup.py` | Ticker/CUSIP resolution (disclosure heuristics + SEC/Polygon/OpenFIGI) |
+| `sec_company_tickers.py` | Cached SEC `company_tickers.json` name→ticker local lookup |
 | `issuer_enrichment.py` | Issuer metadata enrichment |
 | `polygon_prices.py` | Polygon.io daily bar fetching + cache |
 | `export_csv.py` | CSV export logic |

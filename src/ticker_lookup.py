@@ -22,6 +22,7 @@ from .config import (
 )
 from .db import get_asset_resolution, upsert_asset_resolution
 from .issuer_enrichment import enrich_issuer_metadata
+from .sec_company_tickers import match_sec_company_ticker
 from .utils import normalize_key, normalize_whitespace
 
 
@@ -94,7 +95,10 @@ OPENFIGI_NAME_STRICT_COMMON_STOCK = (
     (os.getenv("OPENFIGI_NAME_STRICT_COMMON_STOCK") or "").strip().lower() in {"1", "true", "yes", "on"}
 )
 
-_MATCH_SOURCES_RETRY_EMPTY_TICKER = frozenset({"none", "skipped_external_lookup"})
+# Empty-ticker cache rows with these sources are re-tried so improved heuristics/SEC can fill in.
+_MATCH_SOURCES_RETRY_EMPTY_TICKER = frozenset(
+    {"none", "skipped_external_lookup", "generic_asset_name"}
+)
 
 # House/Senate PTR descriptions often end with "(TICKER) [ST]" or "(BRK.B) [OP]".
 _PAREN_TICKER_RE = re.compile(
@@ -124,14 +128,40 @@ _PAREN_TICKER_DENYLIST = frozenset(
     }
 )
 
+# Congresswatch-style exchange-prefixed tickers: "NYSE: AAPL", "NASDAQ:MSFT".
+_EXCHANGE_TICKER_RE = re.compile(
+    r"\b(?:NYSEARCA|NASDAQ|NYSE|BATS|AMEX|OTC)\s*:\s*"
+    r"((?:[A-Z]{1,5}\.[A-Z])|[A-Z]{1,6})\b",
+    re.IGNORECASE,
+)
+
 # Senate eFD raw lines: "2000070841 SP NextEra Energy, Inc. (NEE) [ST]"
 # or owner-code prefix without doc ID: "JT Microsoft Corporation - Common"
 _SENATE_DOC_PREFIX_RE = re.compile(r"^\d{7,12}\s+")
 _OWNER_CODE_PREFIX_RE = re.compile(r"^(?:SP|JT|DC|CH|SC|SF)\s+", re.IGNORECASE)
 _BARE_TICKER_RE = re.compile(r"^[A-Z]{1,5}(?:\.[A-Z])?$")
 _GENERIC_EQUITY_NAME_RE = re.compile(
-    r"^(?:common(?:\s+stock)?|stock|shares?|equity|ordinary(?:\s+shares?)?)$",
+    r"^(?:"
+    r"common(?:\s+stock)?|stock|shares?|equity|"
+    r"ordinary(?:\s+shares?)?|"
+    r"preferred(?:\s+stock)?|"
+    r"adr|ads|depositary(?:\s+shares?)?|"
+    r"class\s+[a-z]"
+    r")$",
     re.IGNORECASE,
+)
+
+# Curated disclosure quirks → search/query aliases (tiny, test-driven).
+_DISCLOSURE_NAME_ALIASES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^Facebook(?:\s+Inc\.?)?$", re.I), "Meta Platforms"),
+    (re.compile(r"^FB$", re.I), "Meta Platforms"),
+    (re.compile(r"^Google(?:\s+Inc\.?)?$", re.I), "Alphabet"),
+    # Truncated House lines often drop the leading "JP".
+    (re.compile(r"^Morgan Chase(?:\s*&\s*Co\.?)?(?:\s+Common)?$", re.I), "JPMorgan Chase"),
+    (re.compile(r"^Westinghouse Air Brake Technologies(?:\s+Corporation)?$", re.I), "Wabtec"),
+    (re.compile(r"^Willis Towers Watson(?:\s+Public Limited(?:\s+Company)?)?$", re.I), "Willis Towers Watson"),
+    # SEC title is now "SLB LIMITED / NV" after the corporate rename.
+    (re.compile(r"^Schlumberger(?:\s+N\.?\s*V\.?)?(?:\s+Limited)?$", re.I), "SLB Limited"),
 )
 
 
@@ -143,24 +173,34 @@ def _strip_senate_and_owner_prefix(asset: str) -> str:
 
 
 def _simplify_for_equity_search(asset: str) -> str:
-    """Strip PTR boilerplate so Polygon/OpenFIGI name search matches issuer lines."""
+    """Strip PTR boilerplate so Polygon/OpenFIGI/SEC name search matches issuer lines."""
     s = normalize_whitespace(asset)
     if not s:
         return ""
     s = _strip_senate_and_owner_prefix(s)
-    s = re.sub(r"\s*\[[A-Z]{2,4}\]\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*\[[A-Z0-9]{2,4}\]\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*\([A-Z]{1,6}\)\s*$", "", s, flags=re.I)
     # Keep the post-structure form so we never restore raw "(P)" / "[PS]" junk when share-class
     # stripping removes the entire remaining string (e.g. asset text is only "Common stock (P)").
     structural = normalize_whitespace(s).strip(" ,")
     s = structural
     s = re.sub(r"\s*-?\s*Common Stock\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-?\s*Preferred Stock\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*Common Shares?\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-?\s*Ordinary Shares?\s*$", "", s, flags=re.I)
+    s = re.sub(
+        r"\s*-?\s*(?:Sponsored\s+)?(?:ADR|ADS|American\s+Depositary\s+Shares?|Depositary\s+Shares?)\s*$",
+        "",
+        s,
+        flags=re.I,
+    )
     s = re.sub(r"\s*,?\s*Common$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*Common$", "", s, flags=re.I)
-    s = re.sub(r"\s*-\s*Class\s+[A-Z]\b.*$", "", s, flags=re.I)
+    s = re.sub(r"\s*-?\s*Class\s+[A-Z]\b.*$", "", s, flags=re.I)
+    s = re.sub(r"\s+Class\s+[A-Z]\s+Ordinary(?:\s+Shares?)?\s*$", "", s, flags=re.I)
+    s = re.sub(r"\s+Public Limited(?:\s+Company)?\s*$", "", s, flags=re.I)
     s = re.sub(r"\s*-\s*$", "", s)
-    s = normalize_whitespace(s).strip(" ,")
+    s = normalize_whitespace(s).strip(" ,-")
     return s if s else structural
 
 
@@ -175,6 +215,42 @@ def _is_generic_equity_name(asset: str) -> bool:
 def _looks_like_bare_ticker(text: str) -> bool:
     sym = normalize_whitespace(text).upper()
     return bool(sym) and bool(_BARE_TICKER_RE.fullmatch(sym)) and sym not in _PAREN_TICKER_DENYLIST
+
+
+def _extract_exchange_prefixed_ticker(asset: str) -> str | None:
+    """Return ticker from ``NYSE: AAPL`` / ``NASDAQ:MSFT`` style disclosure text."""
+    if not asset or ":" not in asset:
+        return None
+    last: str | None = None
+    for m in _EXCHANGE_TICKER_RE.finditer(asset):
+        sym = m.group(1).upper()
+        if sym in _PAREN_TICKER_DENYLIST:
+            continue
+        last = sym
+    return last
+
+
+def _try_exchange_prefixed_ticker_match(asset_norm: str) -> AssetMatch | None:
+    cleaned = _strip_senate_and_owner_prefix(asset_norm)
+    ticker = _extract_exchange_prefixed_ticker(cleaned)
+    if not ticker:
+        return None
+    display = re.sub(
+        rf"\b(?:NYSEARCA|NASDAQ|NYSE|BATS|AMEX|OTC)\s*:\s*{re.escape(ticker)}\b",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    display = _simplify_for_equity_search(display) or ticker
+    return AssetMatch(
+        asset_name_normalized=display,
+        issuer_name=display,
+        ticker=ticker,
+        cusip_or_figi=None,
+        confidence_score=0.99,
+        match_source="disclosure_exchange_ticker",
+        resolution_status="exact_match",
+    )
 
 
 def _try_bare_ticker_token_match(asset_norm: str) -> AssetMatch | None:
@@ -197,6 +273,18 @@ def _try_bare_ticker_token_match(asset_norm: str) -> AssetMatch | None:
     )
 
 
+def _apply_disclosure_aliases(name: str) -> list[str]:
+    """Return alias expansions for known disclosure quirks (may be empty)."""
+    cleaned = normalize_whitespace(name)
+    if not cleaned:
+        return []
+    out: list[str] = []
+    for pattern, alias in _DISCLOSURE_NAME_ALIASES:
+        if pattern.fullmatch(cleaned):
+            out.append(alias)
+    return out
+
+
 def _search_name_variants(name: str) -> list[str]:
     """Alternate vendor queries when disclosure spelling differs from index names."""
     out: list[str] = []
@@ -207,6 +295,8 @@ def _search_name_variants(name: str) -> list[str]:
             out.append(cleaned)
 
     add(name)
+    for alias in _apply_disclosure_aliases(name):
+        add(alias)
     # Polygon indexes "JPMorgan Chase"; disclosures often use "JP Morgan" / "J.P. Morgan".
     add(re.sub(r"\bJ\.?\s*P\.?\s*Morgan\b", "JPMorgan", name, flags=re.I))
     # Apostrophes (straight or curly) break some OpenFIGI/Polygon name searches (Lowe's).
@@ -214,7 +304,48 @@ def _search_name_variants(name: str) -> list[str]:
     add(name.replace("\u2019", "").replace("'", ""))
     # Legacy "N.V." suffix (e.g. Schlumberger) often missing from modern vendor names.
     add(re.sub(r",?\s+N\.?\s*V\.?\s*$", "", name, flags=re.I))
+    # Drop trailing corporate suffixes for SEC/title matching.
+    stripped_corp = re.sub(
+        r",?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|PLC|LLC)\s*$",
+        "",
+        name,
+        flags=re.I,
+    )
+    add(stripped_corp)
     return out
+
+
+def _try_sec_company_ticker_match(asset_norm: str) -> AssetMatch | None:
+    """Match simplified disclosure name against the local SEC company_tickers index."""
+    search_name = _simplify_for_equity_search(asset_norm)
+    if not search_name or _is_generic_equity_name(asset_norm):
+        return None
+    queries = _search_name_variants(search_name)
+    for query in queries:
+        hit = match_sec_company_ticker(query)
+        if hit is None:
+            continue
+        if hit.exact:
+            return AssetMatch(
+                asset_name_normalized=search_name,
+                issuer_name=search_name,
+                ticker=hit.ticker,
+                cusip_or_figi=None,
+                confidence_score=0.99,
+                match_source="sec_company_tickers",
+                resolution_status="exact_match",
+            )
+        conf = round(hit.score / 100.0, 3)
+        return AssetMatch(
+            asset_name_normalized=search_name,
+            issuer_name=search_name,
+            ticker=hit.ticker,
+            cusip_or_figi=None,
+            confidence_score=conf,
+            match_source="sec_company_tickers",
+            resolution_status="fuzzy_match",
+        )
+    return None
 
 
 _CUSIP_IN_PARENS_RE = re.compile(r"\(([0-9A-Z]{9})\)")
@@ -783,6 +914,9 @@ def bulk_resolve_unique_assets_for_reconcile(
         if paren := _try_disclosure_parenthetical_match(an):
             out[an] = _finalize_resolution_from_match(conn, an, paren, issuer_enrich_hint=an, commit=commit)
             continue
+        if exchange := _try_exchange_prefixed_ticker_match(an):
+            out[an] = _finalize_resolution_from_match(conn, an, exchange, issuer_enrich_hint=an, commit=commit)
+            continue
         if bare := _try_bare_ticker_token_match(an):
             out[an] = _finalize_resolution_from_match(conn, an, bare, issuer_enrich_hint=an, commit=commit)
             continue
@@ -790,6 +924,9 @@ def bulk_resolve_unique_assets_for_reconcile(
             out[an] = _finalize_resolution_from_match(
                 conn, an, _manual_review_match(an, "generic_asset_name"), commit=commit
             )
+            continue
+        if sec := _try_sec_company_ticker_match(an):
+            out[an] = _finalize_resolution_from_match(conn, an, sec, issuer_enrich_hint=an, commit=commit)
             continue
         if house_ingest_skip_external_asset_lookup():
             out[an] = _finalize_resolution_from_match(
@@ -853,6 +990,11 @@ def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
             conn, asset_norm, paren_match, issuer_enrich_hint=asset_norm, commit=commit
         )
 
+    if exchange_match := _try_exchange_prefixed_ticker_match(asset_norm):
+        return _finalize_resolution_from_match(
+            conn, asset_norm, exchange_match, issuer_enrich_hint=asset_norm, commit=commit
+        )
+
     if bare_match := _try_bare_ticker_token_match(asset_norm):
         return _finalize_resolution_from_match(
             conn, asset_norm, bare_match, issuer_enrich_hint=asset_norm, commit=commit
@@ -866,6 +1008,11 @@ def resolve_asset(conn, asset: str, *, commit: bool = True) -> dict[str, Any]:
     if cached := get_asset_resolution(conn, asset_norm):
         if _asset_resolution_cache_blocks_retry(cached):
             return _resolution_dict_from_cached_row(asset_norm, cached)
+
+    if sec_match := _try_sec_company_ticker_match(asset_norm):
+        return _finalize_resolution_from_match(
+            conn, asset_norm, sec_match, issuer_enrich_hint=asset_norm, commit=commit
+        )
 
     polygon_key = os.getenv("POLYGON_API_KEY")
     openfigi_key = os.getenv("OPENFIGI_API_KEY")

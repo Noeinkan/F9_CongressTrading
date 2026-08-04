@@ -112,7 +112,10 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 | `main.py` | CLI entrypoint (argparse) |
 
-| `ingest_house.py` | House PTR + FD ingest pipeline |
+| `ingest_house.py` | House PTR + FD ingest orchestrator (batch parse/persist) |
+| `house_ptr_download.py` | House PTR PDF autodownload + local zip extract |
+| `house_ptr_repair.py` | House PTR filing/date repair, duplicate merge, backfill |
+| `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 
 | `ingest_senate.py` | Senate PTR ingest pipeline |
 

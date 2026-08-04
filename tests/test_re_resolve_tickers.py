@@ -13,7 +13,7 @@ from src.db import (
     upsert_issuer,
     upsert_member,
 )
-from src.ingest_house import re_resolve_all_transaction_tickers
+from src.re_resolve_tickers import re_resolve_all_transaction_tickers
 
 
 def _seed_member_and_filing(conn) -> int:
@@ -125,7 +125,7 @@ def test_re_resolve_non_exact_queues_review_without_per_row_commit(db_conn, monk
             "review_status": "manual_review",
         }
 
-    monkeypatch.setattr("src.ingest_house.resolve_asset", fake_resolve)
+    monkeypatch.setattr("src.re_resolve_tickers.resolve_asset", fake_resolve)
 
     processed = re_resolve_all_transaction_tickers(db_conn)
     assert processed == 1

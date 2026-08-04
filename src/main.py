@@ -449,7 +449,7 @@ def main() -> None:
                 _conn.close()
     elif args.command == "re-resolve-tickers":
         from .db import get_connection, init_db
-        from .ingest_house import re_resolve_all_transaction_tickers
+        from .re_resolve_tickers import re_resolve_all_transaction_tickers
 
         conn = get_connection()
         init_db(conn)
