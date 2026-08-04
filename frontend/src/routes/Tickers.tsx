@@ -156,20 +156,20 @@ export function Tickers() {
 
   const goPrevTicker = () => {
     if (tickerValues.length === 0) return;
-    if (selectedIndex <= 0) {
-      setSelectedTicker(tickerValues[tickerValues.length - 1]);
-      return;
-    }
-    setSelectedTicker(tickerValues[selectedIndex - 1]);
+    const next =
+      selectedIndex <= 0
+        ? tickerValues[tickerValues.length - 1]
+        : tickerValues[selectedIndex - 1];
+    if (next) setSelectedTicker(next);
   };
 
   const goNextTicker = () => {
     if (tickerValues.length === 0) return;
-    if (selectedIndex < 0 || selectedIndex >= tickerValues.length - 1) {
-      setSelectedTicker(tickerValues[0]);
-      return;
-    }
-    setSelectedTicker(tickerValues[selectedIndex + 1]);
+    const next =
+      selectedIndex < 0 || selectedIndex >= tickerValues.length - 1
+        ? tickerValues[0]
+        : tickerValues[selectedIndex + 1];
+    if (next) setSelectedTicker(next);
   };
 
   const timelineTypes = useMemo(() => {

@@ -141,20 +141,20 @@ export function Members() {
 
   const goPrevMember = () => {
     if (memberOptions.length === 0) return;
-    if (selectedIndex <= 0) {
-      setMember(memberOptions[memberOptions.length - 1]);
-      return;
-    }
-    setMember(memberOptions[selectedIndex - 1]);
+    const next =
+      selectedIndex <= 0
+        ? memberOptions[memberOptions.length - 1]
+        : memberOptions[selectedIndex - 1];
+    if (next) setMember(next);
   };
 
   const goNextMember = () => {
     if (memberOptions.length === 0) return;
-    if (selectedIndex < 0 || selectedIndex >= memberOptions.length - 1) {
-      setMember(memberOptions[0]);
-      return;
-    }
-    setMember(memberOptions[selectedIndex + 1]);
+    const next =
+      selectedIndex < 0 || selectedIndex >= memberOptions.length - 1
+        ? memberOptions[0]
+        : memberOptions[selectedIndex + 1];
+    if (next) setMember(next);
   };
 
   const setTradeView = (value: string) => {

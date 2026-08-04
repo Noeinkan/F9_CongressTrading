@@ -140,8 +140,9 @@ describe("Members route", () => {
     expect(screen.getByTestId("members-empty-profile")).toBeInTheDocument();
     const table = screen.getByTestId("members-leaderboard-table");
     const alice = within(table).getAllByTestId("members-leaderboard-row")[0];
+    expect(alice).toBeDefined();
     expect(alice).toHaveTextContent("Alice");
-    await user.click(alice);
+    await user.click(alice!);
     await waitFor(() => {
       expect(screen.getByTestId("members-profile")).toBeInTheDocument();
     });
