@@ -57,11 +57,11 @@ function renderRaw(initialEntries = ["/raw"]) {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter initialEntries={initialEntries}>
+        <MemoryRouter initialEntries={initialEntries}>
+            <FilterProvider>
             <Raw />
-          </MemoryRouter>
-        </FilterProvider>
+            </FilterProvider>
+            </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );

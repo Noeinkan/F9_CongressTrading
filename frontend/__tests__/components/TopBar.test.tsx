@@ -44,6 +44,11 @@ describe("TopBar", () => {
     expect(screen.getByText(/congress trading/i)).toBeInTheDocument();
   });
 
+  it("shows the sidebar burger on desktop", () => {
+    renderTopBar();
+    expect(screen.getByTestId("topbar-burger")).toBeInTheDocument();
+  });
+
   it("shows all 6 nav links on desktop", () => {
     renderTopBar();
     expect(screen.getByTestId("nav-link-home")).toHaveTextContent("Home");

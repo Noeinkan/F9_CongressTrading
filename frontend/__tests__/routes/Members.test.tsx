@@ -67,11 +67,11 @@ function renderMembers(initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter initialEntries={initialEntries}>
+        <MemoryRouter initialEntries={initialEntries}>
+          <FilterProvider>
             <Members />
-          </MemoryRouter>
-        </FilterProvider>
+          </FilterProvider>
+        </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );
@@ -131,15 +131,15 @@ describe("Members route", () => {
     });
   });
 
-  it("renders mini-leaderboard chips with a clickable member", async () => {
+  it("renders leaderboard rows and selects a member on click", async () => {
     const user = userEvent.setup();
     renderMembers();
     await waitFor(() => {
       expect(screen.getByTestId("members-page")).toBeInTheDocument();
     });
-    const chips = screen.getByTestId("members-browse-chips");
-    expect(chips).toBeInTheDocument();
-    const alice = within(chips).getAllByTestId("members-browse-chip")[0];
+    expect(screen.getByTestId("members-empty-profile")).toBeInTheDocument();
+    const table = screen.getByTestId("members-leaderboard-table");
+    const alice = within(table).getAllByTestId("members-leaderboard-row")[0];
     expect(alice).toHaveTextContent("Alice");
     await user.click(alice);
     await waitFor(() => {
@@ -179,6 +179,18 @@ describe("Members route", () => {
     expect(screen.getByTestId("members-select")).toHaveValue("Carol");
   });
 
+  it("sorts the leaderboard by column header", async () => {
+    const user = userEvent.setup();
+    renderMembers();
+    await waitFor(() => screen.getByTestId("members-leaderboard-table"));
+    await user.click(screen.getByTestId("members-leaderboard-sort-member"));
+    const rows = screen.getAllByTestId("members-leaderboard-row");
+    expect(rows[0]).toHaveTextContent("Alice");
+    await user.click(screen.getByTestId("members-leaderboard-sort-member"));
+    const rowsDesc = screen.getAllByTestId("members-leaderboard-row");
+    expect(rowsDesc[0]).toHaveTextContent("Carol");
+  });
+
   it("shows profile when member query is set", async () => {
     renderMembers(["/?member=Alice"]);
     await waitFor(() => {
@@ -206,7 +218,7 @@ describe("Members route", () => {
   });
 
   it("renders 'n/a' for non-equity trades in the By ticker table", async () => {
-    useMemberTickers.mockReturnValueOnce({
+    useMemberTickers.mockReturnValue({
       data: {
         member: "Alice",
         kpis: {
@@ -256,7 +268,6 @@ describe("Members route", () => {
     renderMembers(["/?member=Alice"]);
     await waitFor(() => screen.getByTestId("members-by-ticker-table"));
     const cells = screen.getAllByTestId("members-by-ticker-pnl");
-    // Two rows: the bond (n/a) and the equity (formatted $).
     expect(cells[0]).toHaveTextContent("n/a");
     expect(cells[1]).not.toHaveTextContent("n/a");
     const returns = screen.getAllByTestId("members-by-ticker-return");

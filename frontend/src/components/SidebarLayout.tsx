@@ -5,6 +5,7 @@ import { Outlet, useLocation } from "react-router-dom";
 
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
+import { FilterProvider } from "./FilterContext";
 import { SidebarFilters } from "./SidebarFilters";
 import { TopBar } from "./TopBar";
 
@@ -32,26 +33,28 @@ export function SidebarLayout() {
   };
 
   return (
-    <MantineAppShell
-      header={{ height: 64 }}
-      navbar={{
-        width: 260,
-        breakpoint: "sm",
-        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
-      }}
-      padding="md"
-    >
-      <MantineAppShell.Header>
-        <TopBar onToggleNavbar={onToggle} navbarOpen={navbarOpen} />
-      </MantineAppShell.Header>
-      <MantineAppShell.Navbar>
-        <ScrollArea h="100%" type="auto" offsetScrollbars>
-          <SidebarFilters />
-        </ScrollArea>
-      </MantineAppShell.Navbar>
-      <MantineAppShell.Main>
-        <Outlet />
-      </MantineAppShell.Main>
-    </MantineAppShell>
+    <FilterProvider>
+      <MantineAppShell
+        header={{ height: 64 }}
+        navbar={{
+          width: 260,
+          breakpoint: "sm",
+          collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
+        }}
+        padding="md"
+      >
+        <MantineAppShell.Header>
+          <TopBar onToggleNavbar={onToggle} navbarOpen={navbarOpen} />
+        </MantineAppShell.Header>
+        <MantineAppShell.Navbar>
+          <ScrollArea h="100%" type="auto" offsetScrollbars>
+            <SidebarFilters />
+          </ScrollArea>
+        </MantineAppShell.Navbar>
+        <MantineAppShell.Main>
+          <Outlet />
+        </MantineAppShell.Main>
+      </MantineAppShell>
+    </FilterProvider>
   );
 }

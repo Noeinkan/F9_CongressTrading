@@ -159,11 +159,11 @@ function renderHome(initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter initialEntries={initialEntries}>
+        <MemoryRouter initialEntries={initialEntries}>
+            <FilterProvider>
             <Home />
-          </MemoryRouter>
-        </FilterProvider>
+            </FilterProvider>
+            </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );
@@ -225,11 +225,17 @@ describe("Home route", () => {
 
   it("links Open on Tickers to the selected drill-down symbol", async () => {
     useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    const user = userEvent.setup();
     renderHome();
+    await waitFor(() => {
+      expect(screen.getByTestId("home-drilldown")).toBeInTheDocument();
+    });
+    await user.click(within(screen.getByTestId("home-drilldown")).getByText("Ticker drill-down"));
     await waitFor(() => {
       expect(screen.getByTestId("home-open-tickers")).toBeInTheDocument();
     });
     expect(screen.getByTestId("home-open-tickers")).toHaveAttribute("href", "/tickers?ticker=AAPL");
+    expect(screen.getByTestId("home-drilldown-tickers-link")).toHaveAttribute("href", "/tickers");
   });
 
   it("renders the price overlay when Polygon bars are available", async () => {
@@ -252,7 +258,10 @@ describe("Home route", () => {
       isLoading: false,
       isError: false,
     });
+    const user = userEvent.setup();
     renderHome();
+    await waitFor(() => screen.getByTestId("home-drilldown"));
+    await user.click(within(screen.getByTestId("home-drilldown")).getByText("Ticker drill-down"));
     await waitFor(() => {
       expect(screen.getByTestId("home-price-overlay")).toBeInTheDocument();
     });
@@ -261,7 +270,10 @@ describe("Home route", () => {
 
   it("shows the no-Polygon fallback when cache is empty", async () => {
     useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    const user = userEvent.setup();
     renderHome();
+    await waitFor(() => screen.getByTestId("home-drilldown"));
+    await user.click(within(screen.getByTestId("home-drilldown")).getByText("Ticker drill-down"));
     await waitFor(() => {
       expect(screen.getByTestId("home-no-polygon")).toBeInTheDocument();
     });

@@ -73,11 +73,11 @@ function renderReview() {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter>
+        <MemoryRouter>
+            <FilterProvider>
             <Review />
-          </MemoryRouter>
-        </FilterProvider>
+            </FilterProvider>
+            </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );

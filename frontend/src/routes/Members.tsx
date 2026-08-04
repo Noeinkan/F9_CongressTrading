@@ -1,7 +1,6 @@
 import {
   ActionIcon,
   Alert,
-  Badge,
   Group,
   Loader,
   SegmentedControl,
@@ -26,6 +25,7 @@ import { ChartCard } from "@/components/ChartCard";
 import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
 import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { MembersLeaderboardTable } from "@/components/MembersLeaderboardTable";
 import { PageState } from "@/components/PageState";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
@@ -193,35 +193,20 @@ export function Members() {
           <ChartCard
             collapsible
             title={COPY.members.browse}
-            caption="Quick scan of the most active filers in the active slice. The full leaderboard lives on the Home page."
+            caption="Full per-filer ranking for the active period slice. Click a row to open the profile below."
             testId="members-browse"
           >
             {isLoading && !data ? (
               <Group justify="center" py="md">
                 <Loader size="sm" />
               </Group>
-            ) : !data || data.leaderboard.length === 0 ? (
-              <Text c="dimmed">No members in the current slice.</Text>
             ) : (
-              <Group gap="xs" data-testid="members-browse-chips" wrap="wrap">
-                {data.leaderboard.slice(0, 12).map((row) => {
-                  const active = selectedMember === row.member;
-                  return (
-                    <Badge
-                      key={row.member}
-                      color={active ? "teal" : "gray"}
-                      variant={active ? "filled" : "light"}
-                      size="lg"
-                      style={{ cursor: "pointer" }}
-                      onClick={() => setMember(row.member)}
-                      data-testid="members-browse-chip"
-                      title={`${row.trades} trades · ${row.tickers} tickers · ${row.party} · ${row.state}`}
-                    >
-                      {row.member} · {row.trades}
-                    </Badge>
-                  );
-                })}
-              </Group>
+              <MembersLeaderboardTable
+                rows={data?.leaderboard ?? []}
+                selectedMember={selectedMember || undefined}
+                onSelect={setMember}
+                testId="members-leaderboard-table"
+              />
             )}
           </ChartCard>
 
@@ -269,6 +254,12 @@ export function Members() {
               </ActionIcon>
             </Group>
           </Stack>
+
+          {!selectedMember ? (
+            <Text c="dimmed" data-testid="members-empty-profile">
+              {COPY.members.emptyProfile}
+            </Text>
+          ) : null}
 
           {selectedMember && memberTickers.isLoading ? (
             <Stack align="center" py="xl" data-testid="members-profile-loading">
@@ -462,7 +453,12 @@ export function Members() {
                 </Table.ScrollContainer>
               </ChartCard>
 
-              <ChartCard collapsible title={COPY.members.activity} testId="members-activity">
+              <ChartCard
+                collapsible
+                defaultCollapsed
+                title={COPY.members.activity}
+                testId="members-activity"
+              >
                 {activityData.data?.truncated ? (
                   <Alert color="gray" variant="light" mb="sm" data-testid="members-activity-truncate">
                     {activityData.data.truncate_note}
@@ -476,7 +472,7 @@ export function Members() {
                 />
               </ChartCard>
 
-              <ChartCard collapsible title={COPY.members.topTickers}>
+              <ChartCard collapsible defaultCollapsed title={COPY.members.topTickers}>
                 <RankBars
                   testId="members-top-tickers"
                   color="#c6922b"

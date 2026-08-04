@@ -12,6 +12,7 @@ import {
   type RefreshStatusResponse,
 } from "@/api/refresh";
 import { RefreshProgressPanel } from "@/components/RefreshProgressPanel";
+import { useIsMobile } from "@/hooks/useMediaQuery";
 
 import {
   LOOKBACK_OPTIONS,
@@ -230,6 +231,7 @@ function SidebarRefreshControls() {
 export function SidebarFilters() {
   const { lookback, quarters, setLookback, toggleQuarter, reset } = useFilters();
   const location = useLocation();
+  const isMobile = useIsMobile();
 
   const lookbackData = LOOKBACK_OPTIONS.map((opt) => ({
     value: opt.value === null ? "all" : String(opt.value),
@@ -293,29 +295,32 @@ export function SidebarFilters() {
         </Button>
       </Stack>
 
-      <Divider />
-
-      <Stack gap={4} component="nav" aria-label="Dashboard pages">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-          Pages
-        </Text>
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(location.pathname, item.to);
-          return (
-            <Text
-              key={item.to}
-              component={Link}
-              to={item.to}
-              size="sm"
-              fw={active ? 600 : 400}
-              c={active ? "navy.7" : "dimmed"}
-              py={4}
-            >
-              {item.label}
+      {isMobile ? (
+        <>
+          <Divider />
+          <Stack gap={4} component="nav" aria-label="Dashboard pages" data-testid="sidebar-pages">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+              Pages
             </Text>
-          );
-        })}
-      </Stack>
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(location.pathname, item.to);
+              return (
+                <Text
+                  key={item.to}
+                  component={Link}
+                  to={item.to}
+                  size="sm"
+                  fw={active ? 600 : 400}
+                  c={active ? "navy.7" : "dimmed"}
+                  py={4}
+                >
+                  {item.label}
+                </Text>
+              );
+            })}
+          </Stack>
+        </>
+      ) : null}
 
       <Divider />
 

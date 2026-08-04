@@ -31,11 +31,11 @@ function renderTickers(initialEntries = ["/?ticker=AAPL"]) {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter initialEntries={initialEntries}>
+        <MemoryRouter initialEntries={initialEntries}>
+            <FilterProvider>
             <Tickers />
-          </MemoryRouter>
-        </FilterProvider>
+            </FilterProvider>
+            </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );
@@ -91,6 +91,38 @@ describe("Tickers route", () => {
     });
   });
 
+  it("cycles tickers with prev/next arrows", async () => {
+    useTickersList.mockReturnValue({
+      data: {
+        ready: true,
+        rows: [{ ticker: "AAPL" }, { ticker: "MSFT" }, { ticker: "NVDA" }],
+        total: 3,
+        page: 1,
+        page_size: 200,
+        total_pages: 1,
+        sort: { column: "trades", order: "desc" },
+        search: "",
+        source: "sqlite",
+      },
+      isLoading: false,
+      isError: false,
+    });
+    const user = userEvent.setup();
+    renderTickers(["/?ticker=AAPL"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("tickers-nav-position")).toHaveTextContent("1 / 3");
+    });
+    await user.click(screen.getByTestId("tickers-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("tickers-nav-position")).toHaveTextContent("2 / 3");
+    });
+    expect(screen.getByTestId("tickers-select")).toHaveValue("MSFT");
+    await user.click(screen.getByTestId("tickers-prev"));
+    await waitFor(() => {
+      expect(screen.getByTestId("tickers-nav-position")).toHaveTextContent("1 / 3");
+    });
+  });
+
   it("renders ticker profile sections", async () => {
     renderTickers();
     await waitFor(() => {
@@ -127,7 +159,7 @@ describe("Tickers route", () => {
   });
 
   it("renders 'n/a' for non-equity trades in the Trade history table", async () => {
-    useTickerProfile.mockReturnValueOnce({
+    useTickerProfile.mockReturnValue({
       data: {
         ready: true,
         ticker: "UTWO",
@@ -161,7 +193,7 @@ describe("Tickers route", () => {
       isLoading: false,
       isError: false,
     });
-    renderTickers();
+    renderTickers(["/?ticker=UTWO"]);
     await waitFor(() => screen.getByTestId("tickers-trade-history-table"));
     const cell = screen.getByTestId("tickers-trade-history-return");
     expect(cell).toHaveTextContent("n/a");
@@ -182,7 +214,7 @@ describe("Tickers route", () => {
   });
 
   it("disables the SearchForAlpha button when no ticker is selected", async () => {
-    useTickersList.mockReturnValueOnce({
+    useTickersList.mockReturnValue({
       data: { ready: true, rows: [], total: 0, page: 1, page_size: 200, total_pages: 1, sort: { column: "trades", order: "desc" }, search: "", source: "sqlite" },
       isLoading: false,
       isError: false,

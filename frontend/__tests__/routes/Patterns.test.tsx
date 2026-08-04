@@ -64,11 +64,11 @@ function renderPatterns() {
   return render(
     <QueryClientProvider client={client}>
       <MantineProvider>
-        <FilterProvider>
-          <MemoryRouter>
+        <MemoryRouter>
+            <FilterProvider>
             <Patterns />
-          </MemoryRouter>
-        </FilterProvider>
+            </FilterProvider>
+            </MemoryRouter>
       </MantineProvider>
     </QueryClientProvider>,
   );

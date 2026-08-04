@@ -331,8 +331,12 @@ export function Review() {
                   </Table.ScrollContainer>
                 </Stack>
 
-                <Stack gap="xs">
-                  <Text fw={600}>{COPY.review.transactionDetail}</Text>
+                <ChartCard
+                  collapsible
+                  defaultCollapsed
+                  title={COPY.review.transactionDetail}
+                  testId="review-transaction-detail"
+                >
                   <Table.ScrollContainer minWidth={900}>
                     <Table striped data-testid="review-transaction-table">
                       <Table.Thead>
@@ -363,7 +367,7 @@ export function Review() {
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
-                </Stack>
+                </ChartCard>
 
                 {totalPages > 1 ? (
                   <Group justify="space-between">

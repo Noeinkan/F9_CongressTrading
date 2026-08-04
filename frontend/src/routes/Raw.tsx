@@ -15,7 +15,7 @@ import {
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { rawExportCsvUrl, useRawTransactions } from "@/api/raw";
@@ -110,6 +110,20 @@ export function Raw() {
 
   const { data, isLoading, isError } = useRawTransactions(rawParams);
 
+  // Debounce search draft → URL so typing filters without requiring Enter.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const current = searchParams.get("search") ?? "";
+      if (searchDraft === current) return;
+      const next = new URLSearchParams(searchParams);
+      if (searchDraft === "") next.delete("search");
+      else next.set("search", searchDraft);
+      next.set("page", "1");
+      setSearchParams(next, { replace: true });
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [searchDraft, searchParams, setSearchParams]);
+
   const sorting: SortingState = [{ id: sortColumn, desc: sortOrder === "desc" }];
 
   const columns = useMemo(
@@ -159,9 +173,6 @@ export function Raw() {
               placeholder="Member, ticker, issuer…"
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") updateParams({ search: searchDraft, page: 1 });
-              }}
               data-testid="raw-search"
             />
             <div style={{ minWidth: 200 }}>

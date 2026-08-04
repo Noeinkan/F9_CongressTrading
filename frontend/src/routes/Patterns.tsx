@@ -168,6 +168,14 @@ export function Patterns() {
               data-testid="patterns-committee-member-select"
             />
 
+            {committeeMember && !committeeDrill.data?.rows.length ? (
+              <Text c="dimmed" mt="md" data-testid="patterns-committee-drill-empty">
+                {committeeDrill.isLoading
+                  ? "Loading committee-relevant trades…"
+                  : "No committee-relevant trades for this member."}
+              </Text>
+            ) : null}
+
             {committeeDrill.data?.rows.length ? (
               <Table.ScrollContainer minWidth={700} mt="md">
                 <Table striped data-testid="patterns-committee-drill-table">
@@ -197,6 +205,10 @@ export function Patterns() {
                   </Table.Tbody>
                 </Table>
               </Table.ScrollContainer>
+            ) : !committeeMember ? (
+              <Text c="dimmed" mt="md" data-testid="patterns-committee-drill-prompt">
+                Select a member above to see overlapping committee trades.
+              </Text>
             ) : null}
           </ChartCard>
 
@@ -246,6 +258,14 @@ export function Patterns() {
               data-testid="patterns-coordinated-select"
             />
 
+            {coordinatedKey && !coordinatedTx.data?.rows.length ? (
+              <Text c="dimmed" mt="md" data-testid="patterns-coordinated-drill-empty">
+                {coordinatedTx.isLoading
+                  ? "Loading coordinated trades…"
+                  : "No transactions for this pattern in the current window."}
+              </Text>
+            ) : null}
+
             {coordinatedTx.data?.rows.length ? (
               <Table.ScrollContainer minWidth={700} mt="md">
                 <Table striped data-testid="patterns-coordinated-tx-table">
@@ -275,6 +295,10 @@ export function Patterns() {
                   </Table.Tbody>
                 </Table>
               </Table.ScrollContainer>
+            ) : !coordinatedKey ? (
+              <Text c="dimmed" mt="md" data-testid="patterns-coordinated-drill-prompt">
+                Select a pattern above to inspect its trades.
+              </Text>
             ) : null}
           </ChartCard>
 

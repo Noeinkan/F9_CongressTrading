@@ -1,5 +1,6 @@
 import { Group, Text } from "@mantine/core";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useMemo } from "react";
 
 import { DonateButton } from "./DonateButton";
 import { UserMenu } from "./UserMenu";
@@ -22,6 +23,16 @@ type TopBarProps = {
   navbarOpen: boolean;
 };
 
+const burgerStyle = {
+  background: "transparent",
+  border: "1px solid var(--mantine-color-gray-3)",
+  borderRadius: 4,
+  padding: "4px 8px",
+  cursor: "pointer",
+  fontSize: 18,
+  lineHeight: 1,
+} as const;
+
 export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
   const location = useLocation();
   const isMobile = useIsMobile();
@@ -29,26 +40,16 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
   return (
     <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="sm">
       <Group gap="sm" wrap="nowrap">
-        {isMobile ? (
-          <button
-            type="button"
-            onClick={onToggleNavbar}
-            aria-label={navbarOpen ? "Close navigation" : "Open navigation"}
-            aria-expanded={navbarOpen}
-            data-testid="topbar-burger"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--mantine-color-gray-3)",
-              borderRadius: 4,
-              padding: "4px 8px",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-            }}
-          >
-            {navbarOpen ? "✕" : "☰"}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={onToggleNavbar}
+          aria-label={navbarOpen ? "Close sidebar" : "Open sidebar"}
+          aria-expanded={navbarOpen}
+          data-testid="topbar-burger"
+          style={burgerStyle}
+        >
+          {navbarOpen ? "✕" : "☰"}
+        </button>
         <Text
           component={Link}
           to="/"
@@ -75,11 +76,27 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
   );
 }
 
+/** Preserve period filters when switching pages so the slice stays shareable. */
+function periodSearch(searchParams: URLSearchParams): string {
+  const q = new URLSearchParams();
+  const lookback = searchParams.get("lookback");
+  const quarters = searchParams.get("quarters");
+  if (lookback) q.set("lookback", lookback);
+  if (quarters) q.set("quarters", quarters);
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
+}
+
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const [searchParams] = useSearchParams();
+  const to = useMemo(
+    () => `${item.to}${periodSearch(searchParams)}`,
+    [item.to, searchParams],
+  );
   return (
     <Text
       component={Link}
-      to={item.to}
+      to={to}
       size="sm"
       fw={active ? 600 : 400}
       c={active ? "navy.7" : "dimmed"}

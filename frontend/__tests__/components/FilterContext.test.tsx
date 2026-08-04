@@ -1,10 +1,13 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_LOOKBACK,
   DEFAULT_QUARTERS,
   FilterProvider,
+  parseLookbackParam,
+  parseQuartersParam,
   useFilters,
 } from "@/components/FilterContext";
 
@@ -39,25 +42,42 @@ function Consumer() {
   );
 }
 
-function renderConsumer(initial?: { lookback?: number; quarters?: string[] }) {
+function renderConsumer(
+  initial?: { lookback?: number | null; quarters?: string[] },
+  initialEntries: string[] = ["/"],
+) {
   return render(
-    <FilterProvider
-      initialLookback={initial?.lookback}
-      initialQuarters={
-        (initial?.quarters as ("1" | "2" | "3" | "4")[] | undefined) ?? undefined
-      }
-    >
-      <Consumer />
-    </FilterProvider>,
+    <MemoryRouter initialEntries={initialEntries}>
+      <FilterProvider
+        initialLookback={initial?.lookback === undefined ? undefined : initial.lookback}
+        initialQuarters={
+          (initial?.quarters as ("1" | "2" | "3" | "4")[] | undefined) ?? undefined
+        }
+      >
+        <Consumer />
+      </FilterProvider>
+    </MemoryRouter>,
   );
 }
+
+describe("parseLookbackParam / parseQuartersParam", () => {
+  it("parses lookback from URL tokens", () => {
+    expect(parseLookbackParam(null)).toBe(DEFAULT_LOOKBACK);
+    expect(parseLookbackParam("all")).toBeNull();
+    expect(parseLookbackParam("5")).toBe(5);
+    expect(parseLookbackParam("99")).toBe(DEFAULT_LOOKBACK);
+  });
+
+  it("parses quarters from URL tokens", () => {
+    expect(parseQuartersParam(null)).toEqual(DEFAULT_QUARTERS);
+    expect(parseQuartersParam("1,3")).toEqual(["1", "3"]);
+  });
+});
 
 describe("FilterContext", () => {
   it("starts with default lookback and all quarters", () => {
     renderConsumer();
-    expect(screen.getByTestId("lookback")).toHaveTextContent(
-      String(DEFAULT_LOOKBACK),
-    );
+    expect(screen.getByTestId("lookback")).toHaveTextContent(String(DEFAULT_LOOKBACK));
     expect(screen.getByTestId("quarters")).toHaveTextContent(DEFAULT_QUARTERS.join(","));
   });
 
@@ -67,64 +87,66 @@ describe("FilterContext", () => {
     expect(screen.getByTestId("quarters")).toHaveTextContent("1,2");
   });
 
-  it("updates lookback via setLookback", () => {
+  it("reads lookback and quarters from the URL", () => {
+    renderConsumer(undefined, ["/?lookback=5&quarters=1,2"]);
+    expect(screen.getByTestId("lookback")).toHaveTextContent("5");
+    expect(screen.getByTestId("quarters")).toHaveTextContent("1,2");
+  });
+
+  it("updates lookback via setLookback", async () => {
     renderConsumer();
     act(() => {
       screen.getByTestId("set-lookback").click();
     });
-    expect(screen.getByTestId("lookback")).toHaveTextContent("5");
+    await waitFor(() => {
+      expect(screen.getByTestId("lookback")).toHaveTextContent("5");
+    });
   });
 
-  it("replaces quarters via setQuarters", () => {
+  it("replaces quarters via setQuarters", async () => {
     renderConsumer();
     act(() => {
       screen.getByTestId("set-quarters").click();
     });
-    expect(screen.getByTestId("quarters")).toHaveTextContent("1,2");
+    await waitFor(() => {
+      expect(screen.getByTestId("quarters")).toHaveTextContent("1,2");
+    });
   });
 
   it("ignores unknown quarter values", () => {
-    renderConsumer();
-    act(() => {
-      // setQuarters with one valid and one invalid value
-      // re-render consumer inline to test sanitization
-    });
-    // Re-render with explicit sanitization check via internal setter
-    // (sanitizeQuarters drops "5" silently and keeps ["1"])
     render(
-      <FilterProvider>
-        <SanitizationProbe />
-      </FilterProvider>,
+      <MemoryRouter>
+        <FilterProvider>
+          <SanitizationProbe />
+        </FilterProvider>
+      </MemoryRouter>,
     );
     expect(screen.getByTestId("probe-quarters")).toHaveTextContent("1,2,3,4");
   });
 
-  it("toggleQuarter adds and removes a quarter", () => {
+  it("toggleQuarter adds and removes a quarter", async () => {
     renderConsumer({ quarters: ["1", "2", "3"] });
     act(() => {
       screen.getByTestId("toggle-q4").click();
     });
-    expect(screen.getByTestId("quarters")).toHaveTextContent("1,2,3,4");
+    await waitFor(() => {
+      expect(screen.getByTestId("quarters")).toHaveTextContent("1,2,3,4");
+    });
     act(() => {
       screen.getByTestId("toggle-q4").click();
     });
-    expect(screen.getByTestId("quarters")).toHaveTextContent("1,2,3");
+    await waitFor(() => {
+      expect(screen.getByTestId("quarters")).toHaveTextContent("1,2,3");
+    });
   });
 
   it("toggleQuarter refuses to remove the last remaining quarter", () => {
-    renderConsumer({ quarters: ["1"] });
-    act(() => {
-      screen.getByTestId("toggle-q4").click();
-    });
-    // first click adds Q4 — proves the no-empty invariant is preserved when removing
-    act(() => {
-      screen.getByTestId("toggle-q4").click();
-    });
-    // second click would remove Q4; we re-render with only Q1 and try to remove it
     render(
-      <FilterProvider initialQuarters={["1"]}>
-        <RemoveLast />
-      </FilterProvider>,
+      <MemoryRouter>
+        <FilterProvider initialQuarters={["1"]}>
+          <RemoveLast />
+        </FilterProvider>
+      </MemoryRouter>,
     );
     act(() => {
       screen.getByTestId("remove-q1").click();
@@ -132,22 +154,24 @@ describe("FilterContext", () => {
     expect(screen.getByTestId("quarters-after")).toHaveTextContent("1");
   });
 
-  it("reset returns to defaults", () => {
+  it("reset returns to defaults", async () => {
     renderConsumer({ lookback: 5, quarters: ["1"] });
     act(() => {
       screen.getByTestId("reset").click();
     });
-    expect(screen.getByTestId("lookback")).toHaveTextContent(
-      String(DEFAULT_LOOKBACK),
-    );
-    expect(screen.getByTestId("quarters")).toHaveTextContent(DEFAULT_QUARTERS.join(","));
+    await waitFor(() => {
+      expect(screen.getByTestId("lookback")).toHaveTextContent(String(DEFAULT_LOOKBACK));
+      expect(screen.getByTestId("quarters")).toHaveTextContent(DEFAULT_QUARTERS.join(","));
+    });
   });
 
   it("supports all-time lookback via null", () => {
     render(
-      <FilterProvider initialLookback={null}>
-        <Consumer />
-      </FilterProvider>,
+      <MemoryRouter>
+        <FilterProvider initialLookback={null}>
+          <Consumer />
+        </FilterProvider>
+      </MemoryRouter>,
     );
     expect(screen.getByTestId("lookback")).toHaveTextContent("");
   });

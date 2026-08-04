@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Anchor,
   Badge,
   Button,
@@ -50,6 +51,42 @@ import { classifyAmountRange, rangeOpacity } from "@/utils/transactions";
 function quartersParam(quarters: string[]): string | undefined {
   if (quarters.length === 4) return undefined;
   return quarters.join(",");
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
 }
 
 export function Tickers() {
@@ -114,6 +151,27 @@ export function Tickers() {
     setSearchParams(next);
   };
 
+  const tickerValues = useMemo(() => tickerOptions.map((o) => o.value), [tickerOptions]);
+  const selectedIndex = selectedTicker ? tickerValues.indexOf(selectedTicker) : -1;
+
+  const goPrevTicker = () => {
+    if (tickerValues.length === 0) return;
+    if (selectedIndex <= 0) {
+      setSelectedTicker(tickerValues[tickerValues.length - 1]);
+      return;
+    }
+    setSelectedTicker(tickerValues[selectedIndex - 1]);
+  };
+
+  const goNextTicker = () => {
+    if (tickerValues.length === 0) return;
+    if (selectedIndex < 0 || selectedIndex >= tickerValues.length - 1) {
+      setSelectedTicker(tickerValues[0]);
+      return;
+    }
+    setSelectedTicker(tickerValues[selectedIndex + 1]);
+  };
+
   const timelineTypes = useMemo(() => {
     const labels = new Set(
       (memberTimeline.data?.rows ?? []).map(
@@ -175,17 +233,51 @@ export function Tickers() {
         </Group>
 
         <Group grow align="flex-end">
-          <Select
-            label="Ticker"
-            data={tickerOptions}
-            value={selectedTicker || null}
-            onChange={setSelectedTicker}
-            searchable
-            disabled={listQuery.isLoading && !urlTicker}
-            data-testid="tickers-select"
-          />
+          <Stack gap={6} style={{ flex: 1 }}>
+            <Group justify="space-between" align="baseline" gap="xs">
+              <Text size="sm" fw={500}>
+                Ticker
+              </Text>
+              {tickerValues.length > 0 ? (
+                <Text size="xs" c="dimmed" data-testid="tickers-nav-position">
+                  {selectedIndex >= 0 ? selectedIndex + 1 : "—"} / {tickerValues.length}
+                </Text>
+              ) : null}
+            </Group>
+            <Group gap="xs" wrap="nowrap" align="center">
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Previous ticker"
+                onClick={goPrevTicker}
+                disabled={tickerValues.length === 0 || (listQuery.isLoading && !urlTicker)}
+                data-testid="tickers-prev"
+              >
+                <ChevronLeftIcon />
+              </ActionIcon>
+              <Select
+                data={tickerOptions}
+                value={selectedTicker || null}
+                onChange={setSelectedTicker}
+                searchable
+                disabled={listQuery.isLoading && !urlTicker}
+                data-testid="tickers-select"
+                style={{ flex: 1 }}
+              />
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Next ticker"
+                onClick={goNextTicker}
+                disabled={tickerValues.length === 0 || (listQuery.isLoading && !urlTicker)}
+                data-testid="tickers-next"
+              >
+                <ChevronRightIcon />
+              </ActionIcon>
+            </Group>
+          </Stack>
           <TextInput
-            label="Override symbol"
+            label="Or type a symbol"
             placeholder="e.g. NVDA"
             value={manualTicker}
             onChange={(e) => setManualTicker(e.currentTarget.value.toUpperCase())}

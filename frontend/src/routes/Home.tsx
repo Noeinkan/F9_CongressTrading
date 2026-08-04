@@ -1,4 +1,5 @@
 import {
+  Anchor,
   Badge,
   Button,
   Card,
@@ -24,6 +25,7 @@ import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerM
 import { useFilters } from "@/components/FilterContext";
 import { KpiTile } from "@/components/KpiTile";
 import { MemberLink } from "@/components/MemberLink";
+import { MembersLeaderboardTable } from "@/components/MembersLeaderboardTable";
 import { MonthlyActivityChart } from "@/components/MonthlyActivityChart";
 import { NetTradeChart } from "@/components/NetTradeChart";
 import { PageState } from "@/components/PageState";
@@ -35,7 +37,7 @@ import { TickerLink } from "@/components/TickerLink";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
 import { tickerHref } from "@/utils/entityLinks";
-import { formatDate, formatDisclosedRange } from "@/utils/format";
+import { formatDate } from "@/utils/format";
 import {
   classifyTransaction,
   directionColor,
@@ -459,53 +461,28 @@ export function Home() {
           <ChartCard
             collapsible
             title="Members leaderboard"
-            caption="Full per-filer ranking for the active period slice. Click a row to open the profile on the Members page."
+            caption="Full per-filer ranking for the active period slice. Click a name to open the profile on the Members page."
             testId="home-leaderboard"
           >
-            {data.members_leaderboard.length === 0 ? (
-              <Text c="dimmed">No members in the current slice.</Text>
-            ) : (
-              <Table.ScrollContainer minWidth={800}>
-                <Table striped highlightOnHover data-testid="home-leaderboard-table">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Member</Table.Th>
-                      <Table.Th>Trades</Table.Th>
-                      <Table.Th>Tickers</Table.Th>
-                      <Table.Th>Disclosed range</Table.Th>
-                      <Table.Th>Chamber</Table.Th>
-                      <Table.Th>Party</Table.Th>
-                      <Table.Th>State</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {data.members_leaderboard.map((row) => (
-                      <Table.Tr
-                        key={row.member}
-                        style={{ cursor: "pointer" }}
-                        data-testid="home-leaderboard-row"
-                      >
-                        <Table.Td>
-                          <MemberLink name={row.member} fw={500} />
-                        </Table.Td>
-                        <Table.Td>{row.trades}</Table.Td>
-                        <Table.Td>{row.tickers}</Table.Td>
-                        <Table.Td>
-                          {row.disclosed_range ??
-                            formatDisclosedRange(row.amount_low, row.amount_high)}
-                        </Table.Td>
-                        <Table.Td>{row.chamber}</Table.Td>
-                        <Table.Td>{row.party}</Table.Td>
-                        <Table.Td>{row.state}</Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
-            )}
+            <MembersLeaderboardTable
+              rows={data.members_leaderboard}
+              linkMembers
+              testId="home-leaderboard-table"
+            />
           </ChartCard>
 
-          <ChartCard collapsible title="Ticker drill-down" testId="home-drilldown">
+          <ChartCard
+            collapsible
+            defaultCollapsed
+            title="Ticker drill-down"
+            caption="Quick peek here, or open the full Tickers page for price overlay and exposure charts."
+            testId="home-drilldown"
+            headerRight={
+              <Anchor component={Link} to="/tickers" size="sm" data-testid="home-drilldown-tickers-link">
+                Open Tickers page
+              </Anchor>
+            }
+          >
             {data.tickers_available.length === 0 ? (
               <Text c="dimmed">No resolved tickers in the current slice.</Text>
             ) : (
@@ -521,7 +498,7 @@ export function Home() {
                     data-testid="home-ticker-select"
                   />
                   <TextInput
-                    label="Override symbol"
+                    label="Or type a symbol"
                     placeholder="e.g. MSFT"
                     value={manualTicker}
                     onChange={(e) => setManualTicker(e.currentTarget.value.toUpperCase())}
