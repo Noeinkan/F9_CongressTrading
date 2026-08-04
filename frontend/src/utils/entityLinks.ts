@@ -48,15 +48,20 @@ export function hrefFromChartClick(
     // Category scatter timelines: value is [date, category, amount].
     if (Array.isArray(params.value) && typeof params.value[1] === "string") {
       label = params.value[1].trim();
-    }
-    // Category bar charts: params.name is the category label.
-    if (!label) {
-      label = String(params.name ?? "").trim();
-    }
-    // Per-member swimlane charts: seriesName is the member (optionally
-    // suffixed with " · trades" for marker series).
-    if (!label && params.seriesName) {
+    } else if (
+      kind === "member" &&
+      params.seriesName &&
+      params.seriesName !== "__zero__"
+    ) {
+      // Cumulative overlay: seriesName is the member. Scatter markers set
+      // params.name to the txn type ("Buy"/"Sell"), so prefer seriesName.
       label = String(params.seriesName).replace(/ · trades$/, "").trim();
+    } else {
+      // Category bar charts: params.name is the category label.
+      label = String(params.name ?? "").trim();
+      if (!label && params.seriesName && params.seriesName !== "__zero__") {
+        label = String(params.seriesName).replace(/ · trades$/, "").trim();
+      }
     }
   }
   if (!label) return null;

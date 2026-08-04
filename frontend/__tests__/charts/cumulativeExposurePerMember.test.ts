@@ -46,9 +46,15 @@ describe("buildCumulativeExposurePerMemberOption", () => {
     const option = buildCumulativeExposurePerMemberOption(rows, ["Alice"]);
     expect(option).not.toBeNull();
     const series = option!.series as Array<Record<string, unknown>>;
-    const band = series.find((s) => s.name === "Alice · band");
-    const bandBase = series.find((s) => s.name === "Alice · band-base");
-    const median = series.find((s) => s.name === "Alice");
+    // Band + median share the member name so legend toggles hide both.
+    const aliceSeries = series.filter((s) => s.name === "Alice");
+    const band = aliceSeries.find(
+      (s) => s.areaStyle && (s.areaStyle as { color?: string }).color,
+    );
+    const bandBase = aliceSeries.find(
+      (s) => s.stack && s.areaStyle && !(s.areaStyle as { color?: string }).color,
+    );
+    const median = aliceSeries.find((s) => s.type === "line" && s.endLabel);
     expect(bandBase).toBeTruthy();
     expect(band).toBeTruthy();
     expect(band!.stack).toBe(bandBase!.stack);
@@ -57,6 +63,31 @@ describe("buildCumulativeExposurePerMemberOption", () => {
     expect(median!.type).toBe("line");
     expect(median!.step).toBe("end");
     expect(median!.z).toBeGreaterThan(band!.z as number);
+  });
+
+  it("uses a single shared canvas (one grid / one y-axis)", () => {
+    const rows = [
+      row({
+        member: "Alice",
+        transaction_date: "2024-01-10",
+        cumulative_net: 5_000,
+        txn_type_label: "Buy",
+      }),
+      row({
+        member: "Bob",
+        transaction_date: "2024-01-15",
+        cumulative_net: -3_000,
+        txn_type_label: "Sell",
+      }),
+    ];
+    const option = buildCumulativeExposurePerMemberOption(rows, ["Alice", "Bob"]);
+    expect(option).not.toBeNull();
+    expect(Array.isArray(option!.grid)).toBe(false);
+    expect(Array.isArray(option!.yAxis)).toBe(false);
+    expect(Array.isArray(option!.xAxis)).toBe(false);
+    const legend = option!.legend as { data: Array<{ name: string }>; selectedMode: boolean };
+    expect(legend.selectedMode).toBe(true);
+    expect(legend.data.map((d) => d.name)).toEqual(["Alice", "Bob"]);
   });
 
   it("extends shared y-domain to floor/ceiling extremes", () => {
@@ -71,8 +102,8 @@ describe("buildCumulativeExposurePerMemberOption", () => {
       }),
     ];
     const option = buildCumulativeExposurePerMemberOption(rows, ["Alice"]);
-    const yAxes = option!.yAxis as Array<Record<string, unknown>>;
-    expect(yAxes[0]!.min as number).toBeLessThanOrEqual(-50_000);
-    expect(yAxes[0]!.max as number).toBeGreaterThanOrEqual(50_000);
+    const yAxis = option!.yAxis as Record<string, unknown>;
+    expect(yAxis.min as number).toBeLessThanOrEqual(-50_000);
+    expect(yAxis.max as number).toBeGreaterThanOrEqual(50_000);
   });
 });

@@ -347,38 +347,44 @@ export function Patterns() {
           </ChartCard>
 
           <ChartCard collapsible title={COPY.patterns.bipartisan} testId="patterns-bipartisan">
-            <Table.ScrollContainer minWidth={800}>
-              <Table striped data-testid="patterns-bipartisan-table">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Ticker</Table.Th>
-                    <Table.Th>Members</Table.Th>
-                    <Table.Th>Dem trades</Table.Th>
-                    <Table.Th>Rep trades</Table.Th>
-                    <Table.Th>Names</Table.Th>
-                    <Table.Th>From</Table.Th>
-                    <Table.Th>To</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {data.bipartisan.map((row) => (
-                    <Table.Tr key={row.ticker}>
-                      <Table.Td>
-                        <TickerLink ticker={row.ticker} />
-                      </Table.Td>
-                      <Table.Td>{row.members}</Table.Td>
-                      <Table.Td>{row.democrat_trades}</Table.Td>
-                      <Table.Td>{row.republican_trades}</Table.Td>
-                      <Table.Td>
-                        <MemberNamesLinks names={row.member_names} />
-                      </Table.Td>
-                      <Table.Td>{formatDate(row.date_from)}</Table.Td>
-                      <Table.Td>{formatDate(row.date_to)}</Table.Td>
+            {data.bipartisan.length === 0 ? (
+              <Text size="sm" c="dimmed" data-testid="patterns-bipartisan-empty">
+                {COPY.patterns.bipartisanEmpty}
+              </Text>
+            ) : (
+              <Table.ScrollContainer minWidth={800}>
+                <Table striped data-testid="patterns-bipartisan-table">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Ticker</Table.Th>
+                      <Table.Th>Members</Table.Th>
+                      <Table.Th>Dem trades</Table.Th>
+                      <Table.Th>Rep trades</Table.Th>
+                      <Table.Th>Names</Table.Th>
+                      <Table.Th>From</Table.Th>
+                      <Table.Th>To</Table.Th>
                     </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {data.bipartisan.map((row) => (
+                      <Table.Tr key={row.ticker}>
+                        <Table.Td>
+                          <TickerLink ticker={row.ticker} />
+                        </Table.Td>
+                        <Table.Td>{row.members}</Table.Td>
+                        <Table.Td>{row.democrat_trades}</Table.Td>
+                        <Table.Td>{row.republican_trades}</Table.Td>
+                        <Table.Td>
+                          <MemberNamesLinks names={row.member_names} />
+                        </Table.Td>
+                        <Table.Td>{formatDate(row.date_from)}</Table.Td>
+                        <Table.Td>{formatDate(row.date_to)}</Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            )}
           </ChartCard>
         </Stack>
       ) : null}

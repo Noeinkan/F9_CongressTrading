@@ -88,6 +88,7 @@ describe("Patterns route", () => {
     });
     expect(screen.getByTestId("patterns-committee-table")).toBeInTheDocument();
     expect(screen.getByTestId("patterns-coordinated-table")).toBeInTheDocument();
+    expect(screen.getByTestId("patterns-bipartisan-empty")).toBeInTheDocument();
   });
 
   it("refetches when window slider changes", async () => {

@@ -10,9 +10,7 @@ const TYPE_COLORS: Record<string, string> = {
   Unknown: "#64748b",
 };
 
-// Per-member accent palette. Each member gets one hue used to label their row
-// (left swatch, end-of-line value) so the eye can pair the row with the name
-// even when the step line itself is muted.
+// Per-member accent palette — one hue per line on the shared canvas.
 const MEMBER_PALETTE = [
   "#0ea5e9", // sky
   "#f59e0b", // amber
@@ -62,12 +60,6 @@ function formatXDate(value: number): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-function shortName(name: string, max = 26): string {
-  const safe = name ?? "";
-  if (safe.length <= max) return safe;
-  return `${safe.slice(0, max - 1)}…`;
-}
-
 // Pick a "nice" round axis domain that contains [dataMin, dataMax] and snaps
 // to a clean tick interval. The result also covers at least the first
 // round-multiple above dataMax and below dataMin so we get whole-number
@@ -108,15 +100,17 @@ export type CumulativeExposurePerMemberMeta = {
   types: string[];
 };
 
+/** Fixed chart height — single shared canvas, not one panel per member. */
+export const CUMULATIVE_EXPOSURE_CHART_HEIGHT = 480;
+
 export function buildCumulativeExposurePerMemberOption(
   rows: TickerCumulativeExposureRow[],
   members: string[],
 ): Record<string, unknown> | null {
   if (!rows.length || !members.length) return null;
 
-  // Flip member order: place the member with the largest *absolute* net
-  // exposure at the top so the most consequential swimlane is read first.
-  // Tie-break alphabetically for stability across renders.
+  // Largest absolute net first so legend + default visibility emphasize
+  // the most consequential members.
   const memberRank = new Map<string, number>();
   members.forEach((m) => {
     const memberRows = rows.filter((r) => r.member === m);
@@ -130,22 +124,11 @@ export function buildCumulativeExposurePerMemberOption(
     return a.localeCompare(b);
   });
 
-  const n = orderedMembers.length;
-  const panelHeight = 100;
-  // Extra space at the bottom for the x-axis title row.
-  const totalHeight = Math.max(300, n * panelHeight + 56);
-
   const memberColorMap: Record<string, string> = {};
   orderedMembers.forEach((m, i) => {
     memberColorMap[m] = memberColor(i);
   });
 
-  const grids: Record<string, unknown>[] = [];
-  const xAxes: Record<string, unknown>[] = [];
-  const yAxes: Record<string, unknown>[] = [];
-  const series: Record<string, unknown>[] = [];
-
-  // All panels share the same x-domain so the step lines align vertically.
   const firstDate = rows.reduce(
     (acc, r) => (acc == null || r.transaction_date < acc ? r.transaction_date : acc),
     null as string | null,
@@ -155,10 +138,6 @@ export function buildCumulativeExposurePerMemberOption(
     null as string | null,
   );
 
-  // All panels share the same y-domain too — otherwise you can't compare
-  // members at a glance (one person's $5K step looks identical to another's
-  // $50K step because each panel auto-scales). Include floor/ceiling so the
-  // uncertainty band is never clipped.
   const dataMin = rows.reduce(
     (acc, r) => Math.min(acc, r.cumulative_net, r.cumulative_low),
     Number.POSITIVE_INFINITY,
@@ -168,121 +147,44 @@ export function buildCumulativeExposurePerMemberOption(
     Number.NEGATIVE_INFINITY,
   );
   const sharedYDomain = computeSharedDomain(dataMin, dataMax);
-  const sharedYTickInterval = sharedYDomain.interval;
+
+  const series: Record<string, unknown>[] = [];
+
+  // One $0 reference for the whole canvas.
+  series.push({
+    type: "line",
+    name: "__zero__",
+    data: [],
+    silent: true,
+    showSymbol: false,
+    legendHoverLink: false,
+    tooltip: { show: false },
+    markLine: {
+      symbol: "none",
+      silent: true,
+      label: {
+        show: true,
+        position: "insideEndTop",
+        color: "#64748b",
+        fontSize: 11,
+        fontWeight: 600,
+        formatter: "$0",
+      },
+      lineStyle: { color: "#94a3b8", type: "dashed", width: 1.25 },
+      data: [{ yAxis: 0 }],
+    },
+  });
 
   orderedMembers.forEach((member, i) => {
-    const top = `${Math.round((i / n) * 100)}%`;
-    const height = `${Math.round((1 / n) * 100 - 1.5)}%`;
-    const accent = memberColorMap[member];
-    const isFirst = i === 0;
-    const isLast = i === n - 1;
-
-    // Swimlane: tint each lane with the member accent so the row *reads* as
-    // belonging to that member before you even look at the line. Per-side
-    // borders draw a fat accent stripe down the left edge of each lane and a
-    // thin separator between lanes — three independent cues (color, stripe,
-    // divider) that combine into one unmistakable lane identity.
-    const laneFill = i % 2 === 0 ? `${accent}33` : `${accent}1f`;
-    grids.push({
-      // Left padding holds the member-name pill (see yAxis.name below); right
-      // padding holds the trailing end-of-row value label (includes range).
-      left: 200,
-      right: 196,
-      top,
-      height,
-      containLabel: false,
-      backgroundStyle: {
-        color: laneFill,
-        borderColor: [
-          i === 0 ? "transparent" : `${accent}80`, // top — accent divider (no line on first panel; chart edge handles it)
-          "transparent",                            // right
-          i === n - 1 ? "transparent" : `${accent}80`, // bottom — accent divider (skip on last; x-axis line)
-          accent,                                   // left — full-accent stripe, the strongest per-member cue
-        ],
-        borderWidth: [1, 0, 1, 4],
-      },
-    });
-
-    xAxes.push({
-      type: "time",
-      gridIndex: i,
-      show: isLast,
-      min: firstDate ?? undefined,
-      max: lastDate ?? undefined,
-      axisLabel: {
-        fontSize: 11,
-        color: "#475569",
-        hideOverlap: true,
-        formatter: (v: number) => formatXDate(v),
-      },
-      axisLine: { show: isLast, lineStyle: { color: "#cbd5e1" } },
-      axisTick: { show: isLast },
-    });
-
-    // The x-axis *name* only renders on the bottom panel — ECharts attaches
-    // it to whichever axis we configure. Putting `name: "Transaction date"`
-    // on the bottom x-axis answers "what is this axis?" in one glance.
-    if (isLast) {
-      const lastXAxis = xAxes[xAxes.length - 1] as Record<string, unknown>;
-      lastXAxis.name = "Transaction date";
-      lastXAxis.nameLocation = "middle";
-      lastXAxis.nameGap = 28;
-      lastXAxis.nameTextStyle = {
-        color: "#0f172a",
-        fontSize: 12,
-        fontWeight: 600,
-        padding: [8, 0, 0, 0],
-      };
-    }
-
-    yAxes.push({
-      type: "value",
-      gridIndex: i,
-      name: shortName(member, 22),
-      // Render the lane label as a horizontal pill anchored just left of the
-      // y-axis tick labels, not a rotated 90° strip. We reserve enough space
-      // in `grid.left` so the pill never overflows the chart canvas, force
-      // the text to render horizontally via `nameRotate: 0`, and right-align
-      // so the pill hugs the tick-label area on its right edge.
-      nameLocation: "middle",
-      nameGap: 24,
-      nameRotate: 0,
-      nameTextStyle: {
-        color: accent,
-        fontSize: 11,
-        fontWeight: 600,
-        align: "right",
-        verticalAlign: "middle",
-        backgroundColor: `${accent}26`,
-        borderColor: `${accent}88`,
-        borderWidth: 1,
-        borderRadius: 4,
-        padding: [4, 10, 4, 8],
-      },
-      min: sharedYDomain.min,
-      max: sharedYDomain.max,
-      interval: sharedYTickInterval,
-      axisLabel: {
-        fontSize: 10,
-        color: "#64748b",
-        formatter: (v: number) => compactCurrency(v),
-        hideOverlap: true,
-      },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      splitLine: {
-        show: true,
-        lineStyle: { color: "#ffffff", type: "solid" },
-      },
-    });
-
+    const accent = memberColorMap[member]!;
     const memberRows = rows
       .filter((r) => r.member === member)
       .sort((a, b) => (a.transaction_date < b.transaction_date ? -1 : 1));
     const lineData = memberRows.map((r) => [r.transaction_date, r.cumulative_net]);
+    const last = memberRows[memberRows.length - 1];
 
-    // Uncertainty band: stacked stepped areas from cumulative_low up to
-    // cumulative_high (ECharts confidence-band pattern — base + difference).
+    // Uncertainty band: stacked stepped areas. Same `name` as the median
+    // line so legend clicks hide/show the whole member (band + line + dots).
     const hasBand = memberRows.some((r) => hasWideRange(r.cumulative_low, r.cumulative_high));
     if (hasBand) {
       const lowData = memberRows.map((r) => [r.transaction_date, r.cumulative_low]);
@@ -291,11 +193,9 @@ export function buildCumulativeExposurePerMemberOption(
         Math.max(0, r.cumulative_high - r.cumulative_low),
       ]);
       series.push({
-        name: `${member} · band-base`,
+        name: member,
         type: "line",
         step: "end",
-        xAxisIndex: i,
-        yAxisIndex: i,
         data: lowData,
         showSymbol: false,
         symbol: "none",
@@ -304,46 +204,60 @@ export function buildCumulativeExposurePerMemberOption(
         stack: `band-${i}`,
         silent: true,
         tooltip: { show: false },
+        legendHoverLink: false,
         z: 1,
         animationDuration: 250,
       });
       series.push({
-        name: `${member} · band`,
+        name: member,
         type: "line",
         step: "end",
-        xAxisIndex: i,
-        yAxisIndex: i,
         data: bandHeight,
         showSymbol: false,
         symbol: "none",
         lineStyle: { opacity: 0, width: 0 },
-        areaStyle: { color: `${accent}55` },
+        areaStyle: { color: `${accent}40` },
         stack: `band-${i}`,
         silent: true,
         tooltip: { show: false },
+        legendHoverLink: false,
         z: 1,
         animationDuration: 250,
       });
     }
 
-    // Stepped cumulative median line, muted but tinted with the member accent.
+    // Stepped cumulative median — primary series (drives legend color).
     series.push({
       name: member,
       type: "line",
       step: "end",
-      xAxisIndex: i,
-      yAxisIndex: i,
       data: lineData,
       showSymbol: false,
-      lineStyle: { color: accent, width: 1.75, opacity: 0.85 },
+      lineStyle: { color: accent, width: 2.25, opacity: 0.95 },
+      itemStyle: { color: accent },
       z: 2,
       animationDuration: 250,
+      emphasis: { focus: "series", lineStyle: { width: 3.5 } },
+      endLabel: last
+        ? {
+            show: true,
+            formatter: () => last.cumulative_label ?? compactCurrency(last.cumulative_net),
+            color: accent,
+            fontSize: 12,
+            fontWeight: 700,
+            backgroundColor: "rgba(255,255,255,0.96)",
+            borderColor: accent,
+            borderWidth: 1.5,
+            borderRadius: 4,
+            padding: [4, 8],
+            distance: 10,
+          }
+        : undefined,
     });
 
-    // Per-transaction markers: bigger, white-bordered, colored by txn type.
-    // This is the main "step up = buy, step down = sell" visual cue.
+    // Per-transaction markers colored by txn type.
     if (memberRows.length) {
-      const markerData = memberRows.map((r, idx) => ({
+      const markerData = memberRows.map((r) => ({
         name: r.txn_type_label ?? "Trade",
         value: [r.transaction_date, r.cumulative_net],
         cumulative_low: r.cumulative_low,
@@ -353,103 +267,99 @@ export function buildCumulativeExposurePerMemberOption(
           borderColor: "#ffffff",
           borderWidth: 1.5,
         },
-        // The very first marker for each member is hollow — anchors the start
-        // of the line and matches the dashed "$0 start" framing.
-        symbol:
-          idx === 0 && memberRows.length > 1
-            ? "circle"
-            : memberRows.length > 1
-              ? "circle"
-              : "circle",
-        symbolSize: idx === 0 ? 7 : 6,
+        symbol: "circle",
+        symbolSize: 7,
       }));
       series.push({
-        name: `${member} · trades`,
+        name: member,
         type: "scatter",
-        xAxisIndex: i,
-        yAxisIndex: i,
         data: markerData,
         symbolSize: 7,
         z: 3,
         itemStyle: { borderColor: "#ffffff", borderWidth: 1.5 },
-        emphasis: { scale: 1.4 },
-        tooltip: {
-          // Per-marker tooltip is configured at series level (axis trigger
-          // would be confusing with stacked panels).
-          show: true,
-        },
+        emphasis: { scale: 1.4, focus: "series" },
+        legendHoverLink: false,
+        tooltip: { show: true },
       });
     }
-
-    const last = memberRows[memberRows.length - 1];
-    if (last) {
-      // End-of-row value pill: colored dot + compact net label.
-      series.push({
-        type: "scatter",
-        xAxisIndex: i,
-        yAxisIndex: i,
-        data: [[last.transaction_date, last.cumulative_net]],
-        symbolSize: 1,
-        z: 4,
-        label: {
-          show: true,
-          formatter: () =>
-            `{dot|${""}}{label| ${last.cumulative_label ?? compactCurrency(last.cumulative_net)} }`,
-          position: "right",
-          distance: 8,
-          rich: {
-            dot: {
-              color: accent,
-              fontSize: 10,
-              padding: [0, 2, 0, 0],
-            },
-            label: {
-              color: "#0f172a",
-              fontSize: 11,
-              fontWeight: 600,
-              backgroundColor: "rgba(255,255,255,0.85)",
-              borderColor: "#e2e8f0",
-              borderWidth: 1,
-              borderRadius: 3,
-              padding: [2, 6, 2, 4],
-            },
-          },
-        },
-        itemStyle: { color: "transparent" },
-      });
-    }
-
-    // Dashed $0 reference line on every panel — "buys and sells balance
-    // out so far" is meaningless without the visual anchor.
-    series.push({
-      type: "line",
-      xAxisIndex: i,
-      yAxisIndex: i,
-      markLine: {
-        symbol: "none",
-        silent: true,
-        label: {
-          show: isFirst, // label only on top panel to avoid clutter
-          position: "insideEndTop",
-          color: "#94a3b8",
-          fontSize: 10,
-          formatter: "$0",
-        },
-        lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-        data: [{ yAxis: 0 }],
-      },
-    });
   });
 
-  // Panel dividers are drawn per-grid via backgroundStyle borderColor
-  // (1px top + bottom accent line and a 4px left accent stripe). The lane
-  // tint + accent stripes + colored y-axis pill combine into one unmistakable
-  // per-member identity without any extra shapes per panel.
+  // Legend room scales with member count (scrollable row(s) at top).
+  const legendRows = Math.min(3, Math.ceil(orderedMembers.length / 6));
+  const legendTopPad = 8 + legendRows * 22;
 
   return {
-    grid: grids,
-    xAxis: xAxes,
-    yAxis: yAxes,
+    grid: {
+      left: 64,
+      right: 168,
+      top: legendTopPad + 8,
+      bottom: 52,
+      containLabel: false,
+    },
+    legend: {
+      type: "scroll",
+      orient: "horizontal",
+      top: 4,
+      left: 8,
+      right: 8,
+      itemWidth: 14,
+      itemHeight: 10,
+      itemGap: 14,
+      selectedMode: true,
+      textStyle: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#0f172a",
+      },
+      pageIconColor: "#334155",
+      pageTextStyle: { color: "#64748b", fontSize: 11 },
+      data: orderedMembers.map((m) => ({
+        name: m,
+        itemStyle: { color: memberColorMap[m] },
+      })),
+    },
+    xAxis: {
+      type: "time",
+      min: firstDate ?? undefined,
+      max: lastDate ?? undefined,
+      name: "Transaction date",
+      nameLocation: "middle",
+      nameGap: 28,
+      nameTextStyle: {
+        color: "#0f172a",
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      axisLabel: {
+        fontSize: 12,
+        color: "#334155",
+        fontWeight: 500,
+        hideOverlap: true,
+        formatter: (v: number) => formatXDate(v),
+      },
+      axisLine: { lineStyle: { color: "#94a3b8" } },
+      axisTick: { show: true },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      min: sharedYDomain.min,
+      max: sharedYDomain.max,
+      interval: sharedYDomain.interval,
+      axisLabel: {
+        fontSize: 12,
+        color: "#0f172a",
+        fontWeight: 600,
+        formatter: (v: number) => compactCurrency(v),
+        hideOverlap: true,
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: {
+        show: true,
+        lineStyle: { color: "#e2e8f0", type: "solid" },
+      },
+    },
     series,
     tooltip: {
       trigger: "item",
@@ -476,7 +386,8 @@ export function buildCumulativeExposurePerMemberOption(
         const net = Array.isArray(params.value)
           ? params.value[1]
           : (params.data?.value?.[1] ?? 0);
-        const member = (params.seriesName ?? "").replace(/ · trades$/, "");
+        const member = params.seriesName ?? "";
+        if (member === "__zero__") return "";
         const type = params.data?.name ?? "";
         const typeColor = TYPE_COLORS[type] ?? "#94a3b8";
         const lo = params.data?.cumulative_low;
@@ -485,18 +396,22 @@ export function buildCumulativeExposurePerMemberOption(
           typeof lo === "number" && typeof hi === "number" && hasWideRange(lo, hi)
             ? `~${compactCurrency(net)} median<br/><span style="opacity:0.85;font-weight:400;">range ${compactCurrency(lo)} – ${compactCurrency(hi)}</span>`
             : `${compactCurrency(net)} net`;
+        const typeBlock = type
+          ? `<div style="display:flex;align-items:center;gap:6px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${typeColor};"></span>
+            <span>${type}</span>
+          </div>`
+          : "";
         return `
           <div style="font-weight:600;margin-bottom:2px;">${member}</div>
           <div style="opacity:0.8;font-size:11px;margin-bottom:4px;">${date}</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${typeColor};"></span>
-            <span>${type}</span>
-          </div>
+          ${typeBlock}
           <div style="margin-top:4px;font-weight:600;">${netLine}</div>
         `;
       },
     },
-    height: totalHeight,
+    // Hide overlapping end labels when many members share an endpoint.
+    labelLayout: { hideOverlap: true },
     animationDuration: 400,
   };
 }

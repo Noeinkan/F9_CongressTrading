@@ -200,6 +200,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Svuota asset_resolution_cache prima del ricalcolo. Di solito non serve: le voci fallite (ticker vuoto, source none/skipped) vengono ri-interrogate automaticamente.",
     )
 
+    emp = sub.add_parser(
+        "enrich-member-parties",
+        help=(
+            "Riempie members.party da data/legislators_parties.json "
+            "(unitedstates/congress-legislators). Serve per bipartisan trades e filtri party."
+        ),
+    )
+    emp.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Riscarica legislators-current/historical YAML e riscrive data/legislators_parties.json.",
+    )
+    emp.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Sovrascrive anche party già valorizzati (default: solo celle vuote).",
+    )
+
     return parser
 
 
@@ -457,6 +475,19 @@ def main() -> None:
         processed = re_resolve_all_transaction_tickers(conn)
         print(f"Processed {processed:,} transactions.")
         conn.close()
+    elif args.command == "enrich-member-parties":
+        from .member_parties import enrich_member_parties
+
+        stats = enrich_member_parties(
+            refresh=bool(getattr(args, "refresh", False)),
+            overwrite=bool(getattr(args, "overwrite", False)),
+        )
+        print(
+            "enrich-member-parties: "
+            f"legislators={stats['legislators']:,} total_members={stats['total']:,} "
+            f"matched={stats['matched']:,} updated={stats['updated']:,} "
+            f"unmatched={stats['unmatched']:,} skipped={stats['skipped']:,}."
+        )
 
 
 if __name__ == "__main__":

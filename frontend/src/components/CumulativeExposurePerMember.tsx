@@ -1,4 +1,4 @@
-import { Alert, Box, Group, Stack, Text } from "@mantine/core";
+import { Alert, Box, Group, Text } from "@mantine/core";
 import { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 import { useNavigate } from "react-router-dom";
@@ -6,9 +6,9 @@ import { useNavigate } from "react-router-dom";
 import type { TickerCumulativeExposureRow } from "@/api/types";
 import {
   buildCumulativeExposurePerMemberOption,
+  CUMULATIVE_EXPOSURE_CHART_HEIGHT,
   getCumulativeExposurePerMemberMeta,
 } from "@/charts/cumulativeExposurePerMember";
-import { MemberLink } from "@/components/MemberLink";
 import { COPY } from "@/copy";
 import { hrefFromChartClick } from "@/utils/entityLinks";
 
@@ -25,11 +25,9 @@ export function CumulativeExposurePerMember({
   truncated,
 }: CumulativeExposurePerMemberProps) {
   const navigate = useNavigate();
-  // Same ordering as the chart (largest absolute net first) so the legend
-  // matches the swimlanes top-to-bottom.
+  // Same ordering as the chart (largest absolute net first) so the
+  // trade-type key sits above a legend that matches series priority.
   const orderedMembers = useMemo(() => {
-    // Last-seen net per member (rows arrive chronologically, so the final
-    // write is the member's current net).
     const lastNetByMember = new Map<string, number>();
     rows.forEach((r) => {
       lastNetByMember.set(r.member, r.cumulative_net);
@@ -47,21 +45,25 @@ export function CumulativeExposurePerMember({
 
   return (
     <div data-testid="cumulative-exposure-per-member">
-      <Alert color="orange" variant="light" mb="sm" data-testid="cumulative-guide">
-        <strong>{COPY.tickers.cumulativeGuideTitle}</strong> — {COPY.tickers.cumulativeGuideLines}
-        <br />
-        <span style={{ fontSize: "0.85em" }}>{COPY.tickers.cumulativeGuideNote}</span>
+      <Alert color="orange" variant="light" mb="sm" data-testid="cumulative-guide" py={8}>
+        <Text size="xs">
+          <strong>{COPY.tickers.cumulativeGuideTitle}</strong> — {COPY.tickers.cumulativeGuideLines}
+        </Text>
+        <Text size="xs" c="dimmed" mt={4}>
+          {COPY.tickers.cumulativeGuideNote}
+        </Text>
       </Alert>
       {truncated ? (
-        <Alert color="gray" variant="light" mb="sm">
+        <Alert color="gray" variant="light" mb="sm" py={6}>
           Showing top {members.length} members by trade count.
         </Alert>
       ) : null}
 
       {meta.types.length ? (
         <Box
-          mb="sm"
-          p="xs"
+          mb="xs"
+          px="xs"
+          py={6}
           style={{
             background: "#f8fafc",
             border: "1px solid #e2e8f0",
@@ -70,7 +72,7 @@ export function CumulativeExposurePerMember({
           data-testid="cumulative-legend"
         >
           <Group gap="md" wrap="wrap" align="center">
-            <Text size="xs" fw={600} c="dark.5">
+            <Text size="xs" fw={700} c="dark.6">
               Trades
             </Text>
             <Group gap="sm" wrap="wrap">
@@ -88,51 +90,25 @@ export function CumulativeExposurePerMember({
                       boxShadow: "0 0 0 1px rgba(15,23,42,0.08)",
                     }}
                   />
-                  <Text size="xs" c="dark.4">
+                  <Text size="xs" fw={500} c="dark.5">
                     {type}
                   </Text>
                 </Group>
               ))}
             </Group>
-            <Text size="xs" fw={600} c="dark.5" ml="md">
-              Members
+            <Text size="xs" c="dimmed" ml="sm">
+              Click a member in the chart legend to hide or show their line.
             </Text>
-            <Group gap="sm" wrap="wrap">
-              {meta.members.map((m, i) => (
-                <Group gap={6} key={m} wrap="nowrap">
-                  <span
-                    aria-hidden
-                    style={{
-                      display: "inline-block",
-                      width: 10,
-                      height: 10,
-                      borderRadius: 2,
-                      background: meta.memberColors[i] ?? "#94a3b8",
-                    }}
-                  />
-                  <MemberLink name={m} size="xs" />
-                </Group>
-              ))}
-            </Group>
           </Group>
         </Box>
       ) : null}
 
-      <Stack gap={2} mb="xs">
-        <Text size="xs" c="dimmed">
-          Each tinted swimlane (colored left stripe + matching name pill) is
-          one member, ordered by absolute median net (largest at the top). The
-          shaded region is the cumulative floor–ceiling from disclosure
-          ranges; the step line is the median. Step up = buy, step down =
-          sell, flat = no new trades. The dashed line marks $0; y-ticks are
-          in disclosed dollars.
-        </Text>
-      </Stack>
-
       {option ? (
         <ReactECharts
           option={option}
-          style={{ height: Math.max(360, members.length * 100 + 56), width: "100%" }}
+          notMerge
+          lazyUpdate
+          style={{ height: CUMULATIVE_EXPOSURE_CHART_HEIGHT, width: "100%" }}
           opts={{ renderer: "svg" }}
           onEvents={{
             click: (params: {

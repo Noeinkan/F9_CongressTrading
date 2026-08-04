@@ -47,6 +47,17 @@ describe("entityLinks", () => {
         "member",
       ),
     ).toBe(`/members?member=${encodeURIComponent("Hon. Bob")}`);
+    expect(
+      hrefFromChartClick(
+        {
+          componentType: "series",
+          name: "Buy",
+          seriesName: "Hon. Alice",
+          value: ["2024-01-01", 8000],
+        },
+        "member",
+      ),
+    ).toBe(`/members?member=${encodeURIComponent("Hon. Alice")}`);
     expect(hrefFromChartClick({ componentType: "series" }, "member")).toBeNull();
   });
 });

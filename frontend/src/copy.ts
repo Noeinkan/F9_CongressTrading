@@ -43,9 +43,9 @@ export const COPY = {
     cumulativeExposure: "Net disclosed dollars over time",
     cumulativeGuideTitle: "How to read this chart",
     cumulativeGuideLines:
-      "Colored step line = median net per member · Shaded band = cumulative floor–ceiling from disclosure ranges · Step up = buy · Step down = sell · Flat = no new trades · Dashed $0 line = buys and sells balance out so far",
+      "One shared scale · each colored step line is a member · shaded band = disclosure floor–ceiling · step up = buy · step down = sell · click the legend to hide/show members",
     cumulativeGuideNote:
-      "Congress filings report dollar ranges (e.g. $1k–$15k), not exact amounts or shares. The line is the midpoint estimate; the band shows how wide that range can be. This is a rough activity proxy, not portfolio value or current holdings.",
+      "Filings report dollar ranges, not exact amounts. The line is the midpoint estimate; the band is how wide that range can be — a rough activity proxy, not holdings.",
     noPolygon: "No Polygon cache data for this ticker — run python -m src.main warm-polygon-price-cache",
   },
   patterns: {
@@ -60,5 +60,7 @@ export const COPY = {
     volumeSpikes: "Disclosure spikes",
     volumeCaption: "≥3 recent disclosures AND recent_per_month ≥ 2× prior_per_month",
     bipartisan: "Bipartisan trades",
+    bipartisanEmpty:
+      "No bipartisan ticker overlap in this window. Try a longer lookback window, or run enrich-member-parties if party data is missing.",
   },
 } as const;

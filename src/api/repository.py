@@ -309,6 +309,36 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     data["member"] = data["member"].fillna("Unknown")
     data["party"] = data["party"].fillna("")
     data["state"] = data["state"].fillna("")
+    # Overlay blank party from vendors legislators map so Patterns bipartisan
+    # (and party filters) work even before / without a DB backfill.
+    blank_party = data["party"].astype(str).str.strip() == ""
+    if blank_party.any():
+        from ..member_parties import get_party_lookup, resolve_party_for_row
+
+        lookup = get_party_lookup()
+        chamber_col = data["chamber"] if "chamber" in data.columns else ""
+        state_col = data["state"]
+        filled = [
+            resolve_party_for_row(
+                str(member),
+                chamber=str(chamber) if chamber is not None else "",
+                state=str(state) if state is not None else "",
+                lookup=lookup,
+            )
+            if is_blank
+            else ""
+            for member, chamber, state, is_blank in zip(
+                data["member"],
+                chamber_col if isinstance(chamber_col, pd.Series) else [""] * len(data),
+                state_col,
+                blank_party,
+                strict=True,
+            )
+        ]
+        if any(filled):
+            party_series = data["party"].astype(str)
+            overlay = pd.Series(filled, index=data.index)
+            data["party"] = party_series.where(~blank_party | (overlay == ""), overlay)
     data["issuer_name"] = data["issuer_name"].fillna("")
     data["sector"] = data["sector"].fillna("").astype(str).str.strip()
     data["industry"] = data["industry"].fillna("").astype(str).str.strip()
