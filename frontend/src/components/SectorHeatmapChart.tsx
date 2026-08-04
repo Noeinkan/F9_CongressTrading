@@ -1,9 +1,9 @@
-import ReactECharts from "echarts-for-react";
-
 import {
   buildSectorHeatmapOption,
   type SectorMonthlyRow,
 } from "@/charts/sectorHeatmap";
+
+import { EChartsChart } from "./EChartsChart";
 
 type SectorHeatmapChartProps = {
   rows: SectorMonthlyRow[];
@@ -16,12 +16,10 @@ export function SectorHeatmapChart({ rows, testId }: SectorHeatmapChartProps) {
   const { chartHeight, ...echartsOption } = option;
   const height = typeof chartHeight === "number" ? chartHeight : 280;
   return (
-    <div data-testid={testId ?? "sector-heatmap-chart"}>
-      <ReactECharts
-        option={echartsOption}
-        style={{ height, width: "100%" }}
-        opts={{ renderer: "svg" }}
-      />
-    </div>
+    <EChartsChart
+      option={echartsOption}
+      height={height}
+      testId={testId ?? "sector-heatmap-chart"}
+    />
   );
 }

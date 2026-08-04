@@ -54,13 +54,105 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `package.json` | npm scripts (`dev`, `build`, `test`, `typecheck`, `lint`) |
 | `vite.config.ts` | Vite dev server, `/api` proxy → `127.0.0.1:9001` (reads `API_SERVER_PORT`), Vitest |
 | `src/main.tsx` | MantineProvider + QueryClientProvider + RouterProvider |
-| `src/App.tsx` | React Router config (login + 6 pages) |
-| `src/api/` | `client.ts` (fetch + credentials), `types.ts`, TanStack Query hooks per resource |
-| `src/utils/` | `format.ts` (date/currency formatters), `transactions.ts` (sorting + display helpers for Home table) |
-| `src/charts/` | Pure ECharts option builders |
-| `src/components/` | AppShell, SidebarLayout, TopBar, ChartCard, FilterContext, etc. |
-| `src/routes/` | One file per dashboard page |
+| `src/App.tsx` | React Router config (login + dashboard pages) |
+| `src/copy.ts` | Page copy strings |
+| `src/styles/` | Global CSS |
 | `__tests__/` | Vitest unit tests |
+
+### `frontend/src/api/`
+
+| File | Responsibility |
+|------|---------------|
+| `client.ts` | `fetch` wrapper (`credentials: "include"`) |
+| `types.ts` | Shared API response types |
+| `params.ts` | URL query builders for period/lookback filters |
+| `queryClient.ts` | TanStack Query client |
+| `auth.ts` | Login / session / logout hooks |
+| `health.ts` | Health probe |
+| `home.ts` | Home page query hooks |
+| `raw.ts` | Raw transactions table hooks |
+| `review.ts` | Review queue hooks |
+| `patterns.ts` | Patterns page hooks |
+| `members.ts` | Members page hooks |
+| `tickers.ts` | Tickers leaderboard / list hooks |
+| `tickerDrilldown.ts` | Ticker profile / price / exposure hooks |
+| `executive.ts` | Executive (OGE) page hooks |
+| `refresh.ts` | Data refresh status / trigger hooks |
+
+### `frontend/src/utils/`
+
+| File | Responsibility |
+|------|---------------|
+| `format.ts` | Date / currency / number formatters |
+| `transactions.ts` | Sorting + display helpers for transaction tables |
+| `entityLinks.ts` | Member/ticker hrefs + chart-click → navigate helpers |
+
+### `frontend/src/charts/` — pure ECharts option builders
+
+| File | Paired component |
+|------|------------------|
+| `barChart.ts` | `BarChart` |
+| `rankBars.ts` | `RankBars` |
+| `monthlyActivity.ts` | `MonthlyActivityChart` |
+| `netTrade.ts` | `NetTradeChart` |
+| `miniSparkline.ts` | `MiniSparkline` |
+| `priceOverlay.ts` | `PriceOverlayChart` |
+| `tickerTimeline.ts` | `TickerTimeline` |
+| `callPutArea.ts` | `CallPutAreaChart` |
+| `callPutRatio.ts` | `CallPutRatioChart` |
+| `sectorHeatmap.ts` | `SectorHeatmapChart` |
+| `cumulativeExposurePerMember.ts` | `CumulativeExposurePerMember` |
+
+### `frontend/src/components/`
+
+| File | Responsibility |
+|------|---------------|
+| `EChartsChart.tsx` | Shared SVG ECharts shell (`option`, `height`, `testId`, `onEvents`) — use for all charts |
+| `ChartCard.tsx` | Titled card wrapper (optional collapse / caption) |
+| `PageState.tsx` | Loading / error / empty / ready gate for pages |
+| `SectionIntro.tsx` | Page kicker + title + copy |
+| `KpiTile.tsx` | KPI tile (optional detail, sparkline, delta) |
+| `MiniSparkline.tsx` | Tiny sparkline via `EChartsChart` |
+| `BarChart.tsx` | Horizontal bar chart |
+| `RankBars.tsx` | Ranked bars with optional entity click links |
+| `MonthlyActivityChart.tsx` | Buy/sell/other monthly stacked bars |
+| `NetTradeChart.tsx` | Net trade bars (ticker links) |
+| `PriceOverlayChart.tsx` | Price series + trade markers |
+| `TickerTimeline.tsx` | Scatter timeline (member or ticker axis) |
+| `CallPutAreaChart.tsx` | Call/put stacked area |
+| `CallPutRatioChart.tsx` | Call/put ratio line |
+| `SectorHeatmapChart.tsx` | Sector × month heatmap |
+| `CumulativeExposurePerMember.tsx` | Per-member cumulative exposure + legend |
+| `MembersLeaderboardTable.tsx` | Members leaderboard table |
+| `MemberLink.tsx` / `TickerLink.tsx` | In-app entity links |
+| `MemberNamesLinks.tsx` | Comma-separated member links |
+| `DirectionBadge.tsx` | Buy/sell/other badge |
+| `PillStrip.tsx` | Horizontal filter/selection pills |
+| `AmountRangeFilter.tsx` | Amount low/high filter control |
+| `FilterContext.tsx` | Shared period/lookback slice for pages |
+| `SidebarLayout.tsx` | Authenticated shell (TopBar + sidebar) |
+| `SidebarFilters.tsx` | Lookback / quarters sidebar |
+| `TopBar.tsx` | Nav + user menu |
+| `UserMenu.tsx` | Account / logout |
+| `DonateButton.tsx` | Ko-fi donate link |
+| `RequireAuth.tsx` | Session gate |
+| `ErrorBoundary.tsx` | React error boundary |
+| `RefreshProgressPanel.tsx` / `RefreshLogPanel.tsx` | Refresh UI |
+| `PageStub.tsx` | Placeholder page |
+
+### `frontend/src/routes/`
+
+| File | Responsibility |
+|------|---------------|
+| `Login.tsx` | Auth form |
+| `Home.tsx` | Overview KPIs, activity, leaderboards |
+| `Raw.tsx` | Filterable raw transactions table |
+| `Review.tsx` | Review queue |
+| `Members.tsx` | Member drilldown |
+| `Tickers.tsx` | Ticker leaderboard + drilldown |
+| `Patterns.tsx` | Pattern detection views |
+| `Executive.tsx` | OGE Executive (278-T / 278e) |
+| `NotFound.tsx` | 404 |
 
 ## Tests (`tests/`)
 

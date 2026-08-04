@@ -466,7 +466,6 @@ export function Home() {
           >
             <MembersLeaderboardTable
               rows={data.members_leaderboard}
-              linkMembers
               testId="home-leaderboard-table"
             />
           </ChartCard>

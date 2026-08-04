@@ -1,9 +1,10 @@
-import ReactECharts from "echarts-for-react";
 import { useNavigate } from "react-router-dom";
 
 import type { TickerTimelineRow } from "@/api/types";
 import { buildTickerTimelineOption, type TimelineChartOptions } from "@/charts/tickerTimeline";
 import { hrefFromChartClick } from "@/utils/entityLinks";
+
+import { EChartsChart } from "./EChartsChart";
 
 type TickerTimelineProps = {
   rows: TickerTimelineRow[];
@@ -22,24 +23,26 @@ export function TickerTimeline({ rows, yField, yOrder, testId }: TickerTimelineP
   // cannot leave a prior page's y-axis categories (e.g. members vs tickers).
   const chartKey = `${yField ?? "member"}:${(yOrder ?? []).join("|")}:${rows.length}`;
   return (
-    <ReactECharts
+    <EChartsChart
       key={chartKey}
       option={option}
+      height={height}
       notMerge
-      style={{ height, width: "100%" }}
-      opts={{ renderer: "svg" }}
+      testId={testId ?? "ticker-timeline-chart"}
       onEvents={{
-        click: (params: {
-          componentType?: string;
-          name?: string;
-          value?: unknown;
-          seriesName?: string;
-        }) => {
-          const href = hrefFromChartClick(params, linkKind);
+        click: (params: unknown) => {
+          const href = hrefFromChartClick(
+            params as {
+              componentType?: string;
+              name?: string;
+              value?: unknown;
+              seriesName?: string;
+            },
+            linkKind,
+          );
           if (href) navigate(href);
         },
       }}
-      data-testid={testId ?? "ticker-timeline-chart"}
     />
   );
 }

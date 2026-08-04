@@ -24,8 +24,7 @@ import type { MemberActivityRow, TickerTimelineRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
 import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
-import { KpiTileSimple } from "@/components/KpiTileSimple";
-import { MembersLeaderboardTable } from "@/components/MembersLeaderboardTable";
+import { KpiTile } from "@/components/KpiTile";
 import { PageState } from "@/components/PageState";
 import { RankBars } from "@/components/RankBars";
 import { SectionIntro } from "@/components/SectionIntro";
@@ -116,7 +115,7 @@ export function Members() {
   const activityData = useMemberActivityTimeline(selectedMember || null, periodParams);
 
   // Deep-link (`?member=`) should paint immediately; only block on the
-  // summary leaderboard when we still need it to browse.
+  // summary member list when we still need it to browse.
   const deepLinked = selectedMember.length > 0;
   const pageLoading = deepLinked ? false : isLoading;
   const pageError = deepLinked ? false : isError;
@@ -189,26 +188,6 @@ export function Members() {
             title={COPY.members.title}
             copy={COPY.members.copy}
           />
-
-          <ChartCard
-            collapsible
-            title={COPY.members.browse}
-            caption="Full per-filer ranking for the active period slice. Click a row to open the profile below."
-            testId="members-browse"
-          >
-            {isLoading && !data ? (
-              <Group justify="center" py="md">
-                <Loader size="sm" />
-              </Group>
-            ) : (
-              <MembersLeaderboardTable
-                rows={data?.leaderboard ?? []}
-                selectedMember={selectedMember || undefined}
-                onSelect={setMember}
-                testId="members-leaderboard-table"
-              />
-            )}
-          </ChartCard>
 
           <Stack gap={6}>
             <Group justify="space-between" align="baseline" gap="xs">
@@ -283,7 +262,7 @@ export function Members() {
               />
 
               <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "trades",
                     label: "Trades",
@@ -291,7 +270,7 @@ export function Members() {
                     sparkline: kpis.sparklines.transactions,
                   }}
                 />
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "tickers",
                     label: "Tickers",
@@ -299,7 +278,7 @@ export function Members() {
                     sparkline: kpis.sparklines.tickers,
                   }}
                 />
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "range",
                     label: "Disclosed range",
@@ -307,7 +286,7 @@ export function Members() {
                     sparkline: kpis.sparklines.disclosed_amount_high,
                   }}
                 />
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "meta",
                     label: "Chamber / party",

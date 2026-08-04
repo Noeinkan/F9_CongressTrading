@@ -1,7 +1,7 @@
-import ReactECharts from "echarts-for-react";
-
 import type { PriceBar, PriceTrade } from "@/charts/priceOverlay";
 import { buildPriceOverlayOption } from "@/charts/priceOverlay";
+
+import { EChartsChart } from "./EChartsChart";
 
 type PriceOverlayChartProps = {
   bars: PriceBar[];
@@ -10,11 +10,11 @@ type PriceOverlayChartProps = {
 };
 
 export function PriceOverlayChart({ bars, trades, testId }: PriceOverlayChartProps) {
-  const option = buildPriceOverlayOption(bars, trades);
-  if (!option) return null;
   return (
-    <div data-testid={testId ?? "price-overlay-chart"}>
-      <ReactECharts option={option} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-    </div>
+    <EChartsChart
+      option={buildPriceOverlayOption(bars, trades)}
+      height={360}
+      testId={testId ?? "price-overlay-chart"}
+    />
   );
 }

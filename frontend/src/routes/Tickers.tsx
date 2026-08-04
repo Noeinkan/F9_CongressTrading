@@ -30,7 +30,7 @@ import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerMember";
 import { DirectionBadge } from "@/components/DirectionBadge";
 import { useFilters } from "@/components/FilterContext";
-import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { KpiTile } from "@/components/KpiTile";
 import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { PillStrip } from "@/components/PillStrip";
@@ -328,16 +328,16 @@ export function Tickers() {
 
             {kpis ? (
               <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-                <KpiTileSimple kpi={{ key: "trades", label: "Trades", value: kpis.trades }} />
-                <KpiTileSimple kpi={{ key: "members", label: "Members", value: kpis.members }} />
-                <KpiTileSimple
+                <KpiTile kpi={{ key: "trades", label: "Trades", value: kpis.trades }} />
+                <KpiTile kpi={{ key: "members", label: "Members", value: kpis.members }} />
+                <KpiTile
                   kpi={{
                     key: "buy_sell",
                     label: "Buy / sell",
                     value: `${kpis.buy} / ${kpis.sell}`,
                   }}
                 />
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "range",
                     label: "Disclosed range",
@@ -349,7 +349,7 @@ export function Tickers() {
 
             {kpis ? (
               <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-                <KpiTileSimple
+                <KpiTile
                   kpi={{
                     key: "weighted_return",
                     label: "Return (since trade)",

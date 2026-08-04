@@ -53,8 +53,8 @@ When `APP_PASSWORD` is set, the login page posts to `/api/login`. The signed htt
 ```
 src/
   api/          fetch client, types, TanStack Query hooks, URL param builders (params.ts)
-  charts/       pure ECharts option builders
-  components/   SidebarLayout, TopBar, UserMenu, ChartCard, shared UI
+  charts/       pure ECharts option builders (paired with thin components)
+  components/   shared UI: EChartsChart, ChartCard, PageState, SectionIntro, KpiTile, links, shell
   routes/       one file per dashboard page (Home, Executive, Raw, Review, Members, Tickers, Patterns)
   copy.ts       page copy strings
   styles/       global CSS
@@ -62,11 +62,14 @@ src/
 
 Layout shell: `SidebarLayout` wraps authenticated routes with `TopBar` + collapsible `SidebarFilters` (lookback/quarters). `RequireAuth` guards the layout; `FilterContext` holds the period slice shared by all pages.
 
+File-by-file map: see **PROJECT_INDEX.md** (`frontend/` section) instead of grepping.
+
 ## Adding a new page
 
 1. Add or extend FastAPI routes under `src/api/routers/` (no Streamlit imports).
 2. Add response types in `frontend/src/api/types.ts` and a hook in `frontend/src/api/`.
 3. Add URL builders in `frontend/src/api/params.ts` if the route takes query params.
-4. Implement the route in `frontend/src/routes/` using `PageState`, `SectionIntro`, `ChartCard`, and existing chart/table patterns from Home/Raw.
-5. Register the route in `frontend/src/App.tsx`.
-6. Add a route test under `frontend/__tests__/routes/` (mock hooks, assert `data-testid`s).
+4. Implement the route in `frontend/src/routes/` using `PageState`, `SectionIntro`, `ChartCard`, and `KpiTile`.
+5. New chart: add a pure builder under `frontend/src/charts/`, then a thin component that renders via `EChartsChart` (SVG renderer, shared height/testId/onEvents props).
+6. Register the route in `frontend/src/App.tsx`.
+7. Add a route test under `frontend/__tests__/routes/` (mock hooks, assert `data-testid`s).

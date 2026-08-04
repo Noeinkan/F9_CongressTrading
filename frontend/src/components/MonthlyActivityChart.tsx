@@ -1,6 +1,6 @@
-import ReactECharts from "echarts-for-react";
-
 import { buildMonthlyActivityOption, type MonthlyActivityRow } from "@/charts/monthlyActivity";
+
+import { EChartsChart } from "./EChartsChart";
 
 type MonthlyActivityChartProps = {
   rows: MonthlyActivityRow[];
@@ -9,11 +9,10 @@ type MonthlyActivityChartProps = {
 export function MonthlyActivityChart({ rows }: MonthlyActivityChartProps) {
   if (!rows.length) return null;
   return (
-    <ReactECharts
+    <EChartsChart
       option={buildMonthlyActivityOption(rows)}
-      style={{ height: 320, width: "100%" }}
-      opts={{ renderer: "svg" }}
-      data-testid="monthly-activity-chart"
+      height={320}
+      testId="monthly-activity-chart"
     />
   );
 }

@@ -1,6 +1,6 @@
-import ReactECharts from "echarts-for-react";
-
 import { buildBarChartOption, type BarChartRow } from "@/charts/barChart";
+
+import { EChartsChart } from "./EChartsChart";
 
 type BarChartProps = {
   rows: BarChartRow[];
@@ -13,11 +13,10 @@ export function BarChart({ rows, color, testId }: BarChartProps) {
   if (!option) return null;
   return (
     <div data-testid={testId}>
-      <ReactECharts
+      <EChartsChart
         option={option}
-        style={{ height: Math.max(220, rows.length * 40), width: "100%" }}
-        opts={{ renderer: "svg" }}
-        data-testid="bar-chart"
+        height={Math.max(220, rows.length * 40)}
+        testId="bar-chart"
       />
     </div>
   );

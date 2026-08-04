@@ -1,8 +1,9 @@
-import ReactECharts from "echarts-for-react";
 import { useNavigate } from "react-router-dom";
 
 import { buildRankBarsOption, type RankBarRow } from "@/charts/rankBars";
 import { hrefFromChartClick, type EntityLinkKind } from "@/utils/entityLinks";
+
+import { EChartsChart } from "./EChartsChart";
 
 type RankBarsProps = {
   rows: RankBarRow[];
@@ -18,13 +19,16 @@ export function RankBars({ rows, color, testId, linkKind }: RankBarsProps) {
 
   const onEvents = linkKind
     ? {
-        click: (params: {
-          componentType?: string;
-          name?: string;
-          value?: unknown;
-          seriesName?: string;
-        }) => {
-          const href = hrefFromChartClick(params, linkKind);
+        click: (params: unknown) => {
+          const href = hrefFromChartClick(
+            params as {
+              componentType?: string;
+              name?: string;
+              value?: unknown;
+              seriesName?: string;
+            },
+            linkKind,
+          );
           if (href) navigate(href);
         },
       }
@@ -32,12 +36,11 @@ export function RankBars({ rows, color, testId, linkKind }: RankBarsProps) {
 
   return (
     <div data-testid={testId}>
-      <ReactECharts
+      <EChartsChart
         option={buildRankBarsOption(rows, color, Boolean(linkKind))}
-        style={{ height: Math.max(220, rows.length * 28), width: "100%" }}
-        opts={{ renderer: "svg" }}
+        height={Math.max(220, rows.length * 28)}
         onEvents={onEvents}
-        data-testid="rank-bars-chart"
+        testId="rank-bars-chart"
       />
     </div>
   );

@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BarChart } from "@/components/BarChart";
-import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { KpiTile } from "@/components/KpiTile";
 import { PriceOverlayChart } from "@/components/PriceOverlayChart";
 
 vi.mock("echarts-for-react", () => ({
@@ -24,11 +24,11 @@ describe("BarChart", () => {
   });
 });
 
-describe("KpiTileSimple", () => {
+describe("KpiTile (simple spec)", () => {
   it("renders label and value", () => {
     render(
       <MantineProvider>
-        <KpiTileSimple kpi={{ key: "x", label: "Trades", value: 42 }} />
+        <KpiTile kpi={{ key: "x", label: "Trades", value: 42 }} />
       </MantineProvider>,
     );
     expect(screen.getByTestId("kpi-tile-x")).toBeInTheDocument();

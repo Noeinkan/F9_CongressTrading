@@ -1,0 +1,34 @@
+---
+description: React dashboard conventions — reuse shells/charts, consult PROJECT_INDEX
+globs: frontend/**
+alwaysApply: false
+---
+
+# Frontend conventions
+
+Consult **PROJECT_INDEX.md** (`frontend/` tables) before grepping or inventing new components.
+
+## Page recipe
+
+Use existing shells only:
+
+- `PageState` — loading / error / empty / ready
+- `SectionIntro` — kicker + title + copy
+- `ChartCard` — titled chart/table section
+- `KpiTile` — KPIs (optional `detail`, `sparkline`, `delta`); do not add a second KPI component
+
+## Chart recipe
+
+1. Pure option builder in `frontend/src/charts/` (unit-testable, no React).
+2. Thin component in `frontend/src/components/` that builds the option and renders via `EChartsChart`.
+3. Do **not** import `echarts-for-react` outside `EChartsChart.tsx`.
+
+`EChartsChart` always uses the SVG renderer; pass `option`, `height`, optional `testId` / `onEvents` / `notMerge` / `lazyUpdate`.
+
+## Links and filters
+
+- Entity navigation: `MemberLink`, `TickerLink`, `entityLinks.ts`
+- Shared period slice: `FilterContext` / `useFilters`
+- URL query builders: `frontend/src/api/params.ts`
+
+Keep route files focused on layout and data wiring; keep ECharts option logic in `charts/`.

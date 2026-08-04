@@ -22,10 +22,9 @@ export const COPY = {
   members: {
     kicker: "Members",
     title: "Politician profiles",
-    copy: "Pick a member from the leaderboard or use the arrows to cycle profiles — KPIs, by-ticker breakdown, committee-overlap trades, and activity for the active period slice.",
-    browse: "Members leaderboard",
+    copy: "Focus on one filer at a time — KPIs, by-ticker breakdown, committee-overlap trades, and activity for the active period slice. Rankings live on Home.",
     profile: "Member profile",
-    emptyProfile: "Pick a member from the list or use the arrows to open a profile.",
+    emptyProfile: "Select a member above, use the arrows to cycle, or open a name from the Home leaderboard.",
     allTrades: "All trades",
     committeeRelevant: "Committee relevant",
     byTicker: "By ticker",

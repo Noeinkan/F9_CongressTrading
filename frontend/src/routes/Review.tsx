@@ -23,7 +23,7 @@ import type { ReviewRow } from "@/api/types";
 import { BarChart } from "@/components/BarChart";
 import { ChartCard } from "@/components/ChartCard";
 import { useFilters } from "@/components/FilterContext";
-import { KpiTileSimple } from "@/components/KpiTileSimple";
+import { KpiTile } from "@/components/KpiTile";
 import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
@@ -203,7 +203,7 @@ export function Review() {
           />
 
           <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-            <KpiTileSimple
+            <KpiTile
               kpi={{
                 key: "open",
                 label: "Open records",
@@ -211,7 +211,7 @@ export function Review() {
                 detail: `${data.kpis.total_count.toLocaleString()} total`,
               }}
             />
-            <KpiTileSimple
+            <KpiTile
               kpi={{
                 key: "total",
                 label: "Total records",
@@ -219,7 +219,7 @@ export function Review() {
                 detail: data.review_source,
               }}
             />
-            <KpiTileSimple
+            <KpiTile
               kpi={{
                 key: "confidence",
                 label: "High confidence",

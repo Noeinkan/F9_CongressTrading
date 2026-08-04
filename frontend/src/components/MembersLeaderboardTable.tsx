@@ -17,10 +17,6 @@ type SortDir = "asc" | "desc";
 
 type MembersLeaderboardTableProps = {
   rows: MembersLeaderboardRow[];
-  selectedMember?: string;
-  onSelect?: (member: string) => void;
-  /** When true, member names are links to `/members?member=…` (Home). */
-  linkMembers?: boolean;
   testId?: string;
 };
 
@@ -76,12 +72,9 @@ function SortableTh({ label, sortKey, active, onSort }: SortableThProps) {
   );
 }
 
-/** Sortable, clickable per-filer leaderboard shared by Home and Members. */
+/** Sortable per-filer ranking for Home; names link into the Members profile page. */
 export function MembersLeaderboardTable({
   rows,
-  selectedMember,
-  onSelect,
-  linkMembers = false,
   testId = "members-leaderboard-table",
 }: MembersLeaderboardTableProps) {
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
@@ -118,44 +111,29 @@ export function MembersLeaderboardTable({
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {sorted.map((row) => {
-            const active = selectedMember === row.member;
-            return (
-              <Table.Tr
-                key={row.member}
-                style={{
-                  cursor: onSelect || linkMembers ? "pointer" : "default",
-                  background: active ? "var(--mantine-color-navy-0)" : undefined,
-                }}
-                onClick={() => onSelect?.(row.member)}
-                data-testid={
-                  testId === "home-leaderboard-table"
-                    ? "home-leaderboard-row"
-                    : "members-leaderboard-row"
-                }
-                data-selected={active ? "true" : undefined}
-              >
-                <Table.Td>
-                  {linkMembers ? (
-                    <MemberLink name={row.member} fw={500} />
-                  ) : (
-                    <Text fw={active ? 600 : 500} size="sm">
-                      {row.member}
-                    </Text>
-                  )}
-                </Table.Td>
-                <Table.Td>{row.trades}</Table.Td>
-                <Table.Td>{row.tickers}</Table.Td>
-                <Table.Td>
-                  {row.disclosed_range ??
-                    formatDisclosedRange(row.amount_low, row.amount_high)}
-                </Table.Td>
-                <Table.Td>{row.chamber}</Table.Td>
-                <Table.Td>{row.party}</Table.Td>
-                <Table.Td>{row.state}</Table.Td>
-              </Table.Tr>
-            );
-          })}
+          {sorted.map((row) => (
+            <Table.Tr
+              key={row.member}
+              data-testid={
+                testId === "home-leaderboard-table"
+                  ? "home-leaderboard-row"
+                  : "members-leaderboard-row"
+              }
+            >
+              <Table.Td>
+                <MemberLink name={row.member} fw={500} />
+              </Table.Td>
+              <Table.Td>{row.trades}</Table.Td>
+              <Table.Td>{row.tickers}</Table.Td>
+              <Table.Td>
+                {row.disclosed_range ??
+                  formatDisclosedRange(row.amount_low, row.amount_high)}
+              </Table.Td>
+              <Table.Td>{row.chamber}</Table.Td>
+              <Table.Td>{row.party}</Table.Td>
+              <Table.Td>{row.state}</Table.Td>
+            </Table.Tr>
+          ))}
         </Table.Tbody>
       </Table>
     </Table.ScrollContainer>

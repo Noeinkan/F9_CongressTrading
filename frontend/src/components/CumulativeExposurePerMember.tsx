@@ -1,6 +1,5 @@
 import { Alert, Box, Group, Text } from "@mantine/core";
 import { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
 import { useNavigate } from "react-router-dom";
 
 import type { TickerCumulativeExposureRow } from "@/api/types";
@@ -11,6 +10,8 @@ import {
 } from "@/charts/cumulativeExposurePerMember";
 import { COPY } from "@/copy";
 import { hrefFromChartClick } from "@/utils/entityLinks";
+
+import { EChartsChart } from "./EChartsChart";
 
 type CumulativeExposurePerMemberProps = {
   ticker: string;
@@ -103,27 +104,27 @@ export function CumulativeExposurePerMember({
         </Box>
       ) : null}
 
-      {option ? (
-        <ReactECharts
-          option={option}
-          notMerge
-          lazyUpdate
-          style={{ height: CUMULATIVE_EXPOSURE_CHART_HEIGHT, width: "100%" }}
-          opts={{ renderer: "svg" }}
-          onEvents={{
-            click: (params: {
-              componentType?: string;
-              name?: string;
-              value?: unknown;
-              seriesName?: string;
-            }) => {
-              const href = hrefFromChartClick(params, "member");
-              if (href) navigate(href);
-            },
-          }}
-          data-testid="cumulative-exposure-chart"
-        />
-      ) : null}
+      <EChartsChart
+        option={option}
+        height={CUMULATIVE_EXPOSURE_CHART_HEIGHT}
+        notMerge
+        lazyUpdate
+        testId="cumulative-exposure-chart"
+        onEvents={{
+          click: (params: unknown) => {
+            const href = hrefFromChartClick(
+              params as {
+                componentType?: string;
+                name?: string;
+                value?: unknown;
+                seriesName?: string;
+              },
+              "member",
+            );
+            if (href) navigate(href);
+          },
+        }}
+      />
     </div>
   );
 }

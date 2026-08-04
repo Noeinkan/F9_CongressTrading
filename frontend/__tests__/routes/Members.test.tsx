@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -131,21 +131,14 @@ describe("Members route", () => {
     });
   });
 
-  it("renders leaderboard rows and selects a member on click", async () => {
-    const user = userEvent.setup();
+  it("shows an empty profile until a member is selected", async () => {
     renderMembers();
     await waitFor(() => {
       expect(screen.getByTestId("members-page")).toBeInTheDocument();
     });
     expect(screen.getByTestId("members-empty-profile")).toBeInTheDocument();
-    const table = screen.getByTestId("members-leaderboard-table");
-    const alice = within(table).getAllByTestId("members-leaderboard-row")[0];
-    expect(alice).toBeDefined();
-    expect(alice).toHaveTextContent("Alice");
-    await user.click(alice!);
-    await waitFor(() => {
-      expect(screen.getByTestId("members-profile")).toBeInTheDocument();
-    });
+    expect(screen.queryByTestId("members-leaderboard-table")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("members-browse")).not.toBeInTheDocument();
   });
 
   it("cycles members with prev/next arrows", async () => {
@@ -178,18 +171,6 @@ describe("Members route", () => {
       expect(screen.getByTestId("members-nav-position")).toHaveTextContent("3 / 3");
     });
     expect(screen.getByTestId("members-select")).toHaveValue("Carol");
-  });
-
-  it("sorts the leaderboard by column header", async () => {
-    const user = userEvent.setup();
-    renderMembers();
-    await waitFor(() => screen.getByTestId("members-leaderboard-table"));
-    await user.click(screen.getByTestId("members-leaderboard-sort-member"));
-    const rows = screen.getAllByTestId("members-leaderboard-row");
-    expect(rows[0]).toHaveTextContent("Alice");
-    await user.click(screen.getByTestId("members-leaderboard-sort-member"));
-    const rowsDesc = screen.getAllByTestId("members-leaderboard-row");
-    expect(rowsDesc[0]).toHaveTextContent("Carol");
   });
 
   it("shows profile when member query is set", async () => {

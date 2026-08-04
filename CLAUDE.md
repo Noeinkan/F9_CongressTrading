@@ -30,6 +30,9 @@ The Streamlit dashboard has been replaced by a **FastAPI JSON API (`src/api/`) +
 
 ## Token-saving conventions
 
-- Need a module's purpose or location? Check **PROJECT_INDEX.md** / AGENTS.md tables first — don't grep the tree.
+- Need a module's purpose or location? Check **PROJECT_INDEX.md** / AGENTS.md tables first — don't grep the tree (includes `frontend/` component/chart/route tables).
 - Keep changes small and targeted; PTR/FD parsing is layout-sensitive — match existing patterns.
 - API routers stay thin; logic lives in `repository.py`/`query.py`.
+- **Frontend page recipe:** `PageState` + `SectionIntro` + `ChartCard`; KPIs via `KpiTile` only (optional detail/sparkline/delta).
+- **Frontend chart recipe:** pure option builder in `frontend/src/charts/` + thin wrapper that uses `EChartsChart` (do not import `echarts-for-react` elsewhere).
+- **Entity navigation:** `MemberLink` / `TickerLink` / `entityLinks.ts` — reuse before inventing new link helpers.
