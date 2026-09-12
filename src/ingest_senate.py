@@ -18,6 +18,7 @@ from .db import (
     upsert_issuer,
     upsert_member,
 )
+from .member_states import ptr_member_state_and_party
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
 from .parse_ptr import parse_ptr_pdf_safe, parse_senate_ptr_html
 from .ticker_lookup import resolve_asset
@@ -40,6 +41,35 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
         raise CancelledError()
 
 
+def _auto_download_senate(
+    cancel_event: threading.Event | None,
+    progress_hook: Callable[..., None] | None,
+) -> None:
+    """Fetch new Senate PTRs, without letting a failed download stop the night.
+
+    efdsearch sits behind Akamai, which can start refusing the server at any time.
+    If that aborted ingest-senate, ingest-all would also skip OGE, and the nightly
+    script would skip the CSV exports and the Telegram alerts. So the failure is
+    reported and parsing carries on with the files already on disk.
+    """
+    from .download_senate_efd import download_senate_efd
+
+    print("SENATE_EFD_AUTO_DOWNLOAD attivo: scarico i PTR elettronici da efdsearch...", flush=True)
+    try:
+        download_senate_efd(cancel_event=cancel_event, progress_hook=progress_hook)
+    except CancelledError:
+        raise
+    except Exception as exc:
+        detail = f"Senate eFD download failed ({type(exc).__name__}: {exc}). Parsing files already on disk."
+        print(detail, flush=True)
+        try:
+            from .notify.service import send_failure_alert
+
+            send_failure_alert(detail)
+        except Exception as notify_exc:  # the alert is best-effort; the ingest must go on
+            print(f"Senate eFD: failure alert not sent: {notify_exc}", flush=True)
+
+
 def _persist_ptr_filing(
     conn,
     *,
@@ -56,7 +86,12 @@ def _persist_ptr_filing(
     Returns the number of transactions inserted.
     """
     member = normalize_whitespace(member)
-    member_id = upsert_member(conn, full_name=member, chamber="Senate")
+    member_state, member_party = ptr_member_state_and_party(
+        conn, full_name=member, chamber="Senate", doc_id=source_path.stem
+    )
+    member_id = upsert_member(
+        conn, full_name=member, chamber="Senate", state=member_state, party=member_party
+    )
     filing_id = insert_filing(
         conn,
         member_id=member_id,
@@ -181,8 +216,8 @@ def ingest_senate(
     Parsa i PTR del Senato presenti in data/raw/senate/: PDF (``parse_ptr_pdf_safe``)
     e HTML dei PTR elettronici efdsearch (``parse_senate_ptr_html``). I file possono
     essere scaricati con ``python -m src.main download-senate`` (in locale) oppure,
-    se ``SENATE_EFD_AUTO_DOWNLOAD=1``, all'inizio di questa funzione (default OFF: lo
-    scraping efdsearch va fatto da IP residenziale, non dal VPS — vedi AGENTS.md).
+    se ``SENATE_EFD_AUTO_DOWNLOAD=1``, all'inizio di questa funzione (default OFF perche'
+    Akamai blocca molti IP datacenter; il VPS di produzione passa e lo attiva).
 
     ``cancel_event`` (opzionale) viene osservato tra un file e l'altro e prima di
     ogni fase grossolana. Quando viene settato dal background runner, la funzione
@@ -196,10 +231,7 @@ def ingest_senate(
         _check_cancel(cancel_event)
 
         if senate_efd_auto_download_enabled():
-            from .download_senate_efd import download_senate_efd
-
-            print("SENATE_EFD_AUTO_DOWNLOAD attivo: scarico i PTR elettronici da efdsearch...", flush=True)
-            download_senate_efd(cancel_event=cancel_event, progress_hook=progress_hook)
+            _auto_download_senate(cancel_event, progress_hook)
 
         zip_paths = list(SENATE_RAW_DIR.glob("*.zip")) + list(RAW_DIR.glob("*.zip"))
         for zip_path in zip_paths:

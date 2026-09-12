@@ -355,6 +355,18 @@ def main() -> None:
             os.environ["OGE_INGEST_FORCE_REPARSE_PDFS"] = "1"
         ingest_oge(filer_name=filer, force_reparse=bool(getattr(args, "force_reparse", False)))
     elif args.command == "ingest-all":
+        # Here rather than inside ingest_house: a test ingesting from pytest's
+        # temp dir must not have its own rows deleted by the cleanup.
+        from .db import get_connection
+        from .pytest_leftovers import delete_pytest_leftovers
+
+        cleanup_conn = get_connection()
+        try:
+            leftovers = delete_pytest_leftovers(cleanup_conn)
+        finally:
+            cleanup_conn.close()
+        if leftovers["filings"] or leftovers["files_ingested"]:
+            print(f"Removed rows left by an old test run: {leftovers}")
         ingest_house()
         ingest_senate()
         ingest_oge()

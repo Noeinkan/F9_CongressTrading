@@ -45,6 +45,8 @@ from .house_ptr_repair import (
     merge_duplicate_house_ptr_filings,
     repair_house_ptr_dates,
 )
+from .member_names import existing_ptr_member_name, rename_doc_number_members
+from .member_states import backfill_member_states, ptr_member_state_and_party
 from .re_resolve_tickers import re_resolve_all_transaction_tickers
 from .utils import (
     ensure_dirs,
@@ -138,10 +140,22 @@ def _process_pdf_batch(
             f"{member} | filed {_filing_hint} | {_txn_count} txn",
             flush=True,
         )
-        member = header.get("member") or pdf_path.stem
         filing_date = header.get("filing_date") or lookup_house_ptr_filing_date(conn, pdf_path.stem)
         source_url = ""
-        member_id = upsert_member(conn, full_name=normalize_whitespace(member), chamber="House")
+        member_state, member_party = ptr_member_state_and_party(
+            conn, full_name=normalize_whitespace(member), chamber="House", doc_id=pdf_path.stem
+        )
+        if not header.get("member") and _fd_hint.get("member"):
+            member = existing_ptr_member_name(
+                conn, normalize_whitespace(member), chamber="House", state=member_state
+            )
+        member_id = upsert_member(
+            conn,
+            full_name=normalize_whitespace(member),
+            chamber="House",
+            state=member_state,
+            party=member_party,
+        )
         filing_id = insert_filing(
             conn,
             member_id=member_id,
@@ -289,6 +303,15 @@ def ingest_house(
     deleted_invalid_rows = delete_invalid_house_ptr_transactions(conn)
     if deleted_invalid_rows:
         print(f"Rimosse {deleted_invalid_rows} righe PTR House non valide residue.")
+    renamed = rename_doc_number_members(conn)
+    if renamed["renamed"]:
+        print(f"Renamed {renamed['renamed']} member(s) named after a document number.")
+    member_states = backfill_member_states(conn)
+    if member_states["updated"] or member_states["merged"]:
+        print(
+            f"Member state backfilled: {member_states['updated']} updated, "
+            f"{member_states['merged']} merged, {member_states['parties']} parties filled."
+        )
 
     extract_local_zip_files()
     _check_cancel(cancel_event)

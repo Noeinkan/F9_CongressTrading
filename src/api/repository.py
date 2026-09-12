@@ -246,8 +246,6 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     # ("$584.22" → 584/22) and truncated bucket highs ("$15,001 - 5") do not
     # poison signed notional, KPI sums, or cumulative exposure bands.
     if "amount_range_raw" in data.columns and len(data):
-        raw_before_lo = data["amount_low"].to_numpy(copy=True)
-        raw_before_hi = data["amount_high"].to_numpy(copy=True)
         repaired = [
             coerce_amount_bounds(lo, hi, raw)
             for lo, hi, raw in zip(
@@ -259,52 +257,6 @@ def _prepare_transactions(frame: pd.DataFrame) -> pd.DataFrame:
         ]
         data["amount_low"] = [pair[0] for pair in repaired]
         data["amount_high"] = [pair[1] for pair in repaired]
-        # #region agent log
-        try:
-            import json
-            import time
-            from pathlib import Path
-
-            changed = sum(
-                1
-                for (lo, hi), blo, bhi in zip(repaired, raw_before_lo, raw_before_hi, strict=True)
-                if lo != blo or hi != bhi
-            )
-            inverted_before = int(
-                sum(
-                    1
-                    for blo, bhi in zip(raw_before_lo, raw_before_hi, strict=True)
-                    if pd.notna(blo) and pd.notna(bhi) and float(blo) > float(bhi)
-                )
-            )
-            lo_after = pd.to_numeric(data["amount_low"], errors="coerce")
-            hi_after = pd.to_numeric(data["amount_high"], errors="coerce")
-            inverted_after = int(((lo_after.notna() & hi_after.notna()) & (lo_after > hi_after)).sum())
-            with (Path(__file__).resolve().parents[2] / "debug-ce707b.log").open(
-                "a", encoding="utf-8"
-            ) as _fh:
-                _fh.write(
-                    json.dumps(
-                        {
-                            "sessionId": "ce707b",
-                            "runId": "post-fix",
-                            "hypothesisId": "D",
-                            "location": "repository.py:_prepare_transactions",
-                            "message": "amount_bound_repair",
-                            "data": {
-                                "rows": int(len(data)),
-                                "changed": int(changed),
-                                "inverted_before": inverted_before,
-                                "inverted_after": inverted_after,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion
     data["ticker"] = data["ticker"].fillna("").astype(str).str.upper()
     data["member"] = data["member"].fillna("Unknown")
     data["party"] = data["party"].fillna("")

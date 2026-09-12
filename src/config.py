@@ -73,8 +73,9 @@ def senate_efd_impersonate() -> str:
 def senate_efd_auto_download_enabled() -> bool:
     """
     SENATE_EFD_AUTO_DOWNLOAD=1|true|yes|on abilita il download da efdsearch dentro
-    ingest-senate. Default OFF: lo scraping Senate gira in locale via `download-senate`
-    (IP residenziale), non sul VPS (IP datacenter, spesso bloccato da Akamai).
+    ingest-senate. Default OFF (Akamai blocca molti IP datacenter); sul VPS di
+    produzione va attivato, perche' passa (verificato 2026-09-12). Un download fallito non
+    ferma l'ingest: vedi ``ingest_senate._auto_download_senate``.
     """
     v = (os.getenv("SENATE_EFD_AUTO_DOWNLOAD") or "0").strip().lower()
     return v in {"1", "true", "yes", "on"}

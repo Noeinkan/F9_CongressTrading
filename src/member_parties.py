@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,10 @@ _HONORIFIC_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NAME_NOISE_TOKENS = frozenset(
+    {"hon", "dr", "mr", "mrs", "ms", "jr", "sr", "ii", "iii", "iv", "md", "facs", "phd", "esq"}
+)
+
 _lookup_cache_key: str | None = None
 _lookup_cache: dict[str, Any] | None = None
 
@@ -53,9 +58,25 @@ def strip_honorifics(name: str) -> str:
         text = cleaned
 
 
+def _fold_accents(text: str) -> str:
+    """``Barragán`` -> ``Barragan``; normalize_key would split on the accent."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def name_tokens(name: str) -> list[str]:
+    """Name tokens without titles, suffixes and credentials, wherever they sit.
+
+    House forms embed them mid-name ("Mark Dr Green", "Neal Patrick Dunn, MD,
+    FACS", "August Lee Pfluger II"), which hides the real last name.
+    """
+    key = normalize_key(_fold_accents(strip_honorifics(name)))
+    return [token for token in key.split() if token not in _NAME_NOISE_TOKENS]
+
+
 def disclosure_name_key(name: str) -> str:
     """Normalize a disclosure filer name for party lookup."""
-    return normalize_key(strip_honorifics(name))
+    return " ".join(name_tokens(name))
 
 
 def _term_chamber(term_type: str) -> str:
@@ -227,38 +248,100 @@ def load_legislators_parties(path: Path | None = None) -> list[dict[str, str]]:
     return out
 
 
-def _build_lookup_indexes(
-    legislators: list[dict[str, str]],
-) -> tuple[dict[str, str], dict[str, str], dict[tuple[str, str, str], str]]:
-    """Return (by_full_key, by_first_last_key, by_last_state_chamber)."""
-    by_full: dict[str, str] = {}
-    by_first_last: dict[str, str] = {}
-    by_lsc: dict[tuple[str, str, str], list[str]] = {}
+def _build_lookup_indexes(legislators: list[dict[str, str]]) -> dict[str, Any]:
+    """Index legislator records by full name, first+last, and last name.
+
+    Values are lists: two legislators can share a name (the two Mike Rogers),
+    and the matcher narrows by state before trusting a hit.
+    """
+    by_full: dict[str, list[dict[str, str]]] = {}
+    by_first_last: dict[str, list[dict[str, str]]] = {}
+    by_last: dict[str, list[dict[str, str]]] = {}
 
     for row in legislators:
-        party = row["party"]
         full_key = disclosure_name_key(row["official_full"])
         if full_key:
-            by_full[full_key] = party
+            by_full.setdefault(full_key, []).append(row)
         first = row.get("first") or ""
         last = row.get("last") or ""
         if first and last:
             fl_key = disclosure_name_key(f"{first} {last}")
             if fl_key:
-                by_first_last[fl_key] = party
-        last_key = normalize_key(last)
-        chamber = (row.get("chamber") or "").strip()
-        state = (row.get("state") or "").strip().upper()
-        if last_key and chamber and state:
-            key = (last_key, state, chamber)
-            by_lsc.setdefault(key, []).append(party)
+                by_first_last.setdefault(fl_key, []).append(row)
+        last_tokens = name_tokens(last)
+        if last_tokens:
+            by_last.setdefault(last_tokens[-1], []).append(row)
+    return {"by_full": by_full, "by_first_last": by_first_last, "by_last": by_last}
 
-    unique_lsc: dict[tuple[str, str, str], str] = {}
-    for key, parties in by_lsc.items():
-        distinct = {p for p in parties if p}
-        if len(distinct) == 1:
-            unique_lsc[key] = next(iter(distinct))
-    return by_full, by_first_last, unique_lsc
+
+def _same_initial(candidates: list[dict[str, str]], given_names: list[str]) -> list[dict[str, str]]:
+    """Keep legislators whose first name starts like one of the filer's given names.
+
+    Initials survive nicknames: "Michael" -> Mike Garcia, "A. Mitchell" -> Mitch McConnell.
+    """
+    initials = {token[0] for token in given_names if token}
+    return [row for row in candidates if (row.get("first") or "")[:1].lower() in initials]
+
+
+def match_legislators(
+    name: str,
+    *,
+    chamber: str = "",
+    state: str = "",
+    lookup: dict[str, Any] | None = None,
+    legislators: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    """Legislator records a disclosure name can refer to, best rule first.
+
+    Rules, first one with a hit wins:
+    1. full name, then first+last (also filer's first + last token), narrowed
+       to ``state`` when known and preferring ``chamber`` when it breaks a tie;
+    2. last name + state + chamber;
+    3. last name + state in the other chamber (members move House -> Senate),
+       only when a first initial agrees;
+    4. no state known: last name + chamber, only when a first initial agrees.
+    """
+    if lookup is None:
+        rows = legislators if legislators is not None else load_legislators_parties()
+        lookup = _build_lookup_indexes(rows)
+    tokens = name_tokens(name)
+    if not tokens:
+        return []
+    state = (state or "").strip().upper()
+    chamber = (chamber or "").strip()
+
+    key = " ".join(tokens)
+    name_keys = [("by_full", key), ("by_first_last", key)]
+    if len(tokens) > 2:
+        name_keys.append(("by_first_last", f"{tokens[0]} {tokens[-1]}"))
+    for index, lookup_key in name_keys:
+        hits = lookup[index].get(lookup_key) or []
+        if state:
+            hits = [row for row in hits if row.get("state") == state]
+        if chamber:
+            hits = [row for row in hits if row.get("chamber") == chamber] or hits
+        if hits:
+            return hits
+
+    same_last = lookup["by_last"].get(tokens[-1]) or []
+    given_names = tokens[:-1]
+    if state:
+        in_state = [row for row in same_last if row.get("state") == state]
+        same_chamber = [row for row in in_state if not chamber or row.get("chamber") == chamber]
+        if same_chamber:
+            return _same_initial(same_chamber, given_names) or same_chamber
+        return _same_initial(in_state, given_names)
+    if chamber:
+        return _same_initial(
+            [row for row in same_last if row.get("chamber") == chamber], given_names
+        )
+    return []
+
+
+def _unanimous(candidates: list[dict[str, str]], field: str) -> str:
+    values = {(row.get(field) or "").strip() for row in candidates}
+    values.discard("")
+    return next(iter(values)) if len(values) == 1 else ""
 
 
 def match_party(
@@ -266,32 +349,26 @@ def match_party(
     *,
     chamber: str = "",
     state: str = "",
-    by_full: dict[str, str] | None = None,
-    by_first_last: dict[str, str] | None = None,
-    by_lsc: dict[tuple[str, str, str], str] | None = None,
+    lookup: dict[str, Any] | None = None,
     legislators: list[dict[str, str]] | None = None,
 ) -> str:
     """Resolve party for a disclosure member name. Empty string if no match."""
-    if by_full is None or by_first_last is None or by_lsc is None:
-        rows = legislators if legislators is not None else load_legislators_parties()
-        by_full, by_first_last, by_lsc = _build_lookup_indexes(rows)
+    candidates = match_legislators(
+        name, chamber=chamber, state=state, lookup=lookup, legislators=legislators
+    )
+    return _unanimous(candidates, "party")
 
-    key = disclosure_name_key(name)
-    if not key:
-        return ""
-    if key in by_full:
-        return by_full[key]
-    if key in by_first_last:
-        return by_first_last[key]
 
-    # Fallback: last token + state + chamber when unique.
-    tokens = key.split()
-    if len(tokens) >= 1 and chamber and state:
-        last_key = tokens[-1]
-        lsc_key = (last_key, state.strip().upper(), chamber.strip())
-        if lsc_key in by_lsc:
-            return by_lsc[lsc_key]
-    return ""
+def match_state(
+    name: str,
+    *,
+    chamber: str = "",
+    lookup: dict[str, Any] | None = None,
+    legislators: list[dict[str, str]] | None = None,
+) -> str:
+    """Two-letter state for a disclosure name with no state of its own ('' if unsure)."""
+    candidates = match_legislators(name, chamber=chamber, lookup=lookup, legislators=legislators)
+    return _unanimous(candidates, "state")
 
 
 def _parties_mtime_key(path: Path | None = None) -> str:
@@ -302,7 +379,7 @@ def _parties_mtime_key(path: Path | None = None) -> str:
 
 
 def get_party_lookup(path: Path | None = None) -> dict[str, Any]:
-    """Cached indexes for API overlay. Keys: by_full, by_first_last, by_lsc."""
+    """Cached indexes for API overlay. Keys: by_full, by_first_last, by_last."""
     global _lookup_cache_key, _lookup_cache
     key = _parties_mtime_key(path)
     if key != _lookup_cache_key:
@@ -311,12 +388,7 @@ def get_party_lookup(path: Path | None = None) -> dict[str, Any]:
     if _lookup_cache is not None:
         return _lookup_cache
 
-    by_full, by_first_last, by_lsc = _build_lookup_indexes(load_legislators_parties(path))
-    _lookup_cache = {
-        "by_full": by_full,
-        "by_first_last": by_first_last,
-        "by_lsc": by_lsc,
-    }
+    _lookup_cache = _build_lookup_indexes(load_legislators_parties(path))
     return _lookup_cache
 
 
@@ -327,15 +399,7 @@ def resolve_party_for_row(
     state: str = "",
     lookup: dict[str, Any] | None = None,
 ) -> str:
-    indexes = lookup or get_party_lookup()
-    return match_party(
-        member,
-        chamber=chamber,
-        state=state,
-        by_full=indexes["by_full"],
-        by_first_last=indexes["by_first_last"],
-        by_lsc=indexes["by_lsc"],
-    )
+    return match_party(member, chamber=chamber, state=state, lookup=lookup or get_party_lookup())
 
 
 def backfill_member_parties(
@@ -354,7 +418,7 @@ def backfill_member_parties(
             f"No legislators party map at {path or LEGISLATORS_PARTIES_PATH}. "
             "Run with --refresh first."
         )
-    by_full, by_first_last, by_lsc = _build_lookup_indexes(legislators)
+    lookup = _build_lookup_indexes(legislators)
 
     rows = conn.execute(
         "SELECT id, full_name, chamber, state, party FROM members"
@@ -374,9 +438,7 @@ def backfill_member_parties(
             row["full_name"] or "",
             chamber=row["chamber"] or "",
             state=row["state"] or "",
-            by_full=by_full,
-            by_first_last=by_first_last,
-            by_lsc=by_lsc,
+            lookup=lookup,
         )
         if not party:
             unmatched += 1

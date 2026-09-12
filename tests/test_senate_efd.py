@@ -299,3 +299,59 @@ def test_ingest_senate_is_idempotent(in_memory_db, tmp_path, monkeypatch) -> Non
         assert n == 3
     finally:
         conn.close()
+
+
+def test_ingest_senate_survives_blocked_download(in_memory_db, tmp_path, monkeypatch) -> None:
+    """Akamai refusing the server must not stop ingest-all: alert, then parse what's on disk."""
+    from src import download_senate_efd as dl
+    from src import ingest_senate as ingest_senate_module
+    from src.db import get_connection
+    from src.ingest_senate import ingest_senate
+    from src.notify import service as notify_service
+
+    monkeypatch.setattr(ingest_senate_module, "SENATE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.config.SENATE_RAW_DIR", tmp_path)
+    monkeypatch.setattr(ingest_senate_module, "resolve_asset", _fake_resolve)
+    monkeypatch.setattr(ingest_senate_module, "senate_efd_auto_download_enabled", lambda: True)
+
+    def _blocked(**_kwargs):
+        raise RuntimeError("no csrftoken cookie - Likely blocked by Akamai")
+
+    alerts: list[str] = []
+    monkeypatch.setattr(dl, "download_senate_efd", _blocked)
+    monkeypatch.setattr(notify_service, "send_failure_alert", lambda detail: alerts.append(detail))
+
+    (tmp_path / "uuid-a.html").write_text(SAMPLE_PTR_HTML, encoding="utf-8")
+    ingest_senate()
+
+    assert len(alerts) == 1 and "Akamai" in alerts[0]
+
+    conn = get_connection()
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM transactions tx JOIN filings f ON f.id=tx.filing_id "
+            "WHERE f.chamber='Senate'"
+        ).fetchone()[0]
+        assert n == 3
+    finally:
+        conn.close()
+
+
+def test_ingest_senate_download_cancel_still_propagates(in_memory_db, tmp_path, monkeypatch) -> None:
+    """Swallowing download errors must not swallow a user's cancel from the dashboard job runner."""
+    from src import download_senate_efd as dl
+    from src import ingest_senate as ingest_senate_module
+    from src.api.jobs import CancelledError
+    from src.ingest_senate import ingest_senate
+
+    monkeypatch.setattr(ingest_senate_module, "SENATE_RAW_DIR", tmp_path)
+    monkeypatch.setattr("src.config.SENATE_RAW_DIR", tmp_path)
+    monkeypatch.setattr(ingest_senate_module, "senate_efd_auto_download_enabled", lambda: True)
+
+    def _cancelled(**_kwargs):
+        raise CancelledError()
+
+    monkeypatch.setattr(dl, "download_senate_efd", _cancelled)
+
+    with pytest.raises(CancelledError):
+        ingest_senate()

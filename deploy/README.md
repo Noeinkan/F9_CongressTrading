@@ -61,9 +61,18 @@ APP_PASSWORD=<long-random-secret>
 APP_SESSION_SECRET=<optional-explicit-secret>
 API_SERVER_ADDRESS=127.0.0.1
 API_SERVER_PORT=9001
+SENATE_EFD_AUTO_DOWNLOAD=1
 ```
 
 When `APP_PASSWORD` is set, the login page appears before any transaction data loads.
+
+`SENATE_EFD_AUTO_DOWNLOAD=1` makes the nightly `ingest-all` fetch new Senate
+PTRs from efdsearch.senate.gov, the same way it fetches House PTRs. The site
+sits behind Akamai, which blocks many data-centre addresses; on 12 September
+2026 it let this VPS through. If it starts refusing, the download failure sends
+one Telegram alert and the rest of the night (OGE, exports, notifications) still
+runs. `publish_senate.ps1` stays as the fallback: it scrapes from a home
+connection and pushes the files here.
 
 > **The variables were renamed and the server was not.** Until 12 September 2026
 > the VPS `.env` carried `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` — the names

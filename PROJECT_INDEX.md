@@ -14,6 +14,10 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `ingest_house.py` | House PTR + FD ingest orchestrator (batch parse/persist) |
 | `house_ptr_download.py` | House PTR PDF autodownload + local zip extract |
 | `house_ptr_repair.py` | House PTR filing/date repair, duplicate merge, backfill |
+| `member_parties.py` | Legislators map: name → party/state matcher, party backfill + API overlay |
+| `member_states.py` | State + party for PTR-created members (FD metadata by `doc_id`, else legislators map) |
+| `member_names.py` | Filer name for unreadable House PTR headers (FD metadata by `doc_id`); renames doc-number members |
+| `pytest_leftovers.py` | One-shot cleanup of old test-run rows in the real DB; called from `ingest-all` |
 | `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 | `ingest_senate.py` | Senate PTR ingest pipeline |
 | `ingest_oge.py` | OGE Executive (278-T + 278e) ingest pipeline |
@@ -65,6 +69,7 @@ the dashboard describe a trade identically.
 | `_sparklines.py` | Monthly series, KPI sparklines, MoM delta |
 | `_home_analytics.py` | Home page analytics |
 | `_patterns_analytics.py` | Pattern detection, breakdowns, committee relevance |
+| `_signed_amounts.py` | Column-wise signed notional / floor / ceiling (fast path of the per-row rules) |
 | `_tickers_analytics.py` | Ticker leaderboard, profile, price overlay |
 | `_executive_analytics.py` | Executive (OGE) summary, monthly timeline, by-owner breakdown |
 | `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |

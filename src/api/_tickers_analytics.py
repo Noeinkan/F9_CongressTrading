@@ -33,11 +33,9 @@ from ._format import format_cumulative_range_label
 from ._home_analytics import _dedupe_cumulative_trades
 from ._patterns_analytics import (
     add_trade_categories,
-    signed_trade_ceiling,
-    signed_trade_floor,
-    signed_trade_notional,
     ticker_member_breakdown,
 )
+from ._signed_amounts import signed_trade_bounds_series, signed_trade_notional_series
 from .repository import (
     _data_cache_key,
     is_buy_transaction_type,
@@ -946,9 +944,8 @@ def ticker_cumulative_exposure_payload(
         return {"ticker": t, "members": [], "truncated": False, "rows": []}
 
     sub = _dedupe_cumulative_trades(sub)
-    sub["_signed"] = sub.apply(signed_trade_notional, axis=1)
-    sub["_signed_low"] = sub.apply(signed_trade_floor, axis=1)
-    sub["_signed_high"] = sub.apply(signed_trade_ceiling, axis=1)
+    sub["_signed"] = signed_trade_notional_series(sub)
+    sub["_signed_low"], sub["_signed_high"] = signed_trade_bounds_series(sub)
     member_counts = sub["member"].value_counts()
     total_members = len(member_counts)
     truncated = total_members > top_n

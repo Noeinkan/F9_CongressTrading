@@ -1,6 +1,7 @@
 """Home page analytics (net trade, ticker drill-down rows)."""
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -8,7 +9,7 @@ import pandas as pd
 
 from ..utils import is_non_equity_asset
 from ._format import format_currency_compact
-from ._patterns_analytics import signed_trade_notional
+from ._signed_amounts import signed_trade_notional_series
 from .repository import (
     is_buy_transaction_type,
     is_sell_transaction_type,
@@ -43,13 +44,17 @@ def _net_trade_eligible_mask(frame: pd.DataFrame) -> pd.Series:
         else pd.Series("", index=frame.index)
     )
     equity_ok = pd.Series(
-        [
-            not is_non_equity_asset(ticker, name)
-            for ticker, name in zip(tickers, names, strict=True)
-        ],
+        [_is_equity_pair(ticker, name) for ticker, name in zip(tickers, names, strict=True)],
         index=frame.index,
+        dtype=bool,
     )
     return type_ok & equity_ok
+
+
+@lru_cache(maxsize=65_536)
+def _is_equity_pair(ticker: str, name: str) -> bool:
+    """Memoized: the regex heuristic is pure, and the same assets recur on every request."""
+    return not is_non_equity_asset(ticker, name)
 
 
 def monthly_activity_rows(filtered: pd.DataFrame) -> list[dict[str, Any]]:
@@ -111,8 +116,8 @@ def aggregate_net_trade_amount(
     if work.empty:
         return None
 
-    work["_signed"] = work.apply(signed_trade_notional, axis=1)
-    signed = pd.to_numeric(work["_signed"], errors="coerce").fillna(0.0)
+    signed = signed_trade_notional_series(work)
+    work["_signed"] = signed
     work["_buy"] = signed.clip(lower=0.0)
     work["_sell"] = (-signed).clip(lower=0.0)
 
@@ -234,40 +239,6 @@ def _dedupe_cumulative_trades(sub: pd.DataFrame) -> pd.DataFrame:
                     else blank
                 )
                 out = pd.concat([with_hash, blank_out], ignore_index=False)
-            before = len(sub)
-            # #region agent log
-            dropped = before - len(out)
-            if dropped:
-                try:
-                    import json
-                    import time
-                    from pathlib import Path
-
-                    with (Path(__file__).resolve().parents[2] / "debug-ce707b.log").open(
-                        "a", encoding="utf-8"
-                    ) as _fh:
-                        _fh.write(
-                            json.dumps(
-                                {
-                                    "sessionId": "ce707b",
-                                    "runId": "post-fix",
-                                    "hypothesisId": "E",
-                                    "location": "_home_analytics.py:_dedupe_cumulative_trades",
-                                    "message": "dedupe_counts",
-                                    "data": {
-                                        "before": int(before),
-                                        "after": int(len(out)),
-                                        "dropped": int(dropped),
-                                        "mode": "source_hash",
-                                    },
-                                    "timestamp": int(time.time() * 1000),
-                                }
-                            )
-                            + "\n"
-                        )
-                except Exception:
-                    pass
-            # #endregion
             return out
 
     keys = [
@@ -286,42 +257,7 @@ def _dedupe_cumulative_trades(sub: pd.DataFrame) -> pd.DataFrame:
     ]
     if not keys:
         return sub
-    before = len(sub)
-    out = sub.drop_duplicates(subset=keys, keep="first")
-    # #region agent log
-    dropped = before - len(out)
-    if dropped:
-        try:
-            import json
-            import time
-            from pathlib import Path
-
-            with (Path(__file__).resolve().parents[2] / "debug-ce707b.log").open(
-                "a", encoding="utf-8"
-            ) as _fh:
-                _fh.write(
-                    json.dumps(
-                        {
-                            "sessionId": "ce707b",
-                            "runId": "post-fix",
-                            "hypothesisId": "E",
-                            "location": "_home_analytics.py:_dedupe_cumulative_trades",
-                            "message": "dedupe_counts",
-                            "data": {
-                                "before": int(before),
-                                "after": int(len(out)),
-                                "dropped": int(dropped),
-                                "keys": keys,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-    # #endregion
-    return out
+    return sub.drop_duplicates(subset=keys, keep="first")
 
 
 def net_trade_records(agg: pd.DataFrame | None) -> list[dict[str, object]]:

@@ -17,6 +17,7 @@ from src.member_parties import (
     legislator_record_from_yaml,
     load_legislators_parties,
     match_party,
+    match_state,
     strip_honorifics,
     write_legislators_parties_json,
 )
@@ -118,6 +119,67 @@ def test_match_party_last_state_chamber_fallback(tmp_path: Path):
         )
         == "Democrat"
     )
+
+
+def _legislator(first: str, last: str, party: str, chamber: str, state: str, full: str = "") -> dict[str, str]:
+    return {
+        "official_full": full or f"{first} {last}",
+        "first": first,
+        "last": last,
+        "party": party,
+        "chamber": chamber,
+        "state": state,
+    }
+
+
+_ROSTER = [
+    _legislator("Kelly", "Morrison", "Democrat", "House", "MN"),
+    _legislator("August", "Pfluger", "Republican", "House", "TX"),
+    _legislator("Neal", "Dunn", "Republican", "House", "FL", full="Neal P. Dunn"),
+    _legislator("Nanette", "Barragán", "Democrat", "House", "CA", full="Nanette Diaz Barragán"),
+    _legislator("Mike", "Garcia", "Republican", "House", "CA"),
+    _legislator("Robert", "Garcia", "Democrat", "House", "CA"),
+    _legislator("Jim", "Banks", "Republican", "Senate", "IN"),
+    _legislator("Mitch", "McConnell", "Republican", "Senate", "KY"),
+    _legislator("Mike", "Rogers", "Republican", "House", "AL"),
+    _legislator("Mike", "Rogers", "Republican", "Senate", "MI"),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "chamber", "state", "party"),
+    [
+        # Middle name, no state: filer's first + last token hits first+last.
+        ("Hon. Kelly Louise Morrison", "House", "", "Democrat"),
+        # Suffixes and credentials hide the real last name.
+        ("Hon. August Lee Pfluger II", "House", "TX", "Republican"),
+        ("Hon. Neal Patrick Dunn, MD, FACS", "House", "FL", "Republican"),
+        # Accent in the roster, none in the disclosure.
+        ("Hon. Nanette Barragan", "House", "CA", "Democrat"),
+        # Two Garcias in CA: the first initial picks Mike over Robert.
+        ("Hon. Michael Garcia", "House", "CA", "Republican"),
+        # Title embedded mid-name, and the member has since moved to the Senate.
+        ("Hon. James E Hon Banks", "House", "IN", "Republican"),
+        # No state at all: last name + chamber + initial of a given name.
+        ("A. Mitchell McConnell Jr.", "Senate", "", "Republican"),
+        # Unknown filer stays blank.
+        ("Unknown Candidate", "House", "ZZ", ""),
+    ],
+)
+def test_match_party_messy_disclosure_names(name, chamber, state, party):
+    assert match_party(name, chamber=chamber, state=state, legislators=_ROSTER) == party
+
+
+def test_match_state_narrows_homonyms_only_when_unambiguous():
+    assert match_state("Hon. Kelly Louise Morrison", chamber="House", legislators=_ROSTER) == "MN"
+    # Two Mike Rogers (AL House, MI Senate): the chamber breaks the tie.
+    assert match_state("Mike Rogers", chamber="Senate", legislators=_ROSTER) == "MI"
+    # Without a chamber the name alone can't choose a state.
+    assert match_state("Mike Rogers", legislators=_ROSTER) == ""
+
+
+def test_match_party_rejects_same_name_in_another_state():
+    assert match_party("Kelly Morrison", chamber="House", state="TX", legislators=_ROSTER) == ""
 
 
 def test_backfill_member_parties(tmp_path: Path):

@@ -123,6 +123,10 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 | `ingest_house.py` | House PTR + FD ingest orchestrator (batch parse/persist) |
 | `house_ptr_download.py` | House PTR PDF autodownload + local zip extract |
 | `house_ptr_repair.py` | House PTR filing/date repair, duplicate merge, backfill |
+| `member_parties.py` | congress-legislators map (`data/legislators_parties.json`): name → party/state matcher, `enrich-member-parties` backfill, API party overlay |
+| `member_states.py` | State + party for PTR-created members (PTRs carry no state): from `fd_filings` by `doc_id`, else the legislators map; runs at PTR ingest and as a backfill at the start of `ingest_house` |
+| `member_names.py` | House PTRs whose PDF header has no filer name: name from `fd_filings` by `doc_id` (never the document number); renames legacy doc-number members at the start of `ingest_house` |
+| `pytest_leftovers.py` | Deletes rows an old test run wrote into the real DB (paths under `pytest-of-*`); run by `ingest-all` only, never inside `ingest_house`, so tests can't delete their own rows |
 | `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 
 | `ingest_senate.py` | Senate PTR ingest pipeline |
