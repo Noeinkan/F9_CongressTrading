@@ -79,6 +79,9 @@ class NotifySettings:
     # Public address of the dashboard; empty means messages carry no links to it.
     dashboard_url: str = ""
 
+    # Rows filed longer ago than this are loaded but never alerted on (0 = off).
+    max_filing_age_days: int = 30
+
     @property
     def configured(self) -> bool:
         """True when a message could actually be delivered."""
@@ -114,4 +117,8 @@ def load_settings() -> NotifySettings:
         digest_weekday=_env_int("CONGRESS_NOTIFY_DIGEST_WEEKDAY", 0),
         stale_ingest_days=_env_int("CONGRESS_NOTIFY_STALE_INGEST_DAYS", 10),
         dashboard_url=(os.getenv("CONGRESS_DASHBOARD_URL") or "").strip(),
+        # A month, not a week: long enough that a pipeline outage of a few weeks
+        # still delivers its alerts late, short enough that a backfill of old
+        # filings stays silent.
+        max_filing_age_days=_env_int("CONGRESS_NOTIFY_MAX_FILING_AGE_DAYS", 30),
     )

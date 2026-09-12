@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -18,8 +18,9 @@ import pandas as pd
 from ..db import get_connection, init_db
 from . import state as notify_state
 from .digest import compute_digest_stats, render_digest
-from .events import KIND_CLUSTER, Event, collect_events, is_urgent
+from .events import KIND_CLUSTER, Event, collect_events, is_urgent, recent_filings
 from .format import (
+    plural,
     render_bootstrap_message,
     render_event_message,
     render_failure_message,
@@ -173,9 +174,16 @@ def run_event_notifications(
             )
 
         new_rows = load_new_transactions(conn, after_id)
-        context_frame = _load_context_frame()
+        recent = recent_filings(new_rows, max_age_days=settings.max_filing_age_days)
+        old_count = len(new_rows) - len(recent)
+        backfill = (
+            f"; {old_count:,} filed over {settings.max_filing_age_days} days ago, not alerted"
+            if old_count
+            else ""
+        )
+        context_frame = _load_context_frame() if not recent.empty else None
         events = collect_events(
-            new_rows,
+            recent,
             context_frame=context_frame,
             large_trade_usd=settings.large_trade_usd,
             option_trade_usd=settings.option_trade_usd,
@@ -190,7 +198,7 @@ def run_event_notifications(
 
         text = render_event_message(
             events,
-            new_row_count=new_count,
+            new_row_count=len(recent),
             max_events=settings.max_events_per_message,
             flood_threshold=settings.flood_threshold,
             links=DashboardLinks(settings.dashboard_url),
@@ -201,7 +209,7 @@ def run_event_notifications(
             return RunOutcome(
                 status=STATUS_QUIET,
                 message=(
-                    f"{new_count:,} new row(s), none notable "
+                    f"{new_count:,} new row(s), none notable{backfill} "
                     f"(high-water id → {max_id:,})"
                 ),
             )
@@ -228,7 +236,7 @@ def run_event_notifications(
         return RunOutcome(
             status=_sent_status(result),
             message=(
-                f"{len(events)} event(s) from {new_count:,} new row(s) - "
+                f"{len(events)} event(s) from {len(recent):,} recent row(s){backfill} - "
                 f"{result.summary}"
             ),
             events=len(events),
@@ -299,7 +307,9 @@ def run_weekly_digest(
                 status=STATUS_SKIPPED, message=f"digest already sent on {today_iso}"
             )
 
-        frame = transactions_ingested_since(conn, DIGEST_WINDOW_DAYS)
+        ingested = transactions_ingested_since(conn, DIGEST_WINDOW_DAYS)
+        frame = recent_filings(ingested, max_age_days=settings.max_filing_age_days)
+        old_count = len(ingested) - len(frame)
         events = collect_events(
             frame,
             context_frame=None,
@@ -316,6 +326,15 @@ def run_weekly_digest(
             stale_days=_days_since(newest_ingest_timestamp(conn)),
             window_days=DIGEST_WINDOW_DAYS,
         )
+        if old_count:
+            stats = replace(
+                stats,
+                notes=(
+                    f"{plural(old_count, 'row')} from older filings (filed over "
+                    f"{settings.max_filing_age_days} days ago) were loaded this "
+                    "week and are not counted above.",
+                ),
+            )
         text = render_digest(
             stats,
             stale_threshold_days=settings.stale_ingest_days,

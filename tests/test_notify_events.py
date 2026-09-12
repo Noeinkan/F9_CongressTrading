@@ -13,6 +13,7 @@ from src.notify.events import (
     is_urgent,
     member_label,
     prepare_frame,
+    recent_filings,
 )
 
 LARGE = 50_000.0
@@ -292,3 +293,15 @@ def test_member_label_survives_missing_party_and_state():
 
 def test_empty_frame_is_handled():
     assert _collect(pd.DataFrame()) == []
+
+
+def test_recent_filings_drops_old_rows_and_keeps_undated_ones():
+    frame = _frame(
+        _row(doc_id="fresh", filing_date=pd.Timestamp("2026-09-01")),
+        _row(doc_id="edge", filing_date=pd.Timestamp("2026-08-13")),
+        _row(doc_id="old", filing_date=pd.Timestamp("2023-05-20")),
+        _row(doc_id="undated", filing_date=pd.NaT),
+    )
+    kept = recent_filings(frame, max_age_days=30, today="2026-09-12 04:17")
+    assert kept["doc_id"].tolist() == ["fresh", "edge", "undated"]
+    assert len(recent_filings(frame, max_age_days=0, today="2026-09-12")) == 4

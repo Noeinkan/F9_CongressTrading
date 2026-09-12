@@ -317,6 +317,29 @@ def prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return add_trade_categories(frame)
 
 
+def recent_filings(
+    frame: pd.DataFrame, *, max_age_days: int, today: object = None
+) -> pd.DataFrame:
+    """Rows filed within ``max_age_days`` of ``today``; all rows when 0 or less.
+
+    New to the database is not new to the public. A backfill — the first Senate
+    download pulls every PTR since 2023 — lands thousands of rows above the
+    high-water mark in one night, and each would otherwise be announced as
+    today's news. A row with no parsable filing date is kept: dropping it would
+    let a parser bug silence real alerts.
+    """
+    if frame is None:
+        return pd.DataFrame()
+    if frame.empty or max_age_days <= 0 or "filing_date" not in frame.columns:
+        return frame
+    now = pd.Timestamp(today) if today is not None else pd.Timestamp.now()
+    if now.tzinfo is not None:
+        now = now.tz_localize(None)
+    cutoff = now.normalize() - pd.Timedelta(days=int(max_age_days))
+    filed = pd.to_datetime(frame["filing_date"], errors="coerce")
+    return frame[filed.isna() | (filed >= cutoff)]
+
+
 def detect_option_trades(
     frame: pd.DataFrame,
     *,

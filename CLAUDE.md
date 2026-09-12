@@ -39,6 +39,7 @@ reports pipeline staleness.
 - CLI: `notify-events`, `notify-digest`, `notify-test`, `notify-failure` (all take `--dry-run`).
 - Wired into `scripts/nightly_ingest.sh`; **no second cron entry needed** — the digest gates itself on `CONGRESS_NOTIFY_DIGEST_WEEKDAY`.
 - **Invariant to preserve:** the `last_transaction_id` high-water mark advances *only* after Telegram confirms delivery, so an outage delays alerts instead of dropping them (`tests/test_notify_service.py` locks this down).
+- Rows filed more than `CONGRESS_NOTIFY_MAX_FILING_AGE_DAYS` (30) ago are loaded but never alerted on, so a backfill (the first Senate download reaches back to 2023) stays silent (`recent_filings` in `events.py`).
 - Detection rules are pure functions over a prepared frame — add a detector in `events.py`, never inline in `service.py`.
 - Reuses `repository._prepare_transactions` and `_patterns_analytics.detect_coordinated_trades` so an alert can't disagree with the dashboard.
 

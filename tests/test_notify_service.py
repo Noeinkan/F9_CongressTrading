@@ -6,6 +6,8 @@ which is exactly how a notification channel goes quiet without anyone noticing.
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from src.db import get_connection
@@ -35,6 +37,11 @@ def _settings(**over) -> NotifySettings:
     )
     base.update(over)
     return NotifySettings(**base)
+
+
+def _days_ago(days: int) -> str:
+    """Relative dates: alerts skip filings older than a month, so fixed ones rot."""
+    return (date.today() - timedelta(days=days)).isoformat()
 
 
 @pytest.fixture(autouse=True)
@@ -70,10 +77,12 @@ def _seed_trade(
     amount_low: float = 1_001.0,
     amount_high: float = 15_000.0,
     transaction_type: str = "P",
-    transaction_date: str = "2026-02-20",
-    filing_date: str = "2026-03-01",
+    transaction_date: str | None = None,
+    filing_date: str | None = None,
     source_hash: str | None = None,
 ) -> int:
+    transaction_date = transaction_date or _days_ago(12)
+    filing_date = filing_date or _days_ago(3)
     row = conn.execute(
         "SELECT id FROM members WHERE full_name = ?", (member,)
     ).fetchone()
@@ -240,7 +249,7 @@ def test_run_with_only_late_filings_is_delivered_silently(monkeypatch):
     conn = get_connection()
     try:
         _arm(conn)
-        _seed_trade(conn, transaction_date="2026-01-01", filing_date="2026-04-01")
+        _seed_trade(conn, transaction_date=_days_ago(100), filing_date=_days_ago(5))
     finally:
         conn.close()
 
@@ -309,6 +318,77 @@ def test_quiet_run_sends_nothing_but_still_advances_the_mark(monkeypatch):
         conn.close()
 
 
+def test_backfilled_old_filings_are_loaded_but_never_announced(monkeypatch):
+    conn = get_connection()
+    try:
+        _arm(conn)
+        new_id = _seed_trade(
+            conn,
+            ticker="OLD",
+            amount_low=500_001.0,
+            amount_high=1_000_000.0,
+            transaction_date="2023-05-01",
+            filing_date="2023-05-20",
+        )
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+
+    outcome = service.run_event_notifications(settings=_settings())
+    assert outcome.status == service.STATUS_QUIET
+    assert sender.messages == [], "a 2023 filing loaded tonight is not today's news"
+    assert "not alerted" in outcome.message
+
+    conn = get_connection()
+    try:
+        assert notify_state.last_transaction_id(conn) == new_id
+    finally:
+        conn.close()
+
+
+def test_backfill_does_not_hide_a_recent_filing_in_the_same_batch(monkeypatch):
+    conn = get_connection()
+    try:
+        _arm(conn)
+        _seed_trade(
+            conn, ticker="OLD", amount_low=500_001.0, amount_high=1_000_000.0,
+            transaction_date="2023-05-01", filing_date="2023-05-20",
+        )
+        _seed_trade(conn, ticker="NEW", amount_low=50_001.0, amount_high=100_000.0)
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+
+    outcome = service.run_event_notifications(settings=_settings())
+    assert outcome.status == service.STATUS_SENT
+    assert "NEW" in sender.messages[0]
+    assert "OLD" not in sender.messages[0]
+    assert "1 new disclosure row" in sender.messages[0]
+
+
+def test_age_limit_zero_turns_the_guard_off(monkeypatch):
+    conn = get_connection()
+    try:
+        _arm(conn)
+        _seed_trade(
+            conn, ticker="OLD", amount_low=500_001.0, amount_high=1_000_000.0,
+            transaction_date="2023-05-01", filing_date="2023-05-20",
+        )
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+
+    outcome = service.run_event_notifications(settings=_settings(max_filing_age_days=0))
+    assert outcome.status == service.STATUS_SENT
+    assert "OLD" in sender.messages[0]
+
+
 def test_no_new_rows_is_silent(monkeypatch):
     conn = get_connection()
     try:
@@ -371,6 +451,24 @@ def test_digest_sends_once_per_day(monkeypatch):
     )
     assert second.status == service.STATUS_SKIPPED
     assert len(sender.messages) == 1
+
+
+def test_digest_leaves_backfilled_rows_out_of_the_week(monkeypatch):
+    conn = get_connection()
+    try:
+        _seed_trade(conn, ticker="NEW")
+        _seed_trade(conn, ticker="OLD", transaction_date="2023-05-01", filing_date="2023-05-20")
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+
+    outcome = service.run_weekly_digest(settings=_settings(), force=True)
+    assert outcome.status == service.STATUS_SENT
+    text = sender.messages[0]
+    assert "1 new row" in text
+    assert "1 row from older filings" in text
 
 
 def test_failure_alert_does_not_touch_notification_state(monkeypatch):
