@@ -14,6 +14,12 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TQDM_DISABLE", "1")
     monkeypatch.delenv("CONGRESS_RE_RESOLVE_TICKERS_BULK", raising=False)
     monkeypatch.delenv("CONGRESS_DISABLE_RE_RESOLVE_OPENFIGI_BATCH", raising=False)
+    # No real Telegram sends from a test run. src/notify/settings.py imports
+    # src.config, which load_dotenv()s the repo `.env` — so without this a test
+    # that calls load_settings() would hold live credentials and could message
+    # the operator's actual chat.
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
 
 
 # ---------------------------------------------------------------------------

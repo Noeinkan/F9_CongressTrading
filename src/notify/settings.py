@@ -12,6 +12,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# Imported for its side effect: src/config.py calls load_dotenv() at import
+# time. Without this, reaching the notifier by any route that does not go
+# through the CLI (a systemd unit calling the module, a one-off python -c) would
+# read an empty environment and report "not configured" even with a filled .env.
+from .. import config as _config  # noqa: F401
+
 
 def _env_float(name: str, default: float) -> float:
     raw = (os.getenv(name) or "").strip().replace("_", "").replace(",", "")
