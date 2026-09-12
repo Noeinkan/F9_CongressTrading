@@ -62,8 +62,14 @@ export type FeedbackCategory = {
   placeholder: string;
 };
 
-/** In triage order: the ones that need a fix first come first. */
-export const FEEDBACK_CATEGORIES: readonly FeedbackCategory[] = [
+/**
+ * In triage order: the ones that need a fix first come first.
+ *
+ * Typed as a non-empty tuple rather than a plain array: `noUncheckedIndexedAccess`
+ * makes `list[0]` possibly-undefined on an array, and the first entry is the
+ * fallback the whole module leans on.
+ */
+export const FEEDBACK_CATEGORIES: readonly [FeedbackCategory, ...FeedbackCategory[]] = [
   {
     id: "bug",
     emoji: "🐞",
