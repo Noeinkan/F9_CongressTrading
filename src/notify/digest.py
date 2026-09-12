@@ -16,15 +16,26 @@ precision the filing does not contain.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import pandas as pd
 
-from ..api._format import format_currency_compact, sum_amount_high, sum_amount_low
-from .events import KIND_LARGE, KIND_LATE, KIND_OPTION, Event, prepare_frame
+from ..api._format import sum_amount_high, sum_amount_low
+from .events import KIND_LARGE, KIND_LATE, KIND_OPTION, Event, member_label, prepare_frame
 from .format import plural
+from .links import DashboardLinks, anchor
+from .money import compact_usd
 from .telegram import escape
 
 _TOP_N = 5
+
+
+class MemberRow(NamedTuple):
+    name: str  # stored name: the dashboard's member key
+    trades: int
+    low: float
+    high: float
+    label: str  # "Rep. Jane Doe (D-CA)"
 
 
 @dataclass(frozen=True)
@@ -38,7 +49,7 @@ class DigestStats:
     buy_high: float = 0.0
     sell_low: float = 0.0
     sell_high: float = 0.0
-    top_members: tuple[tuple[str, int, float, float], ...] = ()
+    top_members: tuple[MemberRow, ...] = ()
     top_tickers: tuple[tuple[str, int, int, float, float], ...] = ()
     option_events: int = 0
     large_events: int = 0
@@ -59,13 +70,12 @@ def _group_sum(frame: pd.DataFrame, key: str, column: str) -> pd.Series:
 
 
 def _range_text(low: float, high: float) -> str:
-    lo = format_currency_compact(low)
-    hi = format_currency_compact(high)
-    if lo == "—" and hi == "—":
+    lo, hi = compact_usd(low), compact_usd(high)
+    if not lo and not hi:
         return "—"
-    if lo == hi:
-        return lo
-    return f"{lo} – {hi}"
+    if not lo or not hi or lo == hi:
+        return lo or hi
+    return f"{lo}–{hi}"
 
 
 def compute_digest_stats(
@@ -106,8 +116,18 @@ def compute_digest_stats(
         .sort_values(["low", "trades"], ascending=[False, False])
         .head(_TOP_N)
     )
+    labels = {
+        str(row["member"]): member_label(row)
+        for _, row in prepared.drop_duplicates("member").iterrows()
+    }
     top_members = tuple(
-        (str(name), int(row["trades"]), float(row["low"]), float(row["high"]))
+        MemberRow(
+            name=str(name),
+            trades=int(row["trades"]),
+            low=float(row["low"]),
+            high=float(row["high"]),
+            label=labels.get(str(name), str(name)),
+        )
         for name, row in by_member.iterrows()
     )
 
@@ -160,12 +180,19 @@ def compute_digest_stats(
 
 
 def render_digest(
-    stats: DigestStats, *, when: object = None, stale_threshold_days: int = 10
+    stats: DigestStats,
+    *,
+    when: object = None,
+    stale_threshold_days: int = 10,
+    links: DashboardLinks | None = None,
 ) -> str:
+    links = links or DashboardLinks()
     ts = pd.Timestamp(when) if when is not None else pd.Timestamp.now()
     lines = [
         f"📋 <b>Congress trades — week to {escape(ts.strftime('%d %b %Y'))}</b>",
     ]
+    if links.home():
+        lines.append(anchor(links.home(), "Open the dashboard"))
 
     if stats.rows == 0:
         lines.append(
@@ -196,11 +223,13 @@ def render_digest(
         if stats.top_members:
             lines.append("")
             lines.append("👤 <b>Most active members</b>")
-            for name, trades, low, high in stats.top_members:
+            for member in stats.top_members:
+                name = anchor(links.member(member.name), member.label or member.name)
                 lines.append(
-                    escape(
-                        f"• {name} — {plural(trades, 'trade')}, "
-                        f"{_range_text(low, high)}"
+                    f"• {name} — "
+                    + escape(
+                        f"{plural(member.trades, 'trade')}, "
+                        f"{_range_text(member.low, member.high)}"
                     )
                 )
 
@@ -209,8 +238,9 @@ def render_digest(
             lines.append("📈 <b>Most traded tickers</b>")
             for ticker, trades, members, low, high in stats.top_tickers:
                 lines.append(
-                    escape(
-                        f"• {ticker} — {plural(trades, 'trade')} by "
+                    f"• {anchor(links.ticker(ticker), ticker)} — "
+                    + escape(
+                        f"{plural(trades, 'trade')} by "
                         f"{plural(members, 'member')}, {_range_text(low, high)}"
                     )
                 )

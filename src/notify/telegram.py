@@ -14,10 +14,12 @@ Two deliberate differences from a fire-and-forget sender:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import time
 from dataclasses import dataclass
 from html import escape as _html_escape
+from html import unescape as _html_unescape
 
 import requests
 
@@ -64,30 +66,47 @@ class SendResult:
         return f"FAILED [{kind}] {status}: {detail}"
 
 
+_TAG = re.compile(r"<[^>]+>")
+
+
+def visible_length(text: str) -> int:
+    """Length as Telegram counts it against the 4096 limit.
+
+    The limit applies *after* HTML parsing, so tags and link addresses do not
+    count, and it is measured in UTF-16 code units, so an emoji counts as two.
+    Measuring raw HTML instead split a message full of dashboard links in two
+    while it was well under the limit.
+    """
+    visible = _html_unescape(_TAG.sub("", text))
+    return len(visible.encode("utf-16-le")) // 2
+
+
 def split_message(text: str, limit: int = TELEGRAM_MAX_CHARS) -> list[str]:
     """Split a message on line boundaries so no chunk exceeds ``limit``.
 
-    A single line longer than the limit is hard-cut; alert lines are built from
-    bounded fields, so that path is a safety net rather than the normal case.
+    Every rendered line carries balanced tags, so a line boundary is always a
+    safe cut. A single line longer than the limit is hard-cut; alert lines are
+    built from bounded fields, so that path is a safety net rather than the
+    normal case.
     """
     text = text.strip("\n")
     if not text:
         return []
-    if len(text) <= limit:
+    if visible_length(text) <= limit:
         return [text]
 
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
     for line in text.split("\n"):
-        while len(line) > limit:
+        while visible_length(line) > limit:
             if current:
                 chunks.append("\n".join(current))
                 current, current_len = [], 0
             chunks.append(line[:limit])
             line = line[limit:]
         # +1 for the newline that will rejoin this line to the previous one.
-        extra = len(line) + (1 if current else 0)
+        extra = visible_length(line) + (1 if current else 0)
         if current_len + extra > limit:
             chunks.append("\n".join(current))
             current, current_len = [line], len(line)
@@ -146,8 +165,13 @@ def send_message(
     *,
     session: requests.Session | None = None,
     dry_run: bool = False,
+    silent: bool = False,
 ) -> SendResult:
-    """Deliver ``text`` (Telegram HTML) to the configured chat."""
+    """Deliver ``text`` (Telegram HTML) to the configured chat.
+
+    ``silent`` delivers without a notification sound: the message still lands
+    and shows as unread, it just does not buzz the phone.
+    """
     chunks = split_message(text)
     if not chunks:
         return SendResult(ok=True, chunks_sent=0)
@@ -177,6 +201,8 @@ def send_message(
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
+        if silent:
+            payload["disable_notification"] = True
         for attempt in range(max(1, settings.max_retries)):
             attempts += 1
             ok, status, detail = _post_once(url, payload, settings, session)

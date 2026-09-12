@@ -143,10 +143,16 @@ For the nightly Telegram alerts add:
 ```bash
 TELEGRAM_BOT_TOKEN=<from @BotFather>
 TELEGRAM_CHAT_ID=<from api.telegram.org/bot<token>/getUpdates>
+CONGRESS_DASHBOARD_URL=https://congress.noeinsolutions.com
 ```
 
-Both optional: without them `notify-events` / `notify-digest` send nothing and
-say so in the log. Thresholds are tunable — see the commented block at the end
+The first two are optional: without them `notify-events` / `notify-digest` send
+nothing and say so in the log. `CONGRESS_DASHBOARD_URL` turns member and ticker
+names in the messages into links to the dashboard; without it they are plain
+text. House filings also get a link to the PDF. Senate rows still have no PDF
+link: the Senate website only opens a filing after the visitor accepts its
+terms, so a direct link lands on its home page. The member link covers those
+rows instead. Thresholds are tunable — see the commented block at the end
 of `.env.example`. The main README has the full setup walk-through under
 "Notifiche Telegram".
 

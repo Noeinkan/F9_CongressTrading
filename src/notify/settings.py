@@ -76,6 +76,9 @@ class NotifySettings:
     digest_weekday: int  # 0 = Monday, 6 = Sunday
     stale_ingest_days: int
 
+    # Public address of the dashboard; empty means messages carry no links to it.
+    dashboard_url: str = ""
+
     @property
     def configured(self) -> bool:
         """True when a message could actually be delivered."""
@@ -91,10 +94,10 @@ def load_settings() -> NotifySettings:
         bot_token=(os.getenv("TELEGRAM_BOT_TOKEN") or "").strip(),
         chat_id=(os.getenv("TELEGRAM_CHAT_ID") or "").strip(),
         enabled=_env_bool("CONGRESS_NOTIFY_ENABLED", True),
-        # $50k floor: the disclosed *lower* bound must clear it, so a
-        # "$50,001 - $100,000" bucket qualifies and a "$15,001 - $50,000" does
-        # not. Conservative by design — ranges are all Congress discloses.
-        large_trade_usd=_env_float("CONGRESS_NOTIFY_LARGE_TRADE_USD", 50_000.0),
+        # $100k floor: the disclosed *lower* bound must clear it, so a
+        # "$100,001 - $250,000" bucket qualifies and a "$50,001 - $100,000"
+        # does not. Conservative by design — ranges are all Congress discloses.
+        large_trade_usd=_env_float("CONGRESS_NOTIFY_LARGE_TRADE_USD", 100_000.0),
         # Options are rare and directional, so they earn a lower bar.
         option_trade_usd=_env_float("CONGRESS_NOTIFY_OPTION_TRADE_USD", 15_000.0),
         cluster_min_members=_env_int("CONGRESS_NOTIFY_CLUSTER_MIN_MEMBERS", 3),
@@ -110,4 +113,5 @@ def load_settings() -> NotifySettings:
         retry_delay=_env_float("CONGRESS_NOTIFY_RETRY_DELAY_SECONDS", 5.0),
         digest_weekday=_env_int("CONGRESS_NOTIFY_DIGEST_WEEKDAY", 0),
         stale_ingest_days=_env_int("CONGRESS_NOTIFY_STALE_INGEST_DAYS", 10),
+        dashboard_url=(os.getenv("CONGRESS_DASHBOARD_URL") or "").strip(),
     )

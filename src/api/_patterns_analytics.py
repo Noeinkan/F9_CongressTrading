@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pandas as pd
 
-from ..utils import normalize_key
+from ..utils import is_non_equity_asset, normalize_key
 from ._constants import COMMITTEES_JSON_PATH
 from .repository import (
     is_buy_transaction_type,
@@ -107,16 +108,57 @@ def normalize_party(value: object) -> str:
     return p
 
 
+# Hallmarks of a bond or note. "Call" on a debt instrument is the issuer's right
+# to redeem it early ("CALLABLE", "CALL MAKE WHOLE", "PAR CALL"), not an option.
+_DEBT_HALLMARKS = re.compile(
+    r"\d+(?:\.\d+)?\s*%"
+    r"|\bmake[\s-]+whole\b|\bcallable\b|\bpar\s+call\b"
+    r"|\bnotes?\b|\bmtn\b|\bbonds?\b|\bbds\b|\bgo\b|\brev(?:enue)?s?\b"
+    r"|\bdue\s+\d|\bmaturing\b|\btreasury\b",
+    re.IGNORECASE,
+)
+
+# Names that contain an option word without being an option.
+_OPTION_WORD_FALSE_FRIENDS = re.compile(
+    r"\bcommon\s+stock\b|\betf\b|\bcovered\s+call\b|\boption\s+(?:income|care)\b",
+    re.IGNORECASE,
+)
+
+_NON_OPTION_ASSET_TYPES = frozenset({"etf", "bond", "mutual_fund", "annuity"})
+_PUT_WORD = re.compile(r"\bputs?\b", re.IGNORECASE)
+_CALL_WORD = re.compile(r"\bcalls?\b", re.IGNORECASE)
+_OPTION_WORD = re.compile(r"\boptions?\b", re.IGNORECASE)
+
+
+def looks_like_debt_security(text: str) -> bool:
+    """True when an asset name reads like a bond, note or Treasury."""
+    return bool(text) and (
+        bool(_DEBT_HALLMARKS.search(text)) or is_non_equity_asset("", text)
+    )
+
+
 def classify_option_side(row: pd.Series) -> str:
-    combined = " ".join(
+    """``Call`` / ``Put`` / ``Option`` for options contracts, ``Stock`` otherwise.
+
+    Matches whole words only: a substring test reads *Super Micro Comput·er*
+    as a put and every callable municipal bond as a call, which once made
+    roughly four in ten "options" something else.
+    """
+    asset_type = str(row.get("asset_type", "") or "").strip().lower()
+    if asset_type in _NON_OPTION_ASSET_TYPES:
+        return "Stock"
+    names = " ".join(
         str(row.get(col, "") or "")
-        for col in ("asset_type", "asset_name_raw", "asset_name_normalized", "issuer_name")
-    ).lower()
-    if "put" in combined:
+        for col in ("asset_name_raw", "asset_name_normalized", "issuer_name")
+    )
+    if _OPTION_WORD_FALSE_FRIENDS.search(names) or looks_like_debt_security(names):
+        return "Stock"
+    text = f"{asset_type} {names}"
+    if _PUT_WORD.search(text):
         return "Put"
-    if "call" in combined:
+    if _CALL_WORD.search(text):
         return "Call"
-    if "option" in combined:
+    if "option" in asset_type or _OPTION_WORD.search(names):
         return "Option"
     return "Stock"
 

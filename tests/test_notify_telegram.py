@@ -9,6 +9,7 @@ from src.notify.telegram import (
     escape,
     send_message,
     split_message,
+    visible_length,
 )
 
 
@@ -84,6 +85,19 @@ def test_long_message_splits_on_line_boundaries():
         assert all(len(part) == 100 for part in chunk.split("\n"))
 
 
+def test_link_markup_does_not_count_toward_the_limit():
+    """Telegram applies 4096 after parsing: a link-heavy message still fits."""
+    line = '<a href="https://dash.example/members?member=' + "x" * 150 + '">Rep. X</a>'
+    text = "\n".join([line] * 40)  # ~7,000 raw chars, ~300 visible
+    assert len(text) > TELEGRAM_MAX_CHARS
+    assert split_message(text) == [text]
+
+
+def test_visible_length_counts_emoji_as_two_and_entities_as_one():
+    assert visible_length("<b>A&amp;B</b>") == 3
+    assert visible_length("🟢") == 2
+
+
 def test_single_overlong_line_is_hard_cut():
     chunks = split_message("y" * (TELEGRAM_MAX_CHARS + 50))
     assert len(chunks) == 2
@@ -109,6 +123,14 @@ def test_successful_send_posts_once():
     assert len(session.calls) == 1
     assert session.calls[0]["data"]["chat_id"] == "12345"
     assert session.calls[0]["data"]["parse_mode"] == "HTML"
+    assert "disable_notification" not in session.calls[0]["data"]
+
+
+def test_silent_send_asks_telegram_not_to_play_a_sound():
+    session = _Session(_Response(200))
+    result = send_message("hi", _settings(), session=session, silent=True)
+    assert result.ok
+    assert session.calls[0]["data"]["disable_notification"] is True
 
 
 def test_invalid_token_fails_permanently_without_retrying():

@@ -54,9 +54,11 @@ class _Recorder:
     def __init__(self, result: SendResult):
         self.result = result
         self.messages: list[str] = []
+        self.silent: list[bool] = []
 
-    def __call__(self, text, settings, *, session=None, dry_run=False):
+    def __call__(self, text, settings, *, session=None, dry_run=False, silent=False):
         self.messages.append(text)
+        self.silent.append(silent)
         return self.result
 
 
@@ -153,7 +155,7 @@ def test_first_run_arms_instead_of_replaying_the_backlog(monkeypatch):
     assert len(sender.messages) == 1
     assert "alerts armed" in sender.messages[0]
     # Two large trades existed, and neither was announced.
-    assert "100.0K" not in sender.messages[0]
+    assert "$100K" not in sender.messages[0]
 
     conn = get_connection()
     try:
@@ -202,12 +204,51 @@ def test_notable_trade_is_sent_and_the_mark_advances(monkeypatch):
     assert outcome.status == service.STATUS_SENT
     assert outcome.events == 1
     assert "EXC" in sender.messages[0]
+    assert sender.silent == [False], "a large trade is worth a notification sound"
 
     conn = get_connection()
     try:
         assert notify_state.last_transaction_id(conn) == new_id
     finally:
         conn.close()
+
+
+def test_first_buy_tag_is_never_put_on_a_sale(monkeypatch):
+    conn = get_connection()
+    try:
+        _arm(conn)
+        _seed_trade(conn, ticker="BUYS", amount_low=50_001.0, amount_high=100_000.0)
+        _seed_trade(
+            conn, ticker="SELLS", amount_low=50_001.0, amount_high=100_000.0,
+            transaction_type="S",
+        )
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+    service.run_event_notifications(settings=_settings())
+
+    lines = sender.messages[0].splitlines()
+    buy = next(line for line in lines if "BUYS" in line)
+    sell = next(line for line in lines if "SELLS" in line)
+    assert "first buy on record" in buy
+    assert "first buy on record" not in sell
+
+
+def test_run_with_only_late_filings_is_delivered_silently(monkeypatch):
+    conn = get_connection()
+    try:
+        _arm(conn)
+        _seed_trade(conn, transaction_date="2026-01-01", filing_date="2026-04-01")
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+    outcome = service.run_event_notifications(settings=_settings())
+    assert outcome.status == service.STATUS_SENT
+    assert sender.silent == [True]
 
 
 def test_delivery_failure_leaves_the_mark_for_the_next_run(monkeypatch):

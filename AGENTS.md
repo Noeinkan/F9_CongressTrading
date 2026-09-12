@@ -207,9 +207,13 @@ and the dashboard can never describe the same trade differently.
 
 | `query.py` | The one query the dashboard lacks: which rows are new (needs `transactions.id`) |
 
-| `events.py` | Detection policy, pure: `option_trade`, `large_trade`, `cluster`, `late_filing` |
+| `events.py` | Detection policy, pure: `option_trade`, `large_trade` (listed stocks/ETFs only — bonds, Treasuries, funds excluded), `cluster`, `late_filing` (days *past* the 45-day deadline). `is_urgent`: a run with only late filings is sent silently |
 
-| `format.py` | Telegram HTML rendering, per-kind caps, "+N more" |
+| `format.py` | Telegram HTML rendering: rows grouped under one heading per member + filing, repeats of one trade folded into a total, per-kind caps, "+N more" |
+
+| `links.py` | Dashboard deep links (`/members?member=`, `/tickers?ticker=`) from `CONGRESS_DASHBOARD_URL`; plain text when unset. Mirrors `frontend/src/utils/entityLinks.ts` |
+
+| `money.py` | Compact chat amounts (`$100K–$250K`, `$500K+` for a floor-only bucket) — separate from `api/_format` on purpose |
 
 | `digest.py` | Weekly stats + pipeline staleness (pure) |
 

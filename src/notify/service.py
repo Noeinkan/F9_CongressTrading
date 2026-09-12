@@ -18,13 +18,14 @@ import pandas as pd
 from ..db import get_connection, init_db
 from . import state as notify_state
 from .digest import compute_digest_stats, render_digest
-from .events import KIND_CLUSTER, Event, collect_events
+from .events import KIND_CLUSTER, Event, collect_events, is_urgent
 from .format import (
     render_bootstrap_message,
     render_event_message,
     render_failure_message,
     render_test_message,
 )
+from .links import DashboardLinks
 from .query import (
     load_new_transactions,
     new_transaction_stats,
@@ -93,8 +94,9 @@ def _days_since(timestamp: str) -> int | None:
 def _first_position_tagger(
     conn: sqlite3.Connection, up_to_id: int
 ) -> Callable[[pd.Series], list[str]]:
-    """Tag a trade as the member's first position in that ticker.
+    """Tag a buy as the member's first recorded trade in that ticker.
 
+    Buys only: a "first" sale just means the purchase predates our records.
     ``up_to_id`` is the run's high-water mark rather than the row's own id, so a
     member who traded the same ticker twice in one batch is not flagged twice —
     the second one is not a new position.
@@ -104,20 +106,20 @@ def _first_position_tagger(
     def tagger(row: pd.Series) -> list[str]:
         member = str(row.get("member") or "").strip()
         ticker = str(row.get("ticker") or "").strip().upper()
-        if not member or not ticker:
+        if not member or not ticker or not bool(row.get("is_buy")):
             return []
         key = (member, ticker)
         if key not in cache:
             cache[key] = prior_trade_count(conn, member, ticker, up_to_id=up_to_id)
-        return [f"first position in {ticker}"] if cache[key] <= 1 else []
+        return ["first buy on record"] if cache[key] <= 1 else []
 
     return tagger
 
 
 def _deliver(
-    text: str, settings: NotifySettings, *, dry_run: bool
+    text: str, settings: NotifySettings, *, dry_run: bool, silent: bool = False
 ) -> SendResult:
-    return send_message(text, settings, dry_run=dry_run)
+    return send_message(text, settings, dry_run=dry_run, silent=silent)
 
 
 def _not_configured_outcome(settings: NotifySettings) -> RunOutcome:
@@ -191,6 +193,7 @@ def run_event_notifications(
             new_row_count=new_count,
             max_events=settings.max_events_per_message,
             flood_threshold=settings.flood_threshold,
+            links=DashboardLinks(settings.dashboard_url),
         )
         if not text:
             notify_state.set_last_transaction_id(conn, max_id)
@@ -203,7 +206,9 @@ def run_event_notifications(
                 ),
             )
 
-        result = _deliver(text, settings, dry_run=dry_run)
+        result = _deliver(
+            text, settings, dry_run=dry_run, silent=not is_urgent(events)
+        )
         if not result.ok:
             notify_state.record_event_run(conn, error=result.summary)
             return RunOutcome(
@@ -311,8 +316,13 @@ def run_weekly_digest(
             stale_days=_days_since(newest_ingest_timestamp(conn)),
             window_days=DIGEST_WINDOW_DAYS,
         )
-        text = render_digest(stats, stale_threshold_days=settings.stale_ingest_days)
-        result = _deliver(text, settings, dry_run=dry_run)
+        text = render_digest(
+            stats,
+            stale_threshold_days=settings.stale_ingest_days,
+            links=DashboardLinks(settings.dashboard_url),
+        )
+        # The digest is a scheduled read, not news: it arrives without a sound.
+        result = _deliver(text, settings, dry_run=dry_run, silent=True)
         if not result.ok:
             return RunOutcome(
                 status=STATUS_FAILED,

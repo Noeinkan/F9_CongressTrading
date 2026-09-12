@@ -97,7 +97,7 @@ _NON_EQUITY_ASSET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bPublic Works\b", re.I),
     re.compile(r"\bUS(?:\\s+Treasury)?\s+(?:Treasury\s+)?(?:Note|Bond|Bill)s?\b", re.I),
     re.compile(r"\bU\.?\s*S\.?\s+Treasury\b", re.I),
-    re.compile(r"\bTreasury\s+Bill\b", re.I),
+    re.compile(r"\bTreasury\s+Bills?\b", re.I),
     re.compile(r"\bUSD\b", re.I),
     re.compile(r"\bAuthority\b", re.I),
     re.compile(r"\b(?:Corporate|Municipal)\s+Bonds?\b", re.I),

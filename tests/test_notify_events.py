@@ -10,6 +10,7 @@ from src.notify.events import (
     KIND_OPTION,
     collect_events,
     detect_clusters,
+    is_urgent,
     member_label,
     prepare_frame,
 )
@@ -89,6 +90,51 @@ def test_nothing_notable_produces_no_events():
     assert _collect(_frame(_row(), _row(source_hash="h2"))) == []
 
 
+def test_large_trade_ignores_debt_funds_and_untickered_assets():
+    """Treasuries and bonds clear any dollar bar and say nothing about a company."""
+    big = {"amount_low": 500_001.0, "amount_high": 1_000_000.0}
+    events = _collect(
+        _frame(
+            _row(**big, source_hash="tbill", ticker="IUSXX", asset_name_raw="U. S. Treasury Bills [GS]"),
+            _row(**big, source_hash="note", ticker="JPM", asset_type="equity",
+                 asset_name_raw="JPMORGAN CHASE &CO NOTE CALL MAKE WHOLE 5.29900% 07/24/2029 [CS]"),
+            _row(**big, source_hash="muni", ticker="", asset_name_raw="Cook Cnty IL Ser A Go 5% due"),
+            _row(**big, source_hash="fund", ticker="VFIAX", asset_type="mutual_fund"),
+            _row(**big, source_hash="stock", ticker="MSFT", asset_name_raw="Microsoft Corp Common Stock"),
+        )
+    )
+    assert [e.ticker for e in events] == ["MSFT"]
+
+
+def test_amounts_are_compact_and_a_floor_only_bucket_says_plus():
+    events = _collect(
+        _frame(
+            _row(amount_low=250_001.0, amount_high=500_000.0, source_hash="a"),
+            _row(amount_low=500_001.0, amount_high=500_001.0, source_hash="b"),
+        )
+    )
+    amounts = sorted(e.amount for e in events)
+    assert amounts == ["$250K–$500K", "$500K+"]
+
+
+def test_row_events_carry_the_parts_the_renderer_links():
+    event = _collect(_frame(_row(amount_low=50_001.0, amount_high=100_000.0, member="Hon. Alice Example")))[0]
+    assert event.member == "Hon. Alice Example", "the dashboard keys members by stored name"
+    assert event.member_label == "Rep. Alice Example (D-CA)"
+    assert event.ticker == "EXC"
+    assert event.direction == "buy"
+    assert event.group_key == "Hon. Alice Example|doc1"
+
+
+def test_only_late_filings_are_not_urgent():
+    late = _collect(
+        _frame(_row(transaction_date=pd.Timestamp("2026-01-01"), filing_date=pd.Timestamp("2026-04-01")))
+    )
+    large = _collect(_frame(_row(amount_low=50_001.0, amount_high=100_000.0)))
+    assert not is_urgent(late)
+    assert is_urgent(large)
+
+
 # --------------------------------------------------------------------------- #
 # Options
 # --------------------------------------------------------------------------- #
@@ -152,7 +198,9 @@ def test_small_late_filing_is_reported_on_its_own():
         )
     )
     assert [e.kind for e in events] == [KIND_LATE]
-    assert "90 days late" in events[0].title
+    # Filed 90 days after the trade against a 45-day deadline: 45 days late.
+    assert "45 days late" in events[0].title
+    assert "90 days late" not in events[0].title
 
 
 def test_filing_inside_the_deadline_is_not_late():

@@ -101,6 +101,45 @@ def test_classify_option_side():
     assert classify_option_side(row) == "Put"
 
 
+def _side(asset_name_raw: str, asset_type: str = "unknown", issuer_name: str = "") -> str:
+    return classify_option_side(
+        pd.Series(
+            {
+                "asset_type": asset_type,
+                "asset_name_raw": asset_name_raw,
+                "asset_name_normalized": "",
+                "issuer_name": issuer_name,
+            }
+        )
+    )
+
+
+def test_classify_option_side_matches_whole_words_only():
+    """"Computer" contains "put"; that made Super Micro a put option."""
+    assert _side("Super Micro Computer, Inc. - Common Stock (SMCI) [ST]", "equity") == "Stock"
+    assert _side("CALL INVESCO QQQ SER 1 [OT]", "option") == "Call"
+    assert _side("SPY Option [OT]", "option") == "Option"
+
+
+def test_classify_option_side_ignores_redemption_calls_on_debt():
+    """A callable bond's "call" is the issuer's redemption right, not an option."""
+    for name in (
+        "TROY MICH CITY SCH D GO 5% 05/01/2036 CALLABLE [GS]",
+        "PEPSICO INC NOTE CALL MAKE WHOLE 3.90000% 07/18/2032 [CS]",
+        "Minneapolis-Saint Paul MN Met Sub- Ser A Rev Call 7/1/29 5% Due 1/1/34 [GS]",
+        "MCDONALDS CORP MTN CALL",
+    ):
+        assert _side(name, "option") == "Stock", name
+
+
+def test_classify_option_side_ignores_funds_named_after_options():
+    assert _side("Global X Nasdaq 100 Covered Call ETF [OT]", "option") == "Stock"
+    assert _side(
+        "Yieldmax MSCI Optn Inc Strg ETF", "etf", "YieldMax HIMS Option Income Strategy ETF"
+    ) == "Stock"
+    assert _side("Option Care Health, Inc. - Common", "option") == "Stock"
+
+
 def test_detect_coordinated_trades():
     frame = _sample_frame()
     out = detect_coordinated_trades(frame, window_days=365, min_members=2)

@@ -41,8 +41,10 @@ the dashboard describe a trade identically.
 | `telegram.py` | Delivery: retries, 4096-char split, HTML escape; failures returned, never swallowed |
 | `state.py` | `notification_state` high-water mark + `notification_cluster_log` (lazily created) |
 | `query.py` | "Which rows are new" — the one query the dashboard lacks (needs `transactions.id`) |
-| `events.py` | Detection policy (pure): option / large / cluster / late-filing |
-| `format.py` | Telegram HTML rendering, per-kind caps |
+| `events.py` | Detection policy (pure): option / large (listed stocks+ETFs) / cluster / late-filing; `is_urgent` |
+| `format.py` | Telegram HTML rendering: grouped per member+filing, repeats folded, per-kind caps |
+| `links.py` | Dashboard deep links from `CONGRESS_DASHBOARD_URL` (mirrors `entityLinks.ts`) |
+| `money.py` | Compact chat amounts (`$100K–$250K`, `$500K+`) |
 | `digest.py` | Weekly stats + pipeline staleness (pure) |
 | `service.py` | Orchestration; advances the mark only after delivery succeeds |
 

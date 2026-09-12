@@ -25,8 +25,11 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const from =
-    (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/";
+  // Keep the query string: a link such as /members?member=… (from a Telegram
+  // alert) must land on that member after sign-in, not on an empty page.
+  const fromLocation = (location.state as { from?: { pathname: string; search?: string } } | null)
+    ?.from;
+  const from = fromLocation ? `${fromLocation.pathname}${fromLocation.search ?? ""}` : "/";
 
   useEffect(() => {
     if (session.data && (!session.data.auth_required || session.data.authenticated)) {
