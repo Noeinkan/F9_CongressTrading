@@ -65,6 +65,101 @@ API_SERVER_PORT=9001
 
 When `APP_PASSWORD` is set, the login page appears before any transaction data loads.
 
+> **The variables were renamed and the server was not.** Until 12 September 2026
+> the VPS `.env` carried `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` — the names
+> the Streamlit dashboard used. The FastAPI app reads `APP_USERNAME` /
+> `APP_PASSWORD`, so those two lines were read by nothing and the board was
+> serving every disclosure, the review-queue writes and the ingest trigger to
+> anyone who had the IP. The `DASHBOARD_*` lines are inert and can be deleted.
+> If you ever see `"auth_required": false` in `/api/health` on a deployment that
+> is supposed to be gated, this is the first thing to check.
+
+## Public hostname
+
+The board answers on `https://congress.noeinsolutions.com`, terminated by the
+shared nginx edge that already fronts `noeinsolutions.com`. The old
+`http://77.42.70.26:8080` still works from inside, but it is a bare IP over
+plain HTTP — the login password travels in the clear on it.
+
+The app itself is unchanged: `congress-web` (Caddy) keeps serving
+`frontend/dist` and proxying `/api/*` on `:8080`, and nginx simply sits in
+front of it holding the certificate. nginx runs in a container, so it reaches
+the host Caddy at `172.17.0.1:8080` — the docker0 gateway.
+
+Setting it up, in order:
+
+1. **Add the DNS record.** Cloudflare → `noeinsolutions.com` → DNS → Add
+   record: type `A`, name `congress`, IPv4 `77.42.70.26`, Proxy status **DNS
+   only** (grey cloud, not orange). Proxying breaks the HTTP-01 challenge in
+   step 3. Confirm with `nslookup congress.noeinsolutions.com 1.1.1.1` before
+   going on — the rest fails until this answers.
+
+2. **Install the bootstrap vhost.** The real one names a certificate that does
+   not exist yet, and nginx refuses to reload with a missing certificate path —
+   which would take down every other site on the box, not just this one.
+
+   ```bash
+   scp deploy/congress.noeinsolutions.com.bootstrap.conf \
+       root@77.42.70.26:/opt/sites/_vhosts/congress.conf
+   ssh root@77.42.70.26 'docker exec bep-generator-nginx-1 nginx -t && \
+       docker exec bep-generator-nginx-1 nginx -s reload'
+   ```
+
+3. **Issue the certificate** over the webroot the edge already mounts:
+
+   ```bash
+   ssh root@77.42.70.26 'certbot certonly --webroot -w /var/www/certbot \
+       -d congress.noeinsolutions.com --non-interactive --agree-tos \
+       -m andrea.aita@noeinsolutions.com'
+   ```
+
+4. **Install the real vhost** and reload:
+
+   ```bash
+   scp deploy/congress.noeinsolutions.com.conf \
+       root@77.42.70.26:/opt/sites/_vhosts/congress.conf
+   ssh root@77.42.70.26 'docker exec bep-generator-nginx-1 nginx -t && \
+       docker exec bep-generator-nginx-1 nginx -s reload'
+   ```
+
+5. **Mark the session cookie Secure**, now that there is TLS to protect it. Set
+   `APP_SESSION_HTTPS_ONLY=1` in the VPS `.env` and
+   `systemctl restart congress-api`. Do this *only after* step 4 works: with
+   the flag on, a browser will not send the cookie over plain HTTP, so
+   `:8080` stops being able to hold a login.
+
+6. **Check it**, from a machine that is not the server:
+
+   ```bash
+   curl -fsS -o /dev/null -w '%{http_code}\n' https://congress.noeinsolutions.com/
+   ```
+
+The demo is a different hostname on the same box —
+`congress.demos.noeinsolutions.com`, published through the `hetzner-site`
+skill. See [../docs/DEMO.md](../docs/DEMO.md).
+
+For the nightly Telegram alerts add:
+
+```bash
+TELEGRAM_BOT_TOKEN=<from @BotFather>
+TELEGRAM_CHAT_ID=<from api.telegram.org/bot<token>/getUpdates>
+```
+
+Both optional: without them `notify-events` / `notify-digest` send nothing and
+say so in the log. Thresholds are tunable — see the commented block at the end
+of `.env.example`. The main README has the full setup walk-through under
+"Notifiche Telegram".
+
+Check the channel from the VPS with:
+
+```bash
+cd /opt/F9_CongressTrading && ./.venv/bin/python -m src.main notify-test
+```
+
+No extra cron entry is needed: `scripts/nightly_ingest.sh` calls both notify
+commands, and `notify-digest` self-gates to `CONGRESS_NOTIFY_DIGEST_WEEKDAY`
+(Monday by default).
+
 ## Firewall
 
 ```bash

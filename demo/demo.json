@@ -1,0 +1,59 @@
+{
+  "manifestVersion": 1,
+
+  "slug": "f9-congress-trading",
+  "repo": "F9_CongressTrading",
+  "name": "Congressional Disclosure Tracker",
+
+  "archetype": "dashboard",
+  "kind": "sandbox",
+  "status": "planned",
+
+  "url": null,
+  "plannedUrl": "https://congress.demos.noeinsolutions.com/demo",
+  "plannedSlug": "congress",
+  "urlBlockedBy": "The *.demos.noeinsolutions.com wildcard A record does not resolve yet (NXDOMAIN from 1.1.1.1 on 2026-09-12). Publishing via hetzner-site will fail at HTTP-01 certificate issuance until it exists.",
+  "note": "No sign-up. Read-only, data frozen 12 September 2026.",
+  "noteIt": "Nessuna registrazione. Sola lettura, dati congelati al 12 settembre 2026.",
+
+  "data": {
+    "source": "demo/fixtures/demo-snapshot.sqlite.gz",
+    "snapshot": "2026-09-12",
+    "window": "transactions from 2025-01-01",
+    "counts": {
+      "members": 105,
+      "filings": 573,
+      "transactions": 13647,
+      "tickers": 1315,
+      "reviewQueue": 2885,
+      "priceBars": 484436
+    },
+    "sizeMb": 9.1,
+    "refresh": "python scripts/freeze_demo_data.py, commit the fixture, redeploy."
+  },
+
+  "killSwitch": {
+    "server": "DEMO_MODE=false",
+    "client": null,
+    "note": "Unset or false and POST /api/demo/session 404s, the read-only middleware stands down and the banner never renders. Default off."
+  },
+
+  "limits": {
+    "ttlMinutes": null,
+    "perSessionActions": null,
+    "globalDailyActions": null,
+    "perIpPerHour": null
+  },
+
+  "resets": "Nothing to reset: every write to /api/* is refused while DEMO_MODE is on, so the snapshot a visitor sees is the snapshot the next visitor sees.",
+  "costPerVisit": "none",
+
+  "runLocally": "python scripts/unpack_demo_snapshot.py && DEMO_MODE=1 CONGRESS_DB_PATH=data/db/demo-snapshot.sqlite APP_PASSWORD=demo python -m src.api",
+  "shots": [
+    "f9-congress-trading.jpg",
+    "f9-congress-trading-committees.jpg",
+    "f9-congress-trading-trades.jpg"
+  ],
+  "registeredOnLanding": false,
+  "updatedAt": "2026-09-12"
+}

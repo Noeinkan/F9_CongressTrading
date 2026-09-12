@@ -66,6 +66,14 @@ All CLI: **`python -m src.main <command>`** from repo root.
 
 | `re-resolve-tickers` | Re-resolve ticker/issuer on all SQLite transactions without re-parsing PDFs; uses disclosure text + cache/API (`--clear-asset-cache`) |
 
+| `notify-events` | Telegram alert for notable rows ingested since the last run (options, large trades, coordinated clusters, late filings). Silent when nothing qualifies. `--dry-run` previews without sending or writing state. |
+
+| `notify-digest` | Weekly roundup + pipeline-staleness line. Self-gates to `CONGRESS_NOTIFY_DIGEST_WEEKDAY`, so calling it nightly is correct (`--force`, `--dry-run`). |
+
+| `notify-test` | Sends one test message — the fastest check that the bot token and chat id still work. |
+
+| `notify-failure` | One-line "nightly job failed" alert; called from the `ERR` trap in `scripts/nightly_ingest.sh` (`--message`). |
+
 
 
 **Run the dashboard:** `python -m src.api` (API) + `cd frontend && npm run dev` (Vite dev server). See `frontend/README.md` and `deploy/README.md` for production (Caddy + static build).
@@ -143,6 +151,8 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 
 | `house_coverage.py` | House coverage tracking |
 
+| `notify/` | Telegram alerting (see its own table below) |
+
 
 
 ### `src/api/` modules
@@ -172,6 +182,38 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 | `_executive_analytics.py` | Executive (OGE) page analytics |
 
 | `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |
+
+
+
+### `src/notify/` modules
+
+
+
+Telegram alerting for the nightly cron. Reuses the API layer's pure helpers
+(`_prepare_transactions`, `detect_coordinated_trades`, `_format`) so an alert
+and the dashboard can never describe the same trade differently.
+
+
+
+| Module | Purpose |
+
+|--------|---------|
+
+| `settings.py` | Env contract: credentials + thresholds (`NotifySettings`, `load_settings`) |
+
+| `telegram.py` | Delivery: retries, 4096-char splitting, HTML escaping. Failures are returned, never swallowed; no permanent self-disable |
+
+| `state.py` | `notification_state` (high-water `last_transaction_id`) + `notification_cluster_log`, both created lazily — not in `db.py` |
+
+| `query.py` | The one query the dashboard lacks: which rows are new (needs `transactions.id`) |
+
+| `events.py` | Detection policy, pure: `option_trade`, `large_trade`, `cluster`, `late_filing` |
+
+| `format.py` | Telegram HTML rendering, per-kind caps, "+N more" |
+
+| `digest.py` | Weekly stats + pipeline staleness (pure) |
+
+| `service.py` | Orchestration. **Advances the high-water mark only after delivery succeeds**, so an outage delays alerts instead of dropping them |
 
 
 

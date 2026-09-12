@@ -30,6 +30,22 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `polygon_prices.py` | Polygon.io daily bar fetching + cache |
 | `export_csv.py` | CSV export logic |
 
+## `src/notify/` — Telegram alerting
+
+Driven by the nightly cron. Reuses the API layer's pure helpers so alerts and
+the dashboard describe a trade identically.
+
+| File | Responsibility |
+|------|----------------|
+| `settings.py` | Env contract: credentials + thresholds (`NotifySettings`) |
+| `telegram.py` | Delivery: retries, 4096-char split, HTML escape; failures returned, never swallowed |
+| `state.py` | `notification_state` high-water mark + `notification_cluster_log` (lazily created) |
+| `query.py` | "Which rows are new" — the one query the dashboard lacks (needs `transactions.id`) |
+| `events.py` | Detection policy (pure): option / large / cluster / late-filing |
+| `format.py` | Telegram HTML rendering, per-kind caps |
+| `digest.py` | Weekly stats + pipeline staleness (pure) |
+| `service.py` | Orchestration; advances the mark only after delivery succeeds |
+
 ## `src/api/` — FastAPI service
 
 | File | Responsibility |
@@ -90,6 +106,7 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `format.ts` | Date / currency / number formatters |
 | `transactions.ts` | Sorting + display helpers for transaction tables |
 | `entityLinks.ts` | Member/ticker hrefs + chart-click → navigate helpers |
+| `feedback.ts` | Feedback categories, compose/validate, relay + mailto delivery |
 
 ### `frontend/src/charts/` — pure ECharts option builders
 
@@ -138,7 +155,8 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `SidebarFilters.tsx` | Lookback / quarters sidebar |
 | `TopBar.tsx` | Nav + user menu |
 | `UserMenu.tsx` | Account / logout |
-| `DonateButton.tsx` | Ko-fi donate link |
+| `DonateButton.tsx` | Ko-fi "Support" link |
+| `FeedbackButton.tsx` | Feedback modal trigger (top bar) |
 | `RequireAuth.tsx` | Session gate |
 | `ErrorBoundary.tsx` | React error boundary |
 | `RefreshProgressPanel.tsx` / `RefreshLogPanel.tsx` | Refresh UI |
@@ -161,10 +179,10 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 ## Tests (`tests/`)
 
 `pytest` from repo root. `conftest.py` = fixtures (in-memory DB, sample DataFrames).
-Coverage: `test_api_*.py`, `test_re_resolve_tickers.py`.
+Coverage: `test_api_*.py`, `test_re_resolve_tickers.py`, `test_notify_*.py`.
 
 ## Other
 
 `deploy/` — VPS systemd services (congress-api, congress-web), Caddy config, deploy script, logrotate, env-merge helper.
-`scripts/` — `nightly_ingest.sh`, `smoke_apis.py`, `count_empty_tickers.py`.
+`scripts/` — `nightly_ingest.sh` (ingest + exports + notify, with an ERR trap that alerts on failure), `smoke_apis.py`, `count_empty_tickers.py`.
 `bootstrap.ps1` / `deploy_local.ps1` — Windows entrypoints.

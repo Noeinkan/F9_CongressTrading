@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 
 import { RequireAuth } from "@/components/RequireAuth";
 import { SidebarLayout } from "@/components/SidebarLayout";
+import { DemoEntry } from "@/routes/DemoEntry";
 import { Executive } from "@/routes/Executive";
 import { Home } from "@/routes/Home";
 import { Login } from "@/routes/Login";
@@ -18,6 +19,11 @@ export const router = createBrowserRouter(
   {
     path: "/login",
     element: <Login />,
+  },
+  {
+    // One-click entry from the landing page; falls back to /login off-demo.
+    path: "/demo",
+    element: <DemoEntry />,
   },
   {
     element: <RequireAuth />,

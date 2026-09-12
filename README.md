@@ -67,6 +67,9 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 - Export CSV: `python -m src.main export-csv --out data/congress_trades.csv`
 - Export review queue: `python -m src.main export-review-csv --out data/review_queue.csv`
 - API: `python -m src.api` (frontend: `cd frontend && npm run dev`)
+- Alert Telegram delle transazioni notevoli appena ingerite: `python -m src.main notify-events` (aggiungi `--dry-run` per vedere il messaggio senza inviarlo)
+- Riepilogo settimanale + stato pipeline: `python -m src.main notify-digest` (`--force` per inviarlo subito)
+- Verifica che il bot funzioni: `python -m src.main notify-test`
 
 ## Stato attuale
 Il repository ora mantiene due livelli di storage:
@@ -119,7 +122,90 @@ Colonne principali dell'export normalizzato:
 - alcuni PDF House con layout o note molto anomale possono ancora richiedere affinamenti puntuali del parser
 - la risoluzione degli asset distingue ora exact match, fuzzy match e manual review, ma resta limitata dalla qualita dei nomi dichiarati nei PDF
 - i fuzzy match vengono esportati con ticker e tenuti in review queue; i manual review restano senza ticker finche non vengono corretti a valle
-- non esiste ancora un sistema di alert; la dashboard React e il primo layer di analisi sopra il backend normalizzato
+- gli alert Telegram coprono quattro casi (opzioni, importi grandi, cluster di membri sullo stesso ticker, filing oltre i 45 giorni): tutto il resto resta visibile solo in dashboard
+
+## Notifiche Telegram
+
+Il job notturno, finita l'ingestione, invia **un solo messaggio** con le
+transazioni notevoli arrivate quella notte, e **niente** se non c'e nulla di
+notevole. Il silenzio e informativo: se non arriva un messaggio, non e arrivato
+nulla che valga la pena. Una volta a settimana arriva anche un riepilogo con la
+forma della settimana e una riga sullo stato della pipeline.
+
+### Cosa arriva
+
+Quattro casi accendono un alert immediato, dal piu raro al piu comune:
+
+- **Opzioni** — un membro compra o vende opzioni sopra i 15.000 $ dichiarati.
+  Raro, a leva e direzionale: il segnale piu forte su singola riga.
+- **Importi grandi** — il *minimo* della fascia dichiarata supera i 50.000 $.
+  Il Congresso dichiara fasce, non cifre: usare il minimo tiene la soglia
+  prudente (una fascia "50.001–100.000 $" passa, una "15.001–50.000 $" no).
+- **Cluster** — piu membri (default 3) sullo stesso ticker nella stessa
+  finestra. Calcolato con la stessa funzione della pagina Patterns, quindi
+  alert e dashboard non possono divergere. Un cluster viene riannunciato solo
+  se *cresce*: "3 membri su NVDA" e notizia una volta, "5 membri" lo e di nuovo.
+- **Filing in ritardo** — depositato oltre i 45 giorni previsti dallo STOCK Act.
+  Segnale di compliance piu che di trading, quindi viene segnalato a prescindere
+  dall'importo ma con un tetto stretto: se una notte ne arrivano decine, ne
+  vedi le prime 3 e un "... and N more".
+
+Un ritardo su una transazione gia segnalata per altri motivi diventa
+un'etichetta sulla riga esistente (`filed 87d late`), non un secondo messaggio.
+
+### Configurazione (una volta)
+
+1. In Telegram apri la chat con **@BotFather**, manda `/newbot` e segui le due
+   domande (nome e username del bot). Alla fine BotFather risponde con una riga
+   `Use this token to access the HTTP API:` seguita dal token: quello e
+   `TELEGRAM_BOT_TOKEN`.
+2. Apri la chat col bot appena creato e mandagli un messaggio qualsiasi (serve
+   solo a far esistere la conversazione: un bot non puo scrivere a chi non gli
+   ha mai scritto). Se preferisci ricevere gli alert in un gruppo, aggiungi il
+   bot al gruppo e scrivi un messaggio la.
+3. Nel browser apri `https://api.telegram.org/bot<IL_TUO_TOKEN>/getUpdates`.
+   Nella risposta JSON cerca `"chat":{"id":...}`: quel numero e
+   `TELEGRAM_CHAT_ID` (per un gruppo e negativo, col meno davanti — va copiato
+   col meno). Se la risposta e `{"ok":true,"result":[]}` il messaggio del punto
+   2 non e arrivato: mandane un altro e ricarica.
+4. Scrivi i due valori nel `.env` del server (`/opt/F9_CongressTrading/.env`).
+   Tutte le soglie sono opzionali: vedi `.env.example` per l'elenco commentato.
+5. Verifica subito, dalla cartella del repo:
+   `python -m src.main notify-test`. Se il token o la chat sono sbagliati il
+   comando stampa l'errore ed esce con codice diverso da zero — non resta
+   silenzioso.
+6. Il **primo** `notify-events` non invia lo storico: marca le righe gia
+   presenti come "viste" e manda un solo messaggio "alerts armed". Dalla notte
+   successiva arrivano solo le novita.
+
+### Come e agganciato al cron
+
+`scripts/nightly_ingest.sh` chiama `notify-events` e `notify-digest` dopo gli
+export. Il digest si auto-limita al giorno configurato
+(`CONGRESS_NOTIFY_DIGEST_WEEKDAY`, default lunedi), quindi **basta la voce di
+cron che esiste gia**: non serve aggiungerne una seconda.
+
+Lo script ha anche un trap sull'errore: se l'ingestione stessa muore, arriva un
+messaggio che nomina la riga fallita. Prima l'unico modo di accorgersene era
+aprire `/var/log/f9-congress-trading/ingest.log`.
+
+### Se gli alert smettono di arrivare
+
+Due cause hanno aspetti diversi, e la differenza e nel log:
+
+- **Non e arrivato niente di notevole.** Nel log trovi
+  `notify-events: quiet - ...`. Normale: i depositi arrivano a ondate intorno
+  alle scadenze.
+- **La consegna e fallita.** Nel log trovi `notify-events: failed - ...` con lo
+  stato HTTP, e il comando esce con codice diverso da zero. Il punto importante:
+  in questo caso il segnaposto delle righe gia lette **non avanza**, quindi gli
+  eventi non vengono persi — la notte dopo vengono ritentati. Un token
+  revocato da Telegram da HTTP 401: rifallo dal punto 1 e rimetti il valore
+  nel `.env`.
+
+In ogni caso `python -m src.main notify-test` risponde in due secondi se il
+canale e vivo, e il digest settimanale segnala da solo se la pipeline non
+ingerisce piu nulla da piu di 10 giorni.
 
 ## Dashboard (React + FastAPI)
 La dashboard legge dallo SQLite normalizzato (`members`, `filings`, `transactions`, `review_queue`, `executive_holdings`) e, se non trova righe, prova i CSV esportati.

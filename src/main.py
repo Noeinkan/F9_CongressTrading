@@ -218,6 +218,65 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sovrascrive anche party già valorizzati (default: solo celle vuote).",
     )
 
+    # --- Notifiche Telegram --------------------------------------------------
+    notify_events_p = sub.add_parser(
+        "notify-events",
+        help=(
+            "Invia un messaggio Telegram con le transazioni notevoli ingerite "
+            "dall'ultimo run (grandi importi, opzioni, cluster, filing in ritardo). "
+            "Silenzioso se non c'e nulla di notevole."
+        ),
+    )
+    notify_events_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stampa il messaggio su stdout senza inviarlo e senza toccare lo stato.",
+    )
+
+    notify_digest_p = sub.add_parser(
+        "notify-digest",
+        help=(
+            "Invia il riepilogo settimanale + stato pipeline. Si auto-limita al "
+            "giorno configurato (CONGRESS_NOTIFY_DIGEST_WEEKDAY), quindi puo essere "
+            "chiamato ogni notte."
+        ),
+    )
+    notify_digest_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stampa il messaggio su stdout senza inviarlo.",
+    )
+    notify_digest_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Invia anche se oggi non e il giorno del digest (o se e gia stato inviato).",
+    )
+
+    notify_test_p = sub.add_parser(
+        "notify-test",
+        help="Invia un singolo messaggio di prova: verifica token bot e chat id.",
+    )
+    notify_test_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stampa il messaggio senza inviarlo.",
+    )
+
+    notify_failure_p = sub.add_parser(
+        "notify-failure",
+        help="Segnala su Telegram che il job notturno e fallito (usato dal trap di nightly_ingest.sh).",
+    )
+    notify_failure_p.add_argument(
+        "--message",
+        default="",
+        help="Dettaglio da includere nell'alert.",
+    )
+    notify_failure_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stampa il messaggio senza inviarlo.",
+    )
+
     return parser
 
 
@@ -488,6 +547,38 @@ def main() -> None:
             f"matched={stats['matched']:,} updated={stats['updated']:,} "
             f"unmatched={stats['unmatched']:,} skipped={stats['skipped']:,}."
         )
+    elif args.command in {
+        "notify-events",
+        "notify-digest",
+        "notify-test",
+        "notify-failure",
+    }:
+        from .notify.service import (
+            run_event_notifications,
+            run_weekly_digest,
+            send_failure_alert,
+            send_test_message,
+        )
+
+        dry_run = bool(getattr(args, "dry_run", False))
+        if args.command == "notify-events":
+            outcome = run_event_notifications(dry_run=dry_run)
+        elif args.command == "notify-digest":
+            outcome = run_weekly_digest(
+                dry_run=dry_run, force=bool(getattr(args, "force", False))
+            )
+        elif args.command == "notify-test":
+            outcome = send_test_message(dry_run=dry_run)
+        else:
+            outcome = send_failure_alert(
+                str(getattr(args, "message", "") or ""), dry_run=dry_run
+            )
+        print(f"{args.command}: {outcome.status} - {outcome.message}")
+        # Non-zero so the nightly log and systemd show a delivery failure. A
+        # broken bot token cannot be reported over Telegram itself, so the exit
+        # code is the only channel left.
+        if not outcome.ok:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,23 @@ export type LoginResponse = {
   auth_required: boolean;
 };
 
+/** `/api/demo/status`. Everything past `enabled` is absent when the demo is off. */
+export type DemoStatus = {
+  enabled: boolean;
+  readOnly?: boolean;
+  notice?: string;
+  snapshotDate?: string;
+  snapshotLabel?: string;
+  hiddenRoutes?: string[];
+  sourceUrl?: string;
+};
+
+export type DemoSessionResponse = {
+  user: string;
+  demo: boolean;
+  snapshotDate: string;
+};
+
 export type SparklinePoint = {
   month: string | null;
   value: number;

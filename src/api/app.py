@@ -13,6 +13,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..config import DB_PATH, app_auth_required
 from ..db import get_connection, init_db
+from ..demo import router as demo_router
+from ..demo.readonly import DemoReadOnlyMiddleware
 from . import settings
 from .repository import polygon_daily_bar_cache_size
 from .routers import admin, executive, home, members, patterns, raw, review, tickers
@@ -47,6 +49,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # No-op unless DEMO_MODE is on; then every write to /api/* is refused.
+    app.add_middleware(DemoReadOnlyMiddleware)
 
     @app.get("/api/health", tags=["meta"])
     def health() -> dict[str, object]:
@@ -102,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(members.router)
     app.include_router(tickers.router)
     app.include_router(executive.router)
+    app.include_router(demo_router.router)
     return app
 
 

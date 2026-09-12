@@ -27,8 +27,9 @@ a {
   min-width: 0;
 }
 
-/* Header "Donate" CTA — warm amber pill, distinct from dimmed nav links.
-   Tinted by default so it doesn't shout, then fills on hover/focus. */
+/* Header "Support" CTA (Ko-fi) — warm amber pill, distinct from dimmed nav
+   links. Tinted by default so it doesn't shout, then fills on hover/focus.
+   Class name is internal; the visible label must stay "Support". */
 .donate-button {
   display: inline-flex;
   align-items: center;
@@ -60,4 +61,49 @@ a {
 
 .donate-button:focus-visible {
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45);
+}
+
+/* Header "Feedback" trigger — deliberately quieter than the amber Support
+   pill next to it: an outline that only fills on hover, so the two CTAs in
+   the cluster don't compete. */
+.feedback-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(26, 31, 46, 0.25);
+  background: transparent;
+  color: #3d4558;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+
+.feedback-button:hover,
+.feedback-button:focus-visible {
+  background: rgba(26, 31, 46, 0.08);
+  border-color: rgba(26, 31, 46, 0.5);
+  color: #1a1f2e;
+  outline: none;
+}
+
+.feedback-button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(26, 31, 46, 0.25);
+}
+
+/* Touch targets: the header cluster gets tight on a phone, and both CTAs
+   need to stay tappable rather than merely visible. */
+@media (max-width: 48em) {
+  .donate-button,
+  .feedback-button {
+    min-height: 44px;
+    padding: 4px 10px; /* the phone header carries burger + title + both CTAs */
+  }
 }

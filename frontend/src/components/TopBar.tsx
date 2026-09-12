@@ -3,7 +3,9 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
 
 import { DonateButton } from "./DonateButton";
+import { FeedbackButton } from "./FeedbackButton";
 import { UserMenu } from "./UserMenu";
+import { useDemoStatus } from "@/api/demo";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
 export const NAV_ITEMS = [
@@ -36,6 +38,7 @@ const burgerStyle = {
 export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
   const location = useLocation();
   const isMobile = useIsMobile();
+  const navItems = useVisibleNavItems();
 
   return (
     <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="sm">
@@ -63,17 +66,33 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
       </Group>
       {!isMobile ? (
         <Group gap="md" component="nav" aria-label="Dashboard pages">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavLink key={item.to} item={item} active={isActive(location.pathname, item.to)} />
           ))}
         </Group>
       ) : null}
       <Group gap="sm" wrap="nowrap">
+        <FeedbackButton />
         <DonateButton />
         <UserMenu />
       </Group>
     </Group>
   );
+}
+
+/**
+ * Nav minus whatever the demo snapshot has no data for.
+ *
+ * The Executive page needs OGE filings the frozen capture does not contain, and
+ * a nav item leading to a blank page makes a demo read as broken rather than as
+ * deliberately limited. Off-demo this returns every item, unchanged.
+ */
+export function useVisibleNavItems(): readonly NavItem[] {
+  const { data } = useDemoStatus();
+  return useMemo(() => {
+    const hidden = data?.enabled ? data.hiddenRoutes ?? [] : [];
+    return hidden.length ? NAV_ITEMS.filter((item) => !hidden.includes(item.to)) : NAV_ITEMS;
+  }, [data]);
 }
 
 /** Preserve period filters when switching pages so the slice stays shareable. */

@@ -1,0 +1,52 @@
+# Public demo API — a second uvicorn beside congress-api, serving the frozen
+# snapshot read-only. Install to /etc/systemd/system/ and adjust the paths.
+#
+#   sudo cp deploy/congress-demo-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now congress-demo-api
+#
+# It deliberately does NOT read the repo .env: that file carries the real
+# APP_PASSWORD and the Polygon key, and the demo must have neither. Everything
+# it needs is below, in the clear, because none of it is a secret.
+
+[Unit]
+Description=Congress Trading — public demo API (read-only, frozen snapshot)
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/F9_CongressTrading
+
+Environment=DEMO_MODE=1
+Environment=DEMO_USERNAME=demo
+Environment=DEMO_PASSWORD=demo
+Environment=DEMO_SOURCE_URL=https://noeinsolutions.com/builds.html
+Environment=CONGRESS_DB_PATH=/opt/F9_CongressTrading/data/db/demo-snapshot.sqlite
+
+# The login gate the landing link walks through. Published credentials, so the
+# session secret is the only thing here that wants to be unguessable.
+Environment=APP_USERNAME=demo
+Environment=APP_PASSWORD=demo
+Environment=APP_SESSION_COOKIE=f9_demo_session
+Environment=APP_SESSION_HTTPS_ONLY=1
+
+# Its own port, so the private instance on 9001 is untouched.
+Environment=API_SERVER_ADDRESS=127.0.0.1
+Environment=API_SERVER_PORT=9101
+
+# Expand the committed fixture before the API opens it. Idempotent.
+ExecStartPre=/opt/F9_CongressTrading/.venv/bin/python scripts/unpack_demo_snapshot.py \
+    --out /opt/F9_CongressTrading/data/db/demo-snapshot.sqlite
+ExecStart=/opt/F9_CongressTrading/.venv/bin/python -m src.api
+
+Restart=on-failure
+RestartSec=5
+
+# The demo reads one file and answers questions about it. Nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

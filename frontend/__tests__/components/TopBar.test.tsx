@@ -22,6 +22,14 @@ vi.mock("@/api/auth", () => ({
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+// TopBar filters its nav by the demo status, so it is a query consumer now.
+// Mocked rather than wrapped in a QueryClientProvider, matching the auth mock
+// above: these tests are about the bar, not about data fetching.
+const useDemoStatusMock = vi.fn();
+vi.mock("@/api/demo", () => ({
+  useDemoStatus: () => useDemoStatusMock(),
+}));
+
 function renderTopBar(path = "/") {
   return render(
     <MantineProvider>
@@ -37,6 +45,7 @@ describe("TopBar", () => {
     useSessionQueryMock.mockReturnValue({
       data: { authenticated: true, auth_required: true, user: "admin" },
     });
+    useDemoStatusMock.mockReturnValue({ data: { enabled: false } });
   });
 
   it("shows the brand", () => {
@@ -59,6 +68,22 @@ describe("TopBar", () => {
     expect(screen.getByTestId("nav-link-raw")).toHaveTextContent("Raw Data");
   });
 
+  it("keeps every nav link when the deployment is not the demo", () => {
+    renderTopBar();
+    expect(screen.getByTestId("nav-link-executive")).toBeInTheDocument();
+  });
+
+  it("drops the routes the demo snapshot has no data for", () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, hiddenRoutes: ["/executive"] },
+    });
+    renderTopBar();
+    expect(screen.queryByTestId("nav-link-executive")).not.toBeInTheDocument();
+    // Everything else survives — this hides empty pages, not the dashboard.
+    expect(screen.getByTestId("nav-link-members")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-link-raw")).toBeInTheDocument();
+  });
+
   it("marks the active link with aria-current", () => {
     renderTopBar("/members");
     expect(screen.getByTestId("nav-link-members")).toHaveAttribute(
@@ -76,12 +101,19 @@ describe("TopBar", () => {
     );
   });
 
-  it("renders the Donate CTA as an external link to Ko-fi", () => {
+  it("renders the Support CTA as an external link to Ko-fi", () => {
     renderTopBar();
     const link = screen.getByTestId("topbar-donate");
-    expect(link).toHaveTextContent("Donate");
+    // "Support", never "Donate": Ko-fi reserves donation wording for
+    // registered non-profits. See DonateButton.test.tsx.
+    expect(link).toHaveTextContent("Support");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(link.getAttribute("href")).toMatch(/^https:\/\/ko-fi\.com\//);
+  });
+
+  it("renders the Feedback trigger next to the Support CTA", () => {
+    renderTopBar();
+    expect(screen.getByTestId("topbar-feedback")).toHaveTextContent("Feedback");
   });
 });

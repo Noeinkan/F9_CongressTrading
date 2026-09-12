@@ -28,6 +28,20 @@ The Streamlit dashboard has been replaced by a **FastAPI JSON API (`src/api/`) +
 - API tests: `tests/test_api_*.py`. Frontend tests: `cd frontend && npm test`.
 - Production: Caddy serves `frontend/dist/` and proxies `/api/*` — see `deploy/README.md`.
 
+## Notifications (Telegram)
+
+`src/notify/` sends **one message per nightly run**, and nothing when nothing
+qualifies — silence is the signal. Four event kinds: options, large trades
+(disclosed *floor* over the threshold), member clusters on one ticker, filings
+past the 45-day STOCK Act deadline. Plus a self-gating weekly digest that also
+reports pipeline staleness.
+
+- CLI: `notify-events`, `notify-digest`, `notify-test`, `notify-failure` (all take `--dry-run`).
+- Wired into `scripts/nightly_ingest.sh`; **no second cron entry needed** — the digest gates itself on `CONGRESS_NOTIFY_DIGEST_WEEKDAY`.
+- **Invariant to preserve:** the `last_transaction_id` high-water mark advances *only* after Telegram confirms delivery, so an outage delays alerts instead of dropping them (`tests/test_notify_service.py` locks this down).
+- Detection rules are pure functions over a prepared frame — add a detector in `events.py`, never inline in `service.py`.
+- Reuses `repository._prepare_transactions` and `_patterns_analytics.detect_coordinated_trades` so an alert can't disagree with the dashboard.
+
 ## Token-saving conventions
 
 - Need a module's purpose or location? Check **PROJECT_INDEX.md** / AGENTS.md tables first — don't grep the tree (includes `frontend/` component/chart/route tables).

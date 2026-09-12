@@ -5,6 +5,7 @@ import { Outlet, useLocation } from "react-router-dom";
 
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
+import { DemoBanner } from "./DemoBanner";
 import { FilterProvider } from "./FilterContext";
 import { SidebarFilters } from "./SidebarFilters";
 import { TopBar } from "./TopBar";
@@ -52,6 +53,7 @@ export function SidebarLayout() {
           </ScrollArea>
         </MantineAppShell.Navbar>
         <MantineAppShell.Main>
+          <DemoBanner />
           <Outlet />
         </MantineAppShell.Main>
       </MantineAppShell>

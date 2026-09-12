@@ -1,0 +1,55 @@
+{
+  "capturedAt": "2026-08-22T12:23:39.139Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "scale": 2,
+  "shots": [
+    {
+      "name": "01-overview",
+      "file": ".shots/01-overview.png",
+      "url": "http://127.0.0.1:5173/",
+      "shows": "The active slice: transactions, members, tickers and disclosed range across House and Senate",
+      "alt": "",
+      "bytes": 299394,
+      "warnings": [],
+      "pageErrors": []
+    },
+    {
+      "name": "02-patterns",
+      "file": ".shots/02-patterns.png",
+      "url": "http://127.0.0.1:5173/patterns",
+      "shows": "Committee relevance: each member's trades scored against the committees they sit on",
+      "alt": "",
+      "bytes": 338206,
+      "warnings": [],
+      "pageErrors": []
+    },
+    {
+      "name": "03-ticker-profile",
+      "file": ".shots/03-ticker-profile.png",
+      "url": "http://127.0.0.1:5173/tickers",
+      "shows": "A single symbol: who traded it, buy/sell split, disclosed range and return since trade",
+      "alt": "",
+      "bytes": 277235,
+      "warnings": [],
+      "pageErrors": []
+    },
+    {
+      "name": "04-ticker-chart",
+      "file": ".shots/04-ticker-chart.png",
+      "url": "http://127.0.0.1:5173/tickers",
+      "shows": "The price overlay under a ticker's disclosure timeline",
+      "alt": "",
+      "bytes": 409858,
+      "warnings": [],
+      "pageErrors": []
+    },
+    {
+      "name": "05-raw-data",
+      "url": "http://127.0.0.1:5173/raw-data",
+      "error": "page.waitForSelector: Timeout 60000ms exceeded."
+    }
+  ]
+}

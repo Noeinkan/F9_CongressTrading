@@ -13,6 +13,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
+import { useDemoStatus } from "@/api/demo";
 import {
   useAcceptReviewItem,
   useDismissReviewItem,
@@ -180,7 +181,11 @@ export function Review() {
 
   const { data, isLoading, isError } = useReviewSummary(reviewParams);
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 0;
-  const canMutate = Boolean(data?.review_source?.startsWith("sqlite:"));
+  // The demo serves a real SQLite queue, so the source check passes — but the
+  // API refuses every write. Fold the demo into the existing read-only path
+  // rather than offering buttons that come back 403.
+  const isDemo = useDemoStatus().data?.enabled ?? false;
+  const canMutate = !isDemo && Boolean(data?.review_source?.startsWith("sqlite:"));
 
   useEffect(() => {
     if (!data) return;
@@ -283,8 +288,9 @@ export function Review() {
                   </Group>
                   {!canMutate ? (
                     <Text size="sm" c="dimmed">
-                      Triage actions need a live SQLite review queue (current source:{" "}
-                      {data.review_source}).
+                      {isDemo
+                        ? "The queue is shown as captured. Saving a ticker, accepting a fuzzy match or dismissing a row changes the data, so those actions are off in the public demo."
+                        : `Triage actions need a live SQLite review queue (current source: ${data.review_source}).`}
                     </Text>
                   ) : null}
                   <Table.ScrollContainer minWidth={1100}>

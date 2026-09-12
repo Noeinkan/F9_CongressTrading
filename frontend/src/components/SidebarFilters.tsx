@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
+import { useDemoStatus } from "@/api/demo";
 import {
   readRefreshExpanded,
   useCancelRefresh,
@@ -20,7 +21,7 @@ import {
   useFilters,
   type QuarterValue,
 } from "./FilterContext";
-import { NAV_ITEMS, isActive } from "./TopBar";
+import { isActive, useVisibleNavItems } from "./TopBar";
 
 const QUARTER_LABELS: Record<QuarterValue, string> = {
   "1": "Q1",
@@ -230,6 +231,8 @@ function SidebarRefreshControls() {
 
 export function SidebarFilters() {
   const { lookback, quarters, setLookback, toggleQuarter, reset } = useFilters();
+  const navItems = useVisibleNavItems();
+  const isDemo = useDemoStatus().data?.enabled ?? false;
   const location = useLocation();
   const isMobile = useIsMobile();
 
@@ -302,7 +305,7 @@ export function SidebarFilters() {
             <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
               Pages
             </Text>
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = isActive(location.pathname, item.to);
               return (
                 <Text
@@ -322,14 +325,21 @@ export function SidebarFilters() {
         </>
       ) : null}
 
-      <Divider />
+      {/* The refresh runs the disclosure ingest against the Clerk. The demo
+          serves a frozen snapshot and the API refuses the call anyway, so the
+          control is hidden rather than left to fail under a stranger's click. */}
+      {isDemo ? null : (
+        <>
+          <Divider />
 
-      <Stack gap={4}>
-        <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-          Admin
-        </Text>
-        <SidebarRefreshControls />
-      </Stack>
+          <Stack gap={4}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+              Admin
+            </Text>
+            <SidebarRefreshControls />
+          </Stack>
+        </>
+      )}
     </Stack>
   );
 }

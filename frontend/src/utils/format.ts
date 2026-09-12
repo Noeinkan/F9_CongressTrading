@@ -114,7 +114,7 @@ const KOFI_DEFAULT_URL = "https://ko-fi.com/noeinkan";
 
 /**
  * URL for the project sponsor's Ko-fi page. Override with `VITE_KOFI_URL`
- * at build time (e.g. `https://ko-fi.com/yourname`). The header Donate
+ * at build time (e.g. `https://ko-fi.com/yourname`). The header Support
  * button is only rendered when this resolves to a non-empty Ko-fi URL.
  */
 export function kofiUrl(): string {
@@ -122,7 +122,7 @@ export function kofiUrl(): string {
   return raw.replace(/\/+$/, "");
 }
 
-/** True when the donate button has a valid Ko-fi URL configured. */
+/** True when the header Support button has a valid Ko-fi URL configured. */
 export function hasKofiUrl(): boolean {
   return kofiUrl().length > 0;
 }

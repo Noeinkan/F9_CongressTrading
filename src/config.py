@@ -11,7 +11,10 @@ HOUSE_RAW_DIR = RAW_DIR / "house"
 SENATE_RAW_DIR = RAW_DIR / "senate"
 OGE_RAW_DIR = RAW_DIR / "oge"
 DB_DIR = DATA_DIR / "db"
-DB_PATH = DB_DIR / "congress_trades.sqlite"
+# CONGRESS_DB_PATH lets one checkout serve two databases from two processes —
+# the live tracker and the public demo reading its frozen snapshot. Unset, the
+# path is exactly what it always was.
+DB_PATH = Path(os.getenv("CONGRESS_DB_PATH") or (DB_DIR / "congress_trades.sqlite"))
 CACHE_DIR = DATA_DIR / "cache"
 
 START_YEAR = 2022
