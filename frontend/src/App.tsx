@@ -11,6 +11,7 @@ import { NotFound } from "@/routes/NotFound";
 import { Patterns } from "@/routes/Patterns";
 import { Raw } from "@/routes/Raw";
 import { Review } from "@/routes/Review";
+import { Senate } from "@/routes/Senate";
 import { Tickers } from "@/routes/Tickers";
 
 export const router = createBrowserRouter(
@@ -32,6 +33,7 @@ export const router = createBrowserRouter(
         element: <SidebarLayout />,
         children: [
           { index: true, element: <Home /> },
+          { path: "senate", element: <Senate /> },
           { path: "executive", element: <Executive /> },
           { path: "raw", element: <Raw /> },
           { path: "review", element: <Review /> },

@@ -13,6 +13,7 @@ import {
   type RefreshStatusResponse,
 } from "@/api/refresh";
 import { RefreshProgressPanel } from "@/components/RefreshProgressPanel";
+import { TelegramRefreshSummary, telegramSummary } from "@/components/TelegramRefreshSummary";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
 import {
@@ -53,8 +54,9 @@ function buildResultSummary(result: Record<string, unknown> | undefined) {
   const rowsPtr = typeof result.house_fd_rows_ptr === "number" ? result.house_fd_rows_ptr : null;
   const rowsTotal = typeof result.house_fd_rows_total === "number" ? result.house_fd_rows_total : null;
   const senate = (result as { senate?: { pdfs?: number; reason?: string } }).senate;
-  if (rowsPtr == null && rowsTotal == null && !senate) return null;
-  return { rowsPtr, rowsTotal, senate };
+  const telegram = telegramSummary(result.post_ingest);
+  if (rowsPtr == null && rowsTotal == null && !senate && !telegram) return null;
+  return { rowsPtr, rowsTotal, senate, telegram };
 }
 
 function normalizeRefreshStatus(
@@ -68,7 +70,7 @@ function normalizeRefreshStatus(
     progress: data?.progress ?? 0,
     phase_label: data?.phase_label ?? "",
     phase_index: data?.phase_index ?? 0,
-    phase_total: data?.phase_total ?? 5,
+    phase_total: data?.phase_total ?? 6,
     sub_progress: data?.sub_progress ?? 0,
     sub_done: data?.sub_done ?? 0,
     sub_total: data?.sub_total ?? 0,
@@ -118,7 +120,7 @@ function SidebarRefreshControls() {
 
   return (
     <Tooltip
-      label="Incremental refresh: re-fetch this year's House FD catalog from the Clerk, download only missing PTR PDFs, and parse only filings not yet ingested. Use this to pick up new disclosures since the last scrape."
+      label="Incremental refresh: re-fetch this year's House FD catalog from the Clerk, download only missing PTR PDFs, and parse only filings not yet ingested. Then sends Telegram alerts for new trades and the weekly digest — the digest is skipped if one already went out in the last 12 hours."
       multiline
       w={260}
     >
@@ -201,6 +203,9 @@ function SidebarRefreshControls() {
                 {resultSummary.rowsPtr} PTR rows seen across FD metadata
                 {resultSummary.rowsTotal != null ? ` (${resultSummary.rowsTotal} total)` : ""}
               </Text>
+            ) : null}
+            {resultSummary.telegram ? (
+              <TelegramRefreshSummary summary={resultSummary.telegram} />
             ) : null}
           </Stack>
         ) : null}

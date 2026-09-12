@@ -277,6 +277,7 @@ def run_weekly_digest(
     *,
     dry_run: bool = False,
     force: bool = False,
+    cooldown_hours: float | None = None,
     settings: NotifySettings | None = None,
 ) -> RunOutcome:
     """Send the weekly roundup.
@@ -284,6 +285,10 @@ def run_weekly_digest(
     Self-gating: safe to call from the nightly cron every night. It sends only
     on the configured weekday and never twice on the same date, so the server
     needs one cron entry rather than two.
+
+    ``cooldown_hours`` holds even when ``force`` is set: the dashboard's Refresh
+    passes it so a second click (easy to make without noticing) does not send
+    a second digest. The sidebar's explicit "Send digest again" omits it.
     """
     settings = settings or load_settings()
     if not settings.active and not dry_run:
@@ -305,6 +310,16 @@ def run_weekly_digest(
         if not force and notify_state.last_digest_date(conn) == today_iso:
             return RunOutcome(
                 status=STATUS_SKIPPED, message=f"digest already sent on {today_iso}"
+            )
+        hours_ago = notify_state.hours_since_last_digest(conn)
+        if cooldown_hours is not None and hours_ago is not None and hours_ago < cooldown_hours:
+            return RunOutcome(
+                status=STATUS_SKIPPED,
+                message=(
+                    f"digest already sent {hours_ago:.1f}h ago "
+                    f"({notify_state.last_digest_at(conn)}); not repeated within "
+                    f"{cooldown_hours:g}h"
+                ),
             )
 
         ingested = transactions_ingested_since(conn, DIGEST_WINDOW_DAYS)
@@ -349,12 +364,21 @@ def run_weekly_digest(
                 send=result,
             )
         if not dry_run:
-            notify_state.set_last_digest_date(conn, today_iso)
+            notify_state.record_digest_sent(conn, today_iso)
         return RunOutcome(
             status=_sent_status(result),
             message=f"weekly digest - {result.summary}",
             send=result,
         )
+    finally:
+        conn.close()
+
+
+def last_digest_sent_at() -> str:
+    """UTC timestamp of the last delivered digest ('' if none), for the dashboard."""
+    conn = _open_conn()
+    try:
+        return notify_state.last_digest_at(conn)
     finally:
         conn.close()
 

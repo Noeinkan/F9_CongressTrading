@@ -1,9 +1,11 @@
 import { MantineProvider } from "@mantine/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { formatDuration, formatEta } from "@/api/refresh";
 import { RefreshProgressPanel } from "@/components/RefreshProgressPanel";
+import { telegramSummary } from "@/components/TelegramRefreshSummary";
 
 const baseStatus = {
   status: "running" as const,
@@ -90,5 +92,29 @@ describe("RefreshProgressPanel", () => {
 
     expect(screen.getByTestId("sidebar-refresh-success")).toHaveTextContent("Refresh completed");
     expect(screen.getByText(/12 PTR rows seen/)).toBeInTheDocument();
+  });
+
+  it("reports what the refresh sent to Telegram", () => {
+    const telegram = telegramSummary({
+      exports: "wrote congress_trades.csv",
+      alerts: "quiet - 3 new row(s), none notable",
+      digest: "sent - weekly digest - delivered",
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MantineProvider>
+          <RefreshProgressPanel
+            status={{ ...baseStatus, status: "succeeded", progress: 100 }}
+            isLive={false}
+            variant="expanded"
+            showTerminalFooter
+            resultSummary={{ rowsPtr: null, rowsTotal: null, telegram }}
+          />
+        </MantineProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Telegram — alerts: quiet · digest: sent")).toBeInTheDocument();
+    expect(screen.queryByTestId("refresh-digest-resend")).not.toBeInTheDocument();
   });
 });

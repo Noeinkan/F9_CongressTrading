@@ -175,6 +175,36 @@ No extra cron entry is needed: `scripts/nightly_ingest.sh` calls both notify
 commands, and `notify-digest` self-gates to `CONGRESS_NOTIFY_DIGEST_WEEKDAY`
 (Monday by default).
 
+Clicking **Refresh data** in the dashboard sidebar runs the same chain on
+demand: ingest, CSV exports, alerts for trades since the last message, and
+the 7-day digest on any weekday. If a digest already went out in the last 12
+hours the refresh does not send another, so a second click made without
+noticing stays silent; the sidebar says when the last one went out and offers
+**Send digest again** for the times a second one is wanted. It also shows what
+went out, e.g. `Telegram — alerts: quiet · digest: sent today at 14:02`.
+
+## Scheduled job
+
+One cron entry drives everything; its file is `deploy/f9-congress-trading.cron`
+(03:30 server time, as root).
+
+1. **Check whether it is already installed.** On the VPS:
+   `cat /etc/cron.d/f9-congress-trading`. If it prints an entry calling
+   `nightly_ingest.sh`, compare the time with the repo file and keep whichever
+   you prefer; if it says "No such file", go on.
+2. **Install it:**
+
+   ```bash
+   sudo install -m 0644 /opt/F9_CongressTrading/deploy/f9-congress-trading.cron \
+       /etc/cron.d/f9-congress-trading
+   ```
+
+   cron picks up `/etc/cron.d` on its own; no restart. The file must stay
+   `0644` and owned by root, or cron silently ignores it.
+3. **Check the first run** the next morning: `tail -n 20 /var/log/f9-congress-trading/ingest.log`
+   should end with `nightly ingest done (rc=0)`. Nothing there means cron never
+   fired: re-check step 2's permissions.
+
 ## Firewall
 
 ```bash

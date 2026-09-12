@@ -75,7 +75,7 @@ function emptyRefreshStatus(partial?: Partial<RefreshStatusResponse>): RefreshSt
     progress: 0,
     phase_label: "",
     phase_index: 0,
-    phase_total: 5,
+    phase_total: 6,
     sub_progress: 0,
     sub_done: 0,
     sub_total: 0,
@@ -148,6 +148,42 @@ export function useStartRefresh() {
     onSuccess: (data) => {
       queryClient.setQueryData(refreshStatusQueryKey, data);
       void queryClient.invalidateQueries();
+    },
+  });
+}
+
+export type SendDigestResponse = {
+  status: string;
+  message: string;
+  sent_at: string;
+};
+
+/**
+ * Explicit "Send digest again". On success the cached refresh result is
+ * patched so every view showing that run drops the button at once.
+ */
+export function useSendDigest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<SendDigestResponse>("/api/admin/send-digest", { method: "POST" }),
+    onSuccess: (data) => {
+      // A failed send keeps the button, so the admin can simply try again.
+      if (data.status === "failed") return;
+      queryClient.setQueryData<RefreshStatusResponse>(refreshStatusQueryKey, (previous) => {
+        if (!previous) return previous;
+        const postIngest = (previous.result.post_ingest ?? {}) as Record<string, unknown>;
+        return {
+          ...previous,
+          result: {
+            ...previous.result,
+            post_ingest: {
+              ...postIngest,
+              digest: `${data.status} - ${data.message}`,
+              digest_sent_at: data.sent_at,
+            },
+          },
+        };
+      });
     },
   });
 }

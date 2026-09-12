@@ -1,0 +1,15 @@
+# The one scheduled job for the Congress Trading board.
+# Install as /etc/cron.d/f9-congress-trading (see deploy/README.md, "Scheduled job").
+#
+# Every night at 03:30 server time, scripts/nightly_ingest.sh downloads and
+# ingests new disclosures, writes the CSV exports and sends Telegram alerts for
+# trades that arrived since the last message (silent when nothing is notable).
+# The same run sends the weekly digest on CONGRESS_NOTIFY_DIGEST_WEEKDAY
+# (Monday by default), so no second entry is needed for it.
+#
+# The sidebar "Refresh data" button runs the same chain on demand and sends the
+# digest unless one went out in the last 12 hours (src/post_ingest.py).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 3 * * * root bash /opt/F9_CongressTrading/scripts/nightly_ingest.sh

@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 LAST_TRANSACTION_ID = "last_transaction_id"
 BOOTSTRAPPED_AT = "bootstrapped_at"
 LAST_DIGEST_DATE = "last_digest_date"
+LAST_DIGEST_AT = "last_digest_at"
 LAST_EVENT_RUN_AT = "last_event_run_at"
 LAST_DELIVERY_ERROR = "last_delivery_error"
 
@@ -153,3 +154,24 @@ def last_digest_date(conn: sqlite3.Connection) -> str:
 
 def set_last_digest_date(conn: sqlite3.Connection, iso_date: str) -> None:
     set_state(conn, LAST_DIGEST_DATE, iso_date)
+
+
+def last_digest_at(conn: sqlite3.Connection) -> str:
+    """UTC timestamp (``2026-09-12T14:02:00Z``) of the last delivered digest, '' if never."""
+    return get_state(conn, LAST_DIGEST_AT, "").strip()
+
+
+def record_digest_sent(conn: sqlite3.Connection, iso_date: str) -> None:
+    set_last_digest_date(conn, iso_date)
+    set_state(conn, LAST_DIGEST_AT, _utc_now_iso())
+
+
+def hours_since_last_digest(conn: sqlite3.Connection) -> float | None:
+    raw = last_digest_at(conn)
+    if not raw:
+        return None
+    try:
+        sent = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - sent).total_seconds() / 3600

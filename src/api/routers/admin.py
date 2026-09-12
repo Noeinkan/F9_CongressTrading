@@ -1,4 +1,4 @@
-"""Admin endpoints (ingest refresh jobs)."""
+"""Admin endpoints (ingest refresh jobs, deploy, on-demand digest)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -59,6 +59,23 @@ def refresh_data_start(
 @router.post("/refresh-data/cancel")
 def refresh_data_cancel(_user: str = Depends(require_admin)) -> dict[str, object]:
     return job_manager.cancel()
+
+
+@router.post("/send-digest")
+def send_digest(_user: str = Depends(require_admin)) -> dict[str, object]:
+    """Send the 7-day digest now, on purpose.
+
+    The sidebar offers this after a Refresh skipped the digest because one had
+    just gone out. No cooldown here: pressing this button is the confirmation.
+    """
+    from ...notify.service import last_digest_sent_at, run_weekly_digest
+
+    outcome = run_weekly_digest(force=True)
+    return {
+        "status": outcome.status,
+        "message": outcome.message,
+        "sent_at": last_digest_sent_at(),
+    }
 
 
 @router.get("/deploy/status")

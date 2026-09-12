@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Nightly data ingest + CSV export + Telegram notifications for the Congress
-# Trading dashboard. Triggered by /etc/cron.d/f9-congress-trading.
+# Trading dashboard. Triggered by /etc/cron.d/f9-congress-trading, installed
+# from deploy/f9-congress-trading.cron. The sidebar Refresh button runs the same
+# steps from the API (src/post_ingest.py), sending the digest on any weekday
+# unless one went out in the last 12 hours.
 #
 # This script updates the data + CSVs that the API reads and then reports what
 # arrived; the congress-api systemd unit keeps managing the process

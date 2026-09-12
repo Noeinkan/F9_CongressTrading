@@ -17,6 +17,7 @@ For CLI commands, data model, and conventions see **AGENTS.md**.
 | `member_parties.py` | Legislators map: name → party/state matcher, party backfill + API overlay |
 | `member_states.py` | State + party for PTR-created members (FD metadata by `doc_id`, else legislators map) |
 | `member_names.py` | Filer name for unreadable House PTR headers (FD metadata by `doc_id`); renames doc-number members |
+| `post_ingest.py` | Exports + Telegram alerts + digest after an ingest; final phase of the Refresh job |
 | `pytest_leftovers.py` | One-shot cleanup of old test-run rows in the real DB; called from `ingest-all` |
 | `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 | `ingest_senate.py` | Senate PTR ingest pipeline |
@@ -72,7 +73,8 @@ the dashboard describe a trade identically.
 | `_signed_amounts.py` | Column-wise signed notional / floor / ceiling (fast path of the per-row rules) |
 | `_tickers_analytics.py` | Ticker leaderboard, profile, price overlay |
 | `_executive_analytics.py` | Executive (OGE) summary, monthly timeline, by-owner breakdown |
-| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |
+| `_senate_analytics.py` | Senate slice, filing timeliness (45-day deadline), filings list, coverage |
+| `routers/` | One router per dashboard page (home, senate, raw, review, patterns, members, tickers, executive); `senate` reuses `home_summary` on the Senate slice |
 
 ## `frontend/` — React dashboard
 
@@ -104,6 +106,7 @@ the dashboard describe a trade identically.
 | `tickers.ts` | Tickers leaderboard / list hooks |
 | `tickerDrilldown.ts` | Ticker profile / price / exposure hooks |
 | `executive.ts` | Executive (OGE) page hooks |
+| `senate.ts` | Senate page hook (`/api/senate/summary`) |
 | `refresh.ts` | Data refresh status / trigger hooks |
 
 ### `frontend/src/utils/`
@@ -167,6 +170,7 @@ the dashboard describe a trade identically.
 | `RequireAuth.tsx` | Session gate |
 | `ErrorBoundary.tsx` | React error boundary |
 | `RefreshProgressPanel.tsx` / `RefreshLogPanel.tsx` | Refresh UI |
+| `TelegramRefreshSummary.tsx` | After a refresh: what went to Telegram, and "Send digest again" when the digest was held back |
 | `PageStub.tsx` | Placeholder page |
 
 ### `frontend/src/routes/`
@@ -181,6 +185,7 @@ the dashboard describe a trade identically.
 | `Tickers.tsx` | Ticker leaderboard + drilldown |
 | `Patterns.tsx` | Pattern detection views |
 | `Executive.tsx` | OGE Executive (278-T / 278e) |
+| `Senate.tsx` | Senate-only view: coverage, KPIs + lateness, latest trades, filings, late filers (no PDF links) |
 | `NotFound.tsx` | 404 |
 
 ## Tests (`tests/`)

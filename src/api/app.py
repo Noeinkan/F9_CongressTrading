@@ -17,7 +17,7 @@ from ..demo import router as demo_router
 from ..demo.readonly import DemoReadOnlyMiddleware
 from . import settings
 from .repository import polygon_daily_bar_cache_size
-from .routers import admin, executive, home, members, patterns, raw, review, tickers
+from .routers import admin, executive, home, members, patterns, raw, review, senate, tickers
 from .security import current_user, login_session, logout_session, require_auth
 
 
@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(members.router)
     app.include_router(tickers.router)
     app.include_router(executive.router)
+    app.include_router(senate.router)
     app.include_router(demo_router.router)
     return app
 

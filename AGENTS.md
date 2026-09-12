@@ -126,6 +126,7 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 | `member_parties.py` | congress-legislators map (`data/legislators_parties.json`): name → party/state matcher, `enrich-member-parties` backfill, API party overlay |
 | `member_states.py` | State + party for PTR-created members (PTRs carry no state): from `fd_filings` by `doc_id`, else the legislators map; runs at PTR ingest and as a backfill at the start of `ingest_house` |
 | `member_names.py` | House PTRs whose PDF header has no filer name: name from `fd_filings` by `doc_id` (never the document number); renames legacy doc-number members at the start of `ingest_house` |
+| `post_ingest.py` | After an ingest: CSV exports, Telegram alerts, digest. Last phase of the sidebar Refresh job (digest on any weekday, skipped if one went out in the last 12 h; `POST /api/admin/send-digest` resends on request); no step can fail the job |
 | `pytest_leftovers.py` | Deletes rows an old test run wrote into the real DB (paths under `pytest-of-*`); run by `ingest-all` only, never inside `ingest_house`, so tests can't delete their own rows |
 | `re_resolve_tickers.py` | Re-resolve ticker/issuer on existing SQLite transactions |
 
@@ -184,8 +185,9 @@ Windows bootstrap: `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 <sa
 | `_home_analytics.py`, `_patterns_analytics.py`, `_tickers_analytics.py` | Page analytics |
 
 | `_executive_analytics.py` | Executive (OGE) page analytics |
+| `_senate_analytics.py` | Senate page analytics (timeliness, filings list, coverage); overview figures reuse `home_summary` |
 
-| `routers/` | One router per dashboard page (home, raw, review, patterns, members, tickers, executive) |
+| `routers/` | One router per dashboard page (home, senate, raw, review, patterns, members, tickers, executive) |
 
 
 

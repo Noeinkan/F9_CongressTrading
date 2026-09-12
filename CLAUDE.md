@@ -37,7 +37,8 @@ past the 45-day STOCK Act deadline. Plus a self-gating weekly digest that also
 reports pipeline staleness.
 
 - CLI: `notify-events`, `notify-digest`, `notify-test`, `notify-failure` (all take `--dry-run`).
-- Wired into `scripts/nightly_ingest.sh`; **no second cron entry needed** — the digest gates itself on `CONGRESS_NOTIFY_DIGEST_WEEKDAY`.
+- Wired into `scripts/nightly_ingest.sh`; **no second cron entry needed** — the digest gates itself on `CONGRESS_NOTIFY_DIGEST_WEEKDAY`. Cron file: `deploy/f9-congress-trading.cron`.
+- The sidebar Refresh job ends with `src/post_ingest.py` (exports → alerts → digest with `force=True` and a 12 h `cooldown_hours`, so a double click sends one digest; `POST /api/admin/send-digest` is the explicit resend, no cooldown). Keep its steps in step with the nightly script; tests patch `src.post_ingest.run_post_ingest` so a refresh test never writes CSVs or calls Telegram.
 - **Invariant to preserve:** the `last_transaction_id` high-water mark advances *only* after Telegram confirms delivery, so an outage delays alerts instead of dropping them (`tests/test_notify_service.py` locks this down).
 - Rows filed more than `CONGRESS_NOTIFY_MAX_FILING_AGE_DAYS` (30) ago are loaded but never alerted on, so a backfill (the first Senate download reaches back to 2023) stays silent (`recent_filings` in `events.py`).
 - Detection rules are pure functions over a prepared frame — add a detector in `events.py`, never inline in `service.py`.

@@ -23,8 +23,9 @@ _PIPELINE_PHASES: tuple[tuple[str, str, int, int], ...] = (
     ("download-house-fd", "Downloading House FD", 0, 15),
     ("ingest-house", "Ingesting House PTRs", 15, 50),
     ("ingest-senate", "Ingesting Senate PTRs", 65, 15),
-    ("download-oge", "Downloading OGE filings", 80, 10),
-    ("ingest-oge", "Ingesting OGE filings", 90, 10),
+    ("download-oge", "Downloading OGE filings", 80, 8),
+    ("ingest-oge", "Ingesting OGE filings", 88, 7),
+    ("post-ingest", "Exports and Telegram", 95, 5),
 )
 
 
@@ -257,7 +258,10 @@ def run_ingest_all(
     skip_senate: bool = False,
     skip_oge: bool = False,
 ) -> None:
-    """Download House FD metadata, then run House + Senate + OGE ingest.
+    """Download House FD metadata, run House + Senate + OGE ingest, then exports + Telegram.
+
+    The last phase (``src/post_ingest.py``) runs only on the full pipeline:
+    the skip_senate / skip_oge debug runs stop before it and send nothing.
 
     force_reparse=True: set HOUSE_INGEST_FORCE_REPARSE_PDFS=1 for the duration of
     this job so every PDF is re-parsed even if already in files_ingested. OFF by
@@ -465,7 +469,7 @@ def run_ingest_all(
             phase_index=3,
             phase_total=phase_total,
             progress_start=80,
-            progress_span=10,
+            progress_span=8,
         )
         try:
             downloaded, already_present = download_oge_filings(
@@ -492,14 +496,14 @@ def run_ingest_all(
             "error": oge_download_error,
         }
 
-        state.progress = 90
+        state.progress = 88
         _begin_phase(
             state,
             phase="ingest-oge",
             phase_label="Ingesting OGE filings",
             phase_index=4,
             phase_total=phase_total,
-            progress_start=90,
+            progress_start=88,
         )
         _check_cancel(cancel_event)
 
@@ -509,8 +513,8 @@ def run_ingest_all(
             phase_label="Ingesting OGE filings",
             phase_index=4,
             phase_total=phase_total,
-            progress_start=90,
-            progress_span=10,
+            progress_start=88,
+            progress_span=7,
         )
         try:
             ingest_oge(
@@ -523,6 +527,37 @@ def run_ingest_all(
         except Exception as exc:
             print(f"OGE ingest error: {exc}")
             state.result["oge_ingest_error"] = str(exc)
+
+        # A click ends like a night does: CSVs, new-trade alerts, and the
+        # digest, forced because pressing Refresh is the request for it, but
+        # not repeated if one went out recently (a second click is easy to miss).
+        state.progress = 95
+        _begin_phase(
+            state,
+            phase="post-ingest",
+            phase_label="Exports and Telegram",
+            phase_index=5,
+            phase_total=phase_total,
+            progress_start=95,
+        )
+        _check_cancel(cancel_event)
+
+        from ..post_ingest import REFRESH_DIGEST_COOLDOWN_HOURS, run_post_ingest
+
+        post_ingest_hook = _make_progress_hook(
+            state,
+            phase="post-ingest",
+            phase_label="Exports and Telegram",
+            phase_index=5,
+            phase_total=phase_total,
+            progress_start=95,
+            progress_span=5,
+        )
+        state.result["post_ingest"] = run_post_ingest(
+            force_digest=True,
+            digest_cooldown_hours=REFRESH_DIGEST_COOLDOWN_HOURS,
+            progress_hook=post_ingest_hook,
+        )
 
         state.progress = 100
         state.current_step = "done"

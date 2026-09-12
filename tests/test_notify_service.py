@@ -453,6 +453,49 @@ def test_digest_sends_once_per_day(monkeypatch):
     assert len(sender.messages) == 1
 
 
+def test_digest_cooldown_holds_even_when_forced(monkeypatch):
+    """A second Refresh click must not send a second digest; the explicit resend may."""
+    conn = get_connection()
+    try:
+        _seed_trade(conn)
+    finally:
+        conn.close()
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+
+    first = service.run_weekly_digest(settings=_settings(), force=True, cooldown_hours=12)
+    assert first.status == service.STATUS_SENT
+    assert service.last_digest_sent_at().endswith("Z")
+
+    second = service.run_weekly_digest(settings=_settings(), force=True, cooldown_hours=12)
+    assert second.status == service.STATUS_SKIPPED
+    assert "already sent" in second.message
+    assert len(sender.messages) == 1
+
+    resend = service.run_weekly_digest(settings=_settings(), force=True)
+    assert resend.status == service.STATUS_SENT
+    assert len(sender.messages) == 2
+
+
+def test_failed_digest_does_not_start_the_cooldown(monkeypatch):
+    conn = get_connection()
+    try:
+        _seed_trade(conn)
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(service, "send_message", _Recorder(SendResult(ok=False, error="401")))
+    failed = service.run_weekly_digest(settings=_settings(), force=True, cooldown_hours=12)
+    assert failed.status == service.STATUS_FAILED
+    assert service.last_digest_sent_at() == ""
+
+    sender = _Recorder(SendResult(ok=True, chunks_sent=1))
+    monkeypatch.setattr(service, "send_message", sender)
+    retry = service.run_weekly_digest(settings=_settings(), force=True, cooldown_hours=12)
+    assert retry.status == service.STATUS_SENT
+
+
 def test_digest_leaves_backfilled_rows_out_of_the_week(monkeypatch):
     conn = get_connection()
     try:

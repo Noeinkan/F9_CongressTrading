@@ -75,6 +75,23 @@ def _patch_oge(monkeypatch, calls: list[str], *, download_returns: tuple[int, in
     monkeypatch.setattr("src.ingest_oge.ingest_oge", fake_oge_ingest)
 
 
+@pytest.fixture(autouse=True)
+def post_ingest_calls(monkeypatch) -> list[dict]:
+    """Record the exports + Telegram step instead of writing CSVs into data/."""
+    recorded: list[dict] = []
+
+    def fake_post_ingest(
+        *, force_digest: bool, digest_cooldown_hours=None, log=print, progress_hook=None
+    ) -> dict[str, str]:
+        recorded.append({"force_digest": force_digest, "cooldown": digest_cooldown_hours})
+        if progress_hook is not None:
+            progress_hook("Sending Telegram digest", 3, 3, unit="steps")
+        return {"exports": "wrote", "alerts": "quiet - none notable", "digest": "sent - weekly digest"}
+
+    monkeypatch.setattr("src.post_ingest.run_post_ingest", fake_post_ingest)
+    return recorded
+
+
 @pytest.fixture
 def auth_env(monkeypatch):
     monkeypatch.setenv("APP_USERNAME", "analyst")
@@ -364,6 +381,32 @@ def test_job_manager_oge_progress_reaches_100(monkeypatch):
     assert final["result"]["oge_download"]["already_present"] == 5
 
 
+def test_refresh_ends_with_exports_alerts_and_forced_digest(monkeypatch, post_ingest_calls):
+    calls: list[str] = []
+    _patch_house_senate(monkeypatch, calls)
+    _patch_oge(monkeypatch, calls)
+
+    state = __import__("src.api.jobs", fromlist=["JobState"]).JobState()
+    run_ingest_all(state, threading.Event())
+
+    # Once, after OGE, with the digest forced regardless of weekday but not
+    # repeated within the cooldown (a second click is easy to make unawares).
+    assert post_ingest_calls == [{"force_digest": True, "cooldown": 12}]
+    assert state.result["post_ingest"]["digest"] == "sent - weekly digest"
+    assert state.progress == 100
+
+
+def test_debug_runs_skipping_a_chamber_send_nothing(monkeypatch, post_ingest_calls):
+    calls: list[str] = []
+    _patch_house_senate(monkeypatch, calls)
+    _patch_oge(monkeypatch, calls)
+
+    state = __import__("src.api.jobs", fromlist=["JobState"]).JobState()
+    run_ingest_all(state, threading.Event(), skip_oge=True)
+
+    assert post_ingest_calls == []
+
+
 def test_job_manager_oge_download_error_does_not_fail_job(monkeypatch):
     """A 404 from the OGE registry (or any download error) must be logged
     and surfaced on the result, but must not flip the whole refresh to
@@ -463,8 +506,8 @@ def test_progress_emits_sub_counts(monkeypatch):
     final = manager.get_state()
     assert final["status"] == "succeeded"
     assert saw_sub_counts, "expected sub_done/sub_total to be populated during the run"
-    assert final["phase_total"] == 5
-    assert final["sub_unit"] in {"years", "PDFs", "filings", "PTR files", "batches", ""}
+    assert final["phase_total"] == 6
+    assert final["sub_unit"] in {"years", "PDFs", "filings", "PTR files", "batches", "steps", ""}
 
 
 def test_eta_is_computed_when_progress_advances(monkeypatch):
@@ -508,6 +551,35 @@ def test_eta_is_computed_when_progress_advances(monkeypatch):
     assert state.sub_total == 10
     assert state.eta_seconds is not None
     assert state.eta_seconds > 0
+
+
+def test_send_digest_requires_auth(client):
+    assert client.post("/api/admin/send-digest").status_code == 401
+
+
+def test_send_digest_sends_without_cooldown(client, monkeypatch):
+    from src.notify.service import STATUS_SENT, RunOutcome
+
+    calls: list[dict] = []
+
+    def fake_digest(**kwargs):
+        calls.append(kwargs)
+        return RunOutcome(status=STATUS_SENT, message="weekly digest - delivered")
+
+    monkeypatch.setattr("src.notify.service.run_weekly_digest", fake_digest)
+    monkeypatch.setattr("src.notify.service.last_digest_sent_at", lambda: "2026-09-12T14:02:00Z")
+    _login(client)
+
+    response = client.post("/api/admin/send-digest")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "sent",
+        "message": "weekly digest - delivered",
+        "sent_at": "2026-09-12T14:02:00Z",
+    }
+    # The explicit button is the confirmation: forced, and no cooldown.
+    assert calls == [{"force": True}]
 
 
 def test_refresh_status_requires_auth(client):

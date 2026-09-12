@@ -176,6 +176,50 @@ export type HomeSummaryResponse = {
   tickers_available: string[];
 };
 
+export type SenateFilingRow = {
+  member: string;
+  party: string;
+  state: string;
+  doc_id: string;
+  filing_date: string | null;
+  trades: number;
+  tickers: number;
+  amount_low: number;
+  amount_high: number;
+  disclosed_range: string;
+  traded_from: string | null;
+  traded_to: string | null;
+};
+
+export type SenateLateFiler = {
+  member: string;
+  trades: number;
+  late_trades: number;
+  worst_days_late: number;
+};
+
+/** `/api/senate/summary`: the Home summary computed on the Senate slice, plus Senate-only figures. */
+export type SenateSummaryResponse = HomeSummaryResponse & {
+  /** Senate rows in the whole database, ignoring the period filter. */
+  senate_rows_all_time: number;
+  coverage: {
+    senators: number;
+    filings: number;
+    first_filing: string | null;
+    latest_filing: string | null;
+  };
+  timeliness: {
+    deadline_days: number;
+    dated_trades: number;
+    late_trades: number;
+    late_share: number;
+    late_share_label: string;
+    median_delay_days: number | null;
+    late_filers: SenateLateFiler[];
+  };
+  filings: SenateFilingRow[];
+};
+
 export type ColumnMeta = {
   key: string;
   label: string;

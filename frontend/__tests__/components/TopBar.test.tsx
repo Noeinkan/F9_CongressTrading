@@ -71,6 +71,7 @@ describe("TopBar", () => {
   it("keeps every nav link when the deployment is not the demo", () => {
     renderTopBar();
     expect(screen.getByTestId("nav-link-executive")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-link-senate")).toHaveTextContent("Senate");
   });
 
   it("drops the routes the demo snapshot has no data for", () => {

@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatDuration, formatEta, type RefreshStatusResponse } from "@/api/refresh";
 import { downloadRefreshLog } from "@/components/RefreshLogPanel";
+import { TelegramRefreshSummary, type TelegramSummary } from "@/components/TelegramRefreshSummary";
 
 const PHASE_LABELS = [
   "Download House FD",
@@ -18,6 +19,7 @@ const PHASE_LABELS = [
   "Ingest Senate",
   "Download OGE",
   "Ingest OGE",
+  "Exports + Telegram",
 ] as const;
 
 type RefreshProgressPanelProps = {
@@ -31,6 +33,7 @@ type RefreshProgressPanelProps = {
     rowsPtr: number | null;
     rowsTotal: number | null;
     senate?: { pdfs?: number; reason?: string };
+    telegram?: TelegramSummary | null;
   } | null;
 };
 
@@ -227,6 +230,7 @@ export function RefreshProgressPanel({
               {resultSummary.rowsTotal != null ? ` (${resultSummary.rowsTotal} total)` : ""}
             </Text>
           ) : null}
+          {resultSummary.telegram ? <TelegramRefreshSummary summary={resultSummary.telegram} /> : null}
         </Stack>
       ) : null}
       {showTerminalFooter && !isLive && status.status === "succeeded" ? (
