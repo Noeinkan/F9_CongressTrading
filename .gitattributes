@@ -4,6 +4,8 @@
 *               text=auto
 *.sh            text eol=lf
 *.bash          text eol=lf
+# The demo's hetzner-site config is copied verbatim to a Linux server by scp.
+.deploy/**      text eol=lf
 
 # PowerShell scripts are CRLF-native; leave them as-is.
 *.ps1           text eol=crlf

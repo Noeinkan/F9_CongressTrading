@@ -7,9 +7,9 @@ install, and nothing they do changes what the next visitor sees.
 
 This file is how it works, how to run it, and how to switch it off.
 
-> **Status as of 12 September 2026: built, not yet published.** The demo runs
-> and is fully tested locally. The hostname it is meant to take does not resolve
-> yet — see [What is left](#what-is-left) at the bottom.
+> **Status as of 14 September 2026: live** at
+> <https://congress.demos.noeinsolutions.com/demo>. See [Deploying it](#deploying-it)
+> for how it runs and how to redeploy.
 
 ## The short version
 
@@ -175,43 +175,46 @@ There is no client-side flag to get wrong. The frontend asks the server.
 
 ## Deploying it
 
-The demo runs as a **second process** beside the live API, not as a mode of it —
-that was a deliberate choice, so a demo visitor has no path at all to the live
-database. `deploy/congress-demo-api.service` is that process: same checkout,
-port 9101 instead of 9001, its own cookie name, and `CONGRESS_DB_PATH` pointed
-at the unpacked snapshot. It does not read the repo `.env`, because that file
-carries the real password and the Polygon key and the demo must have neither.
+The demo runs **apart from** the live tracker, not as a mode of it — so a demo
+visitor has no path at all to the live database. It is published through the
+`hetzner-site` skill as two containers behind the shared nginx edge, with
+everything in [`.deploy/`](../.deploy/):
+
+| Container | Role |
+| --- | --- |
+| `site-congress-demo-web` | nginx serving the React build; the only container on the `edge` network, so the only one the internet can reach. Forwards `/api/*` to the one below. |
+| `site-congress-demo-api` | FastAPI with `DEMO_MODE=1`, on an internal Docker network with **no route out** — the "no outbound call" promise is enforced, not just intended. Expands the committed fixture into a RAM disk at every start, so a restart always serves exactly the snapshot in git. |
+
+Neither container reads the repo `.env`: that file carries the real password
+and the Polygon key, and the demo must have neither. The one secret it has,
+`APP_SESSION_SECRET`, lives in `/opt/sites/congress-demo/.env` on the server
+(mode 0600) and nowhere in git.
+
+**The slug is `congress-demo`, not `congress`.** `hetzner-site` names the vhost
+after the slug, and `/opt/sites/_vhosts/congress.conf` is already taken by the
+production `congress.noeinsolutions.com`. A slug of `congress` would overwrite it.
+
+To redeploy, from the repo root on a machine with the skill installed:
 
 ```bash
-sudo cp deploy/congress-demo-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now congress-demo-api
-curl -fsS localhost:9101/api/demo/status
+git push origin main                                         # the server builds from GitHub, not from this checkout
+bash ~/.claude/skills/hetzner-site/bin/site-deploy.sh --dry-run
+bash ~/.claude/skills/hetzner-site/bin/site-deploy.sh        # build, health check, certificate, vhost, smoke test
+bash ~/.claude/skills/hetzner-site/bin/site-deploy.sh --rollback
 ```
 
-The edge in front of it is **not** configured here. Per
-`W8_NoeinSolLandingPage/docs/BUILDS_DEMOS.md`, demos are published at
-`<slug>.demos.noeinsolutions.com` through the `hetzner-site` skill, which
-generates its own `.deploy/` config, vhost and certificate. Do not hand-roll an
-nginx block for this: two mechanisms on one box is how a demo takes down a site.
+The root `deploy.sh` is **not** this: it is the private tracker's own wrapper.
+Uncommitted work in the checkout never ships, because the server clones `main`.
 
-## What is left
+`deploy/congress-demo-api.service` is the earlier plan — the same API as a
+host systemd unit on port 9101 beside the live one. It was never installed:
+the edge can only reach containers, and the container needs no host checkout.
+It is superseded by `.deploy/`.
 
-1. **The wildcard DNS record does not exist.** `BUILDS_DEMOS.md` says
-   `*.demos` → `77.42.70.26` was added on 2026-09-12, but
-   `congress.demos.noeinsolutions.com` and `asterbloom.demos.noeinsolutions.com`
-   both return NXDOMAIN from Cloudflare's own resolver, and the three demos said
-   to have been migrated still answer on their old `nip.io` URLs. Publishing
-   will fail at HTTP-01 certificate issuance until the record is really there.
-2. **Publish it.** Run the `hetzner-site` skill in this repo with slug
-   `congress`. It wants a clean git tree and a pushed commit, and it deploys
-   from the GitHub remote — so the 9.1 MB fixture has to be committed and pushed
-   first.
-3. **Register it.** Add the `demo` block to `f9-congress-trading` in
-   `W8_NoeinSolLandingPage/src/_data/builds.js`, plus the Italian note in the
-   `IT_BUILDS` overlay. `demo/demo.json` carries both strings ready to paste.
-   Only after `curl` returns 200.
-4. **Reshoot the card.** The three captures on the Builds page are of the
-   authenticated app. They happen to show the same pages the demo shows, but a
-   visitor should recognise what they were shown — worth a pass with
-   `screenshot-kit` against the demo once it is up.
+## Publishing history
+
+- 2026-09-12 — built and tested locally; blocked on the `*.demos` DNS record.
+- 2026-09-14 — DNS resolved; published at
+  <https://congress.demos.noeinsolutions.com/demo> from commit `1dee394`. The
+  three Builds-page captures were re-shot against the live demo with
+  `shotkit.config.mjs`, which now targets it.

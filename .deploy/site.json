@@ -1,0 +1,17 @@
+{
+  "slug": "congress-demo",
+  "domain": "congress.demos.noeinsolutions.com",
+  "repo": "https://github.com/Noeinkan/F9_CongressTrading.git",
+  "ref": "main",
+  "type": "static-build",
+  "buildCommand": "npm run build",
+  "outputDir": "frontend/dist",
+  "spa": true,
+  "port": 8080,
+  "healthPath": "/api/demo/status",
+  "expectStatus": 200,
+  "memLimit": "1g",
+  "maxBody": "1m",
+  "readTimeout": "120s",
+  "notes": "The public demo, not the tracker. Slug is congress-demo, not congress: /opt/sites/_vhosts/congress.conf is the production congress.noeinsolutions.com vhost and a slug of congress would overwrite it. Two containers: web (nginx serving the React build, the only one on the edge network) proxies /api to api (FastAPI on the frozen snapshot, DEMO_MODE on, on an internal network with no route out). The snapshot is unpacked into a tmpfs at start, so every restart serves the committed fixture. This replaces deploy/congress-demo-api.service, which ran the same process on the host beside the live API; a container needs no host checkout and cannot reach the live database at all. APP_SESSION_SECRET lives in /opt/sites/congress-demo/.env on the server. Deploy from the repo root with: bash ~/.claude/skills/hetzner-site/bin/site-deploy.sh (the root deploy.sh is the private tracker's wrapper, not this)."
+}

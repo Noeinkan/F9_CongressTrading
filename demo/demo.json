@@ -7,12 +7,9 @@
 
   "archetype": "dashboard",
   "kind": "sandbox",
-  "status": "planned",
+  "status": "live",
 
-  "url": null,
-  "plannedUrl": "https://congress.demos.noeinsolutions.com/demo",
-  "plannedSlug": "congress",
-  "urlBlockedBy": "The *.demos.noeinsolutions.com wildcard A record does not resolve yet (NXDOMAIN from 1.1.1.1 on 2026-09-12). Publishing via hetzner-site will fail at HTTP-01 certificate issuance until it exists.",
+  "url": "https://congress.demos.noeinsolutions.com/demo",
   "note": "No sign-up. Read-only, data frozen 12 September 2026.",
   "noteIt": "Nessuna registrazione. Sola lettura, dati congelati al 12 settembre 2026.",
 
@@ -29,7 +26,7 @@
       "priceBars": 484436
     },
     "sizeMb": 9.1,
-    "refresh": "python scripts/freeze_demo_data.py, commit the fixture, redeploy."
+    "refresh": "python scripts/freeze_demo_data.py, commit and push the fixture, then bash ~/.claude/skills/hetzner-site/bin/site-deploy.sh from the repo root."
   },
 
   "killSwitch": {
@@ -54,6 +51,6 @@
     "f9-congress-trading-committees.jpg",
     "f9-congress-trading-trades.jpg"
   ],
-  "registeredOnLanding": false,
-  "updatedAt": "2026-09-12"
+  "registeredOnLanding": true,
+  "updatedAt": "2026-09-14"
 }

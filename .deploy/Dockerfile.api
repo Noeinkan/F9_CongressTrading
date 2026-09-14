@@ -1,0 +1,32 @@
+# congress-demo / api — FastAPI over the frozen snapshot, DEMO_MODE on.
+#
+# Carries only what the API reads: the source, the demo manifest and fixture,
+# the two committed reference files under data/, and the unpack script. No
+# .env, no live database, no raw PDFs.
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    HOME=/tmp
+
+WORKDIR /app
+
+# Dependencies before source, so editing a route does not reinstall pandas.
+COPY repo/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY repo/src/ /app/src/
+COPY repo/demo/ /app/demo/
+COPY repo/scripts/unpack_demo_snapshot.py /app/scripts/unpack_demo_snapshot.py
+COPY repo/data/committees.json repo/data/legislators_parties.json /app/data/
+
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin demo \
+ && mkdir -p /app/data/db
+USER demo
+
+EXPOSE 9101
+# Compose mounts a tmpfs on /app/data/db, so every start expands the committed
+# fixture afresh: a restart always serves exactly the snapshot in git.
+CMD ["sh", "-c", "python scripts/unpack_demo_snapshot.py --out /app/data/db/demo-snapshot.sqlite && exec python -m src.api"]
