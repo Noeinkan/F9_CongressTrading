@@ -44,6 +44,26 @@ reports pipeline staleness.
 - Detection rules are pure functions over a prepared frame — add a detector in `events.py`, never inline in `service.py`.
 - Reuses `repository._prepare_transactions` and `_patterns_analytics.detect_coordinated_trades` so an alert can't disagree with the dashboard.
 
+## Secrets
+
+Every credential is read through `os.getenv()` in `src/config.py`, with the real
+values in a gitignored `.env` (`.env.example` is the template and stays empty).
+Keep it that way: never assign a credential as a literal in a module.
+
+This is not a style preference. The sibling repo `F8_F13Screener` published a
+live Telegram bot token for three and a half months, because a `config_secret.py`
+holding it as a literal was committed and never gitignored, and because a
+committed `.pyc` carried the same literal compiled in. Thirteen
+`src/__pycache__/*.pyc` files were committed here too (removed in `2fe3307`), and
+they were harmless only because the bytecode held variable *names* and not
+values. `.gitignore` listing `__pycache__/` does nothing for a file already
+tracked.
+
+`tests/test_no_committed_secrets.py` holds the line: it fails if `.env` is
+tracked or unignored, if any `.pyc` is tracked, or if a token-shaped or
+credential-shaped literal appears in a tracked file. `ALLOWED_LITERALS` there is
+the one escape hatch and is only ever allowed to shrink.
+
 ## Token-saving conventions
 
 - Need a module's purpose or location? Check **PROJECT_INDEX.md** / AGENTS.md tables first — don't grep the tree (includes `frontend/` component/chart/route tables).
