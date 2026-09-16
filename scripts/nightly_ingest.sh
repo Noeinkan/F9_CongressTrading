@@ -68,6 +68,13 @@ notify_rc=0
   echo "HEAD: $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   cd "$REPO"
 
+  # ingest-all reads the House Clerk's yearly index but never re-downloads it,
+  # so without this step the House side froze at whatever index was on disk
+  # (12-16 Sep 2026: four nights, six filings missed). --refresh re-fetches the
+  # current year, exactly as the sidebar Refresh button does.
+  echo "--- download-house-fd ---"
+  "$PYTHON" -m src.main download-house-fd --refresh
+
   echo "--- ingest-all ---"
   "$PYTHON" -m src.main ingest-all
 

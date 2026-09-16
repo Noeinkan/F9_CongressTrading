@@ -58,7 +58,7 @@ Durante `ingest-house`, la pipeline prova anche a correggere automaticamente i P
 - In VS Code puoi usare i task workspace `Ingest All (venv)`, `API Server (venv)` e `Frontend Dev` per eseguire sempre il progetto con `.venv\Scripts\python.exe`.
 
 ## Comandi principali
-- Bulk FD House (metadata annuali `.zip` dal Clerk, poi estrazione in `data/raw/house/<anno>FD/`): `python -m src.main download-house-fd` (default: anni da `START_YEAR` in `src/config.py` fino all’anno corrente). Opzioni: `--years 2020 2021`, `--overwrite`, `--zip-only` (solo zip; l’estrazione avviene al prossimo `ingest-house`).
+- Bulk FD House (metadata annuali `.zip` dal Clerk, poi estrazione in `data/raw/house/<anno>FD/`): `python -m src.main download-house-fd` (default: anni da `START_YEAR` in `src/config.py` fino all’anno corrente). Opzioni: `--years 2020 2021`, `--overwrite`, `--zip-only` (solo zip; l’estrazione avviene al prossimo `ingest-house`), `--refresh` (riscarica sempre l’indice dell’anno corrente, come il pulsante Refresh; lo usa il job notturno).
 - Download OGE Executive (PDF 278-T + 278e dal registro in `src/oge_source.py`): `python -m src.main download-oge` (opzioni: `--filer "Donald J. Trump"`, `--overwrite`).
 - Ingest House 2022+: `python -m src.main ingest-house`
 - Ingest Senate 2022+: `python -m src.main ingest-senate`

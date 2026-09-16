@@ -44,7 +44,7 @@ All CLI: **`python -m src.main <command>`** from repo root.
 
 |--------|---------|
 
-| `download-house-fd` | Bulk House FD zips → `data/raw/house/` (`--years`, `--overwrite`, `--zip-only`) |
+| `download-house-fd` | Bulk House FD zips → `data/raw/house/` (`--years`, `--overwrite`, `--zip-only`, `--refresh`). `--refresh` always re-fetches the current year (plus the previous one in Jan–Feb), like the sidebar Refresh; the nightly script runs it before `ingest-all`, which never re-downloads the index on its own. |
 
 | `download-oge` | OGE Executive PDFs (278-T + 278e) → `data/raw/oge/<doc_id>.pdf` from the hard-coded registry in `src/oge_source.py` (`--filer NAME`, `--overwrite`). Conservative 1 req/sec; fails loud on 404. |
 

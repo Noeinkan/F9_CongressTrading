@@ -107,6 +107,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dl.add_argument("--overwrite", action="store_true", help="Riscarica anche se .txt già presente")
     dl.add_argument(
+        "--refresh",
+        action="store_true",
+        help=(
+            "Riscarica sempre l'indice dell'anno corrente (e del precedente a gen-feb), come il "
+            "pulsante Refresh: senza, un indice gia su disco non viene mai aggiornato."
+        ),
+    )
+    dl.add_argument(
         "--zip-only",
         action="store_true",
         help="Solo zip; l'estrazione avviene al prossimo ingest-house",
@@ -324,13 +332,22 @@ def main() -> None:
         return
 
     if args.command == "download-house-fd":
-        from .download_house_fd import download_house_fd_bulk
+        from .download_house_fd import download_house_fd_bulk, house_fd_refresh_force_years
 
+        now = datetime.now()
         if args.years is None:
-            years = list(range(START_YEAR, datetime.now().year + 1))
+            years = list(range(START_YEAR, now.year + 1))
         else:
             years = list(args.years)
-        download_house_fd_bulk(years, overwrite=args.overwrite, extract=not args.zip_only)
+        # Same rule as the dashboard Refresh job (src/api/jobs.py), so the nightly
+        # run and the button discover new House filings the same way.
+        force_years = house_fd_refresh_force_years(now) if args.refresh else set()
+        download_house_fd_bulk(
+            years,
+            overwrite=args.overwrite,
+            extract=not args.zip_only,
+            force_years=force_years,
+        )
         return
 
     if args.command == "ingest-house":

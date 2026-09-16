@@ -196,5 +196,5 @@ Coverage: `test_api_*.py`, `test_re_resolve_tickers.py`, `test_notify_*.py`.
 ## Other
 
 `deploy/` — VPS systemd services (congress-api, congress-web), Caddy config, deploy script, logrotate, env-merge helper.
-`scripts/` — `nightly_ingest.sh` (ingest + exports + notify, with an ERR trap that alerts on failure), `smoke_apis.py`, `count_empty_tickers.py`.
+`scripts/` — `nightly_ingest.sh` (House index refresh + ingest + exports + notify, with an ERR trap that alerts on failure), `smoke_apis.py`, `count_empty_tickers.py`.
 `bootstrap.ps1` / `deploy_local.ps1` — Windows entrypoints.
