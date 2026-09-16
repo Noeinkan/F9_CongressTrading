@@ -15,11 +15,13 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { useLogin, useSessionProbe } from "@/api/auth";
+import { useDemoStatus } from "@/api/demo";
 
 export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const session = useSessionProbe();
+  const demo = useDemoStatus();
   const login = useLogin();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -36,6 +38,13 @@ export function Login() {
       navigate(from, { replace: true });
     }
   }, [session.data, navigate, from]);
+
+  // The demo deployment doesn't use this form at all: its sign-in is the
+  // email + code flow at /access.
+  if (demo.data?.enabled && demo.data.access?.gate) {
+    const next = from !== "/" ? `?next=${encodeURIComponent(from)}` : "";
+    return <Navigate to={`/access${next}`} replace />;
+  }
 
   if (session.isLoading) {
     return (

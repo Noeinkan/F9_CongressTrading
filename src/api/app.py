@@ -14,6 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from ..config import DB_PATH, app_auth_required
 from ..db import get_connection, init_db
 from ..demo import router as demo_router
+from ..demo.config import demo_mode
 from ..demo.readonly import DemoReadOnlyMiddleware
 from . import settings
 from .repository import polygon_daily_bar_cache_size
@@ -49,8 +50,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # No-op unless DEMO_MODE is on; then every write to /api/* is refused.
+    # No-op unless DEMO_MODE is on; then locked features and every write to /api/* are refused.
     app.add_middleware(DemoReadOnlyMiddleware)
+    # The public demo's email gate. Added last, so it runs first: a browser without
+    # a running session reaches nothing below it. Refuses to build when misconfigured.
+    app.state.demo_access = None
+    if demo_mode():
+        from ..demo.access.service import build_access
+
+        access = build_access()
+        app.state.demo_access = access
+        if access is not None:
+            from ..demo.access.gate import DemoAccessMiddleware
+
+            app.add_middleware(DemoAccessMiddleware, access=access)
+            app.add_event_handler("startup", access.start_background)
 
     @app.get("/api/health", tags=["meta"])
     def health() -> dict[str, object]:
@@ -98,7 +112,9 @@ def create_app() -> FastAPI:
             "user": current_user(request),
         }
 
-    app.include_router(admin.router)
+    if not demo_mode():
+        # Refresh, deploy and the Telegram digest: removed from the demo process, not just refused.
+        app.include_router(admin.router)
     app.include_router(home.router)
     app.include_router(raw.router)
     app.include_router(review.router)
@@ -108,6 +124,12 @@ def create_app() -> FastAPI:
     app.include_router(executive.router)
     app.include_router(senate.router)
     app.include_router(demo_router.router)
+    if app.state.demo_access is not None:
+        from ..demo.access import admin as demo_admin
+        from ..demo.access import gate as demo_gate
+
+        app.include_router(demo_gate.router)
+        app.include_router(demo_admin.router)
     return app
 
 

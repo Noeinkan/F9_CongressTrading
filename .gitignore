@@ -2,6 +2,8 @@
 /data/raw/
 /data/db/
 /data/cache/
+# The demo's email gate (sign-ins and usage) on a local run
+/data/demo-access/
 /data/*.csv
 
 # Python

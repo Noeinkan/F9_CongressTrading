@@ -36,7 +36,15 @@ def logout_session(request: Request) -> None:
 
 
 def current_user(request: Request) -> str | None:
-    """The signed-in username, or None. When auth is disabled, returns 'anonymous'."""
+    """The signed-in username, or None. When auth is disabled, returns 'anonymous'.
+
+    On the public demo the email gate (``src.demo.access.gate``) has already
+    checked the visitor's session before any route runs; it leaves the verified
+    address in the request scope, and that is the user.
+    """
+    demo_email = request.scope.get("demo_email")
+    if demo_email:
+        return str(demo_email)
     if not app_auth_required():
         return "anonymous"
     return request.session.get(_SESSION_USER_KEY)

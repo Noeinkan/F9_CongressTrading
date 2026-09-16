@@ -36,6 +36,7 @@ import { SectionIntro } from "@/components/SectionIntro";
 import { TickerLink } from "@/components/TickerLink";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
+import { useDemoLock } from "@/hooks/useDemoLock";
 import { tickerHref } from "@/utils/entityLinks";
 import { formatDate } from "@/utils/format";
 import {
@@ -132,6 +133,7 @@ export function Home() {
   );
 
   const { data, isLoading, isError } = useHomeSummary(periodParams);
+  const csvLock = useDemoLock("csv_export");
 
   const visibleLatestRows = useMemo(() => {
     const rows = data?.latest_transactions ?? [];
@@ -392,10 +394,21 @@ export function Home() {
                   size="compact-sm"
                   variant="light"
                   disabled={netView !== "table"}
+                  onClick={(event) => {
+                    if (csvLock.locked) {
+                      event.preventDefault();
+                      csvLock.open();
+                    }
+                  }}
                   data-testid="home-net-download"
                 >
                   CSV
                 </Button>
+                {csvLock.locked ? (
+                  <Text size="xs" c="dimmed" data-testid="home-net-download-lock-hint">
+                    Available with full access
+                  </Text>
+                ) : null}
               </Group>
             }
           >

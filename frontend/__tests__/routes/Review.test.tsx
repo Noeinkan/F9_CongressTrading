@@ -12,6 +12,13 @@ const useReviewSummary = vi.fn();
 const resolveMutateAsync = vi.fn();
 const acceptMutateAsync = vi.fn();
 const dismissMutateAsync = vi.fn();
+const useDemoStatusMock = vi.fn();
+
+// Off-demo by default: useDemoLock only gates a click once a test opts a
+// locked demo status in.
+vi.mock("@/api/demo", () => ({
+  useDemoStatus: () => useDemoStatusMock(),
+}));
 
 vi.mock("@/api/review", () => ({
   useReviewSummary: (...args: unknown[]) => useReviewSummary(...args),
@@ -89,6 +96,8 @@ describe("Review route", () => {
     resolveMutateAsync.mockReset();
     acceptMutateAsync.mockReset();
     dismissMutateAsync.mockReset();
+    useDemoStatusMock.mockReset();
+    useDemoStatusMock.mockReturnValue({ data: { enabled: false } });
     resolveMutateAsync.mockResolvedValue({ ok: true });
     acceptMutateAsync.mockResolvedValue({ ok: true });
     dismissMutateAsync.mockResolvedValue({ ok: true });
@@ -141,5 +150,26 @@ describe("Review route", () => {
       ticker: "MSFT",
       applyToAsset: false,
     });
+  });
+
+  it("keeps Accept visible but opens the wall instead of mutating when review actions are locked in the demo", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: {
+        enabled: true,
+        locked: [
+          {
+            feature: "review_actions",
+            label: "Review-queue actions",
+            message: "Review actions need full access.",
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    useReviewSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderReview();
+    expect(screen.getByTestId("review-accept-42")).toBeInTheDocument();
+    await user.click(screen.getByTestId("review-accept-42"));
+    expect(acceptMutateAsync).not.toHaveBeenCalled();
   });
 });

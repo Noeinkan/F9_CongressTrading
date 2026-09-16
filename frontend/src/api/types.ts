@@ -14,6 +14,35 @@ export type LoginResponse = {
   auth_required: boolean;
 };
 
+export type DemoLockedFeature = {
+  feature: string;
+  label: string;
+  message: string;
+};
+
+export type DemoPrivacyParagraph = {
+  title: string;
+  text: string;
+};
+
+export type DemoAccessStatusValue = "signed_out" | "active" | "ended" | "revoked";
+
+/** The `access` slice of `/api/demo/status`, and the shape `/code` and `/link` return under `access`. */
+export type DemoAccessInfo = {
+  /** false => local run with the gate off: no sign-in, no countdown. */
+  gate: boolean;
+  status?: DemoAccessStatusValue;
+  address?: string | null;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  /** ISO-8601 UTC; lets the client correct for a skewed local clock. */
+  serverNow?: string;
+  codeMinutes?: number;
+  retentionDays?: number;
+  /** The three privacy paragraphs, rendered under the email field as-is. */
+  privacy?: DemoPrivacyParagraph[];
+};
+
 /** `/api/demo/status`. Everything past `enabled` is absent when the demo is off. */
 export type DemoStatus = {
   enabled: boolean;
@@ -23,12 +52,29 @@ export type DemoStatus = {
   snapshotLabel?: string;
   hiddenRoutes?: string[];
   sourceUrl?: string;
+  contactEmail?: string;
+  session?: { minutes: number };
+  /** One list, owned by the server — the client never repeats these strings or numbers. */
+  locked?: DemoLockedFeature[];
+  access?: DemoAccessInfo;
 };
 
-export type DemoSessionResponse = {
-  user: string;
-  demo: boolean;
-  snapshotDate: string;
+/** `POST /api/demo/access/request` success body. */
+export type DemoAccessRequestResponse = {
+  status: "sent";
+  address: string;
+  codeMinutes: number;
+};
+
+/** `POST /api/demo/access/code` and `POST /api/demo/access/link` success body. */
+export type DemoAccessConfirmResponse = {
+  status: "ok";
+  access: DemoAccessInfo;
+};
+
+/** `GET /api/demo/access/link?t=` success body — does not sign in. */
+export type DemoAccessLinkInfo = {
+  address: string;
 };
 
 export type SparklinePoint = {

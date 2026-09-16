@@ -10,8 +10,45 @@
   "status": "live",
 
   "url": "https://congress.demos.noeinsolutions.com/demo",
-  "note": "No sign-up. Read-only, data frozen 12 September 2026.",
-  "noteIt": "Nessuna registrazione. Sola lettura, dati congelati al 12 settembre 2026.",
+  "note": "Free 45-minute trial with your email. Read-only, data frozen 12 September 2026.",
+  "noteIt": "Prova gratuita di 45 minuti con la tua email. Sola lettura, dati congelati al 12 settembre 2026.",
+
+  "access": {
+    "mode": "email-trial",
+    "verification": "6-digit code or a link (GET shows a button, POST signs in), usable once for 15 minutes",
+    "oneTrialPer": "canonical address: lower-cased, +tag dropped, Gmail dots dropped; throwaway domains refused",
+    "tracking": "pages, members and tickers opened, locked features clicked, sign-ins; recorded against the address",
+    "admin": "/admin, server-rendered, 404 without DEMO_ADMIN_TOKEN (>= 24 chars); grant another session, revoke, delete, CSV exports; plus one email per new sign-up to DEMO_NOTIFY_EMAIL",
+    "privacy": "on the form: address, sign-in times, IP, what was opened; one session per person and to see how the demo is used; deleted 12 months after the last visit or on request to support@noeinsolutions.com; never added to a mailing list",
+    "mail": "Neo (smtp0001.neo.space:587, STARTTLS) as support@noeinsolutions.com, through the mail-relay container; 3 codes per address per hour, 60 per hour and 200 per day in total, 5 new addresses per IP per day",
+    "secrets": ["APP_SESSION_SECRET", "NEO_SMTP_HOST", "NEO_SMTP_PORT", "NEO_SMTP_USER", "NEO_SMTP_PASS", "EMAIL_FROM", "DEMO_ADMIN_TOKEN", "DEMO_NOTIFY_EMAIL"],
+    "killSwitch": "DEMO_ACCESS_GATE=false opens the demo to anyone, unrecorded (local runs only)"
+  },
+
+  "session": {
+    "minutes": 45,
+    "once": true,
+    "clock": "wall clock from the first sign-in, on the server; signing in again inside the window resumes it",
+    "keyedOn": "the canonical email address",
+    "firmness": "firm: a second session needs a second real mailbox",
+    "store": "visitors/codes/grants/events tables, SQLite on the `access` named volume",
+    "retentionDays": 365,
+    "atEnd": "every API call answers DEMO_EXPIRED and the app shows /access/ended: what they saw, a mailto to support@noeinsolutions.com, sign out; no restart. Asking for a code again mails an 'ended' note.",
+    "cleanup": "nothing to delete per session (read-only); hourly purge of spent codes, of addresses never verified within 30 days, and of people unseen for 365 days with their events",
+    "env": ["DEMO_SESSION_MINUTES=45", "DEMO_RETENTION_DAYS=365"]
+  },
+
+  "tiers": {
+    "open": ["Home", "Senate", "Members", "Tickers (incl. price overlay from stored bars)", "Patterns", "Raw table", "Review queue (reading)"],
+    "metered": [],
+    "locked": [
+      { "feature": "CSV downloads (Home net trade, Raw export)", "message": "Downloading the dataset comes with full access. Every table and chart stays open on screen for the rest of your session." },
+      { "feature": "Review-queue actions (resolve, accept, dismiss)", "message": "Resolving, accepting and dismissing review rows comes with full access. The queue itself stays open to read." }
+    ],
+    "removed": ["disclosure refresh / ingest", "deploy controls", "Telegram alerts and digest", "outbound network except the mail relay"],
+    "hidden": ["/executive (the snapshot has no OGE filings)"],
+    "decidedBy": "owner, 2026-09-16: both CSV downloads locked although the data is public; nothing metered, since every read is local; 365-day retention; admin page plus an email per sign-up"
+  },
 
   "data": {
     "source": "demo/fixtures/demo-snapshot.sqlite.gz",
@@ -32,25 +69,23 @@
   "killSwitch": {
     "server": "DEMO_MODE=false",
     "client": null,
-    "note": "Unset or false and POST /api/demo/session 404s, the read-only middleware stands down and the banner never renders. Default off."
+    "note": "Unset or false and every demo route 404s (sign-in, /admin), the gate and the read-only guard stand down, the admin router is back and the banner never renders. Default off."
   },
 
   "limits": {
-    "ttlMinutes": null,
-    "perSessionActions": null,
     "globalDailyActions": null,
     "perIpPerHour": null
   },
 
-  "resets": "Nothing to reset: every write to /api/* is refused while DEMO_MODE is on, so the snapshot a visitor sees is the snapshot the next visitor sees.",
-  "costPerVisit": "none",
+  "resets": "Nothing to reset: every write to /api/* is refused while DEMO_MODE is on, so the snapshot a visitor sees is the snapshot the next visitor sees. The sign-in store is the only state, and it is meant to persist.",
+  "costPerVisit": "none beyond one or two sign-in emails from the Neo mailbox (capped at 200 a day)",
 
-  "runLocally": "python scripts/unpack_demo_snapshot.py && DEMO_MODE=1 CONGRESS_DB_PATH=data/db/demo-snapshot.sqlite APP_PASSWORD=demo python -m src.api",
+  "runLocally": "python scripts/unpack_demo_snapshot.py && DEMO_MODE=1 DEMO_MAIL_BACKEND=console CONGRESS_DB_PATH=data/db/demo-snapshot.sqlite python -m src.api (the sign-in code is printed in the API log)",
   "shots": [
     "f9-congress-trading.jpg",
     "f9-congress-trading-committees.jpg",
     "f9-congress-trading-trades.jpg"
   ],
   "registeredOnLanding": true,
-  "updatedAt": "2026-09-14"
+  "updatedAt": "2026-09-16"
 }

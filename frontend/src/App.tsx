@@ -2,6 +2,9 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 
 import { RequireAuth } from "@/components/RequireAuth";
 import { SidebarLayout } from "@/components/SidebarLayout";
+import { Access } from "@/routes/Access";
+import { AccessEnded } from "@/routes/AccessEnded";
+import { AccessVerify } from "@/routes/AccessVerify";
 import { DemoEntry } from "@/routes/DemoEntry";
 import { Executive } from "@/routes/Executive";
 import { Home } from "@/routes/Home";
@@ -22,7 +25,23 @@ export const router = createBrowserRouter(
     element: <Login />,
   },
   {
-    // One-click entry from the landing page; falls back to /login off-demo.
+    // The demo's own sign-in flow: outside RequireAuth, since a signed-out
+    // visitor must be able to reach it.
+    path: "/access",
+    element: <Access />,
+  },
+  {
+    path: "/access/verify",
+    element: <AccessVerify />,
+  },
+  {
+    path: "/access/ended",
+    element: <AccessEnded />,
+  },
+  {
+    // The URL on the landing page; routes into whichever of the above (or
+    // straight into the dashboard) matches the visitor's current access.
+    // Falls back to /login when this deployment has no demo at all.
     path: "/demo",
     element: <DemoEntry />,
   },

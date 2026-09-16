@@ -1,7 +1,8 @@
 """Demo-mode configuration, read from the environment and the manifest.
 
 ``DEMO_MODE`` is the kill switch: unset or false and nothing in this package
-does anything — the mint route 404s and the banner never renders.
+does anything — the sign-in routes 404, the gate is not installed and the
+banner never renders. The gate's own settings are in :mod:`src.demo.access.settings`.
 """
 from __future__ import annotations
 
@@ -20,19 +21,6 @@ _TRUE = {"1", "true", "yes", "on"}
 def demo_mode() -> bool:
     """The kill switch. Default off, including in production."""
     return (os.getenv("DEMO_MODE") or "").strip().lower() in _TRUE
-
-
-def demo_username() -> str:
-    return (os.getenv("DEMO_USERNAME") or "demo").strip() or "demo"
-
-
-def demo_password() -> str:
-    """Password of the demo account.
-
-    Published on the landing card, so it guards nothing — the real boundary is
-    the read-only middleware plus the frozen snapshot this process serves.
-    """
-    return os.getenv("DEMO_PASSWORD") or "demo"
 
 
 @lru_cache(maxsize=1)

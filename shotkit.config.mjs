@@ -11,11 +11,14 @@
 //  * No server to start: baseUrl is the deployed demo, and `allowHosts` lets the
 //    kit's external-request block through to it. To shoot a local demo instead,
 //    run demo.json → runLocally plus `cd frontend && npm run dev`, and set
-//    baseUrl to http://127.0.0.1:5173 (the session cookie is Secure on the
-//    deployed demo only, so a local run needs no change beyond the URL).
-//  * `setup` opens /demo once, which mints the demo session and redirects to /.
-//    Every shot after it reuses that cookie. Arriving at / without it shows the
-//    login form, and every frame would be that form.
+//    SHOTKIT_BASE_URL=http://127.0.0.1:5173.
+//  * The demo is behind an email gate, and there is no back door for the kit.
+//    Sign in once in a normal browser (the code arrives by email; on a local run
+//    with DEMO_MAIL_BACKEND=console it is printed in the API log), copy the value
+//    of the `f9_demo_access` cookie from the browser's dev tools, and run:
+//      F9_DEMO_ACCESS_COOKIE=<value> node C:/Personal_utilities/screenshot-kit/shotkit.mjs
+//    `setup` hands that cookie to the kit's browser. It is a real session, so it
+//    has the same 45 minutes as anyone else's; the banner in frame shows the clock.
 //  * Everything in frame is public record — House and Senate periodic
 //    transaction reports — so nothing needs masking.
 //  * `/executive` is hidden in the demo; the snapshot has no OGE filings.
@@ -24,16 +27,38 @@
 //    to a resolved symbol's Trade history instead.
 
 const DEMO_HOST = "congress.demos.noeinsolutions.com";
+const BASE_URL = process.env.SHOTKIT_BASE_URL || `https://${DEMO_HOST}`;
 
 export default {
-  baseUrl: `https://${DEMO_HOST}`,
+  baseUrl: BASE_URL,
   allowHosts: [DEMO_HOST],
   viewport: { width: 1440, height: 900 },
   colorScheme: "light",
 
   async setup(page) {
-    await page.goto(`https://${DEMO_HOST}/demo`, { waitUntil: "networkidle", timeout: 90_000 });
-    await page.waitForURL((url) => !url.pathname.startsWith("/demo"), { timeout: 60_000 });
+    const token = process.env.F9_DEMO_ACCESS_COOKIE;
+    if (!token) {
+      throw new Error(
+        "F9_DEMO_ACCESS_COOKIE is not set: sign in to the demo in a browser and pass the " +
+          "f9_demo_access cookie value (see the notes at the top of shotkit.config.mjs).",
+      );
+    }
+    const url = new URL(BASE_URL);
+    await page.context().addCookies([
+      {
+        name: "f9_demo_access",
+        value: token,
+        domain: url.hostname,
+        path: "/",
+        httpOnly: true,
+        secure: url.protocol === "https:",
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto(`${BASE_URL}/demo`, { waitUntil: "networkidle", timeout: 90_000 });
+    await page.waitForURL((u) => !u.pathname.startsWith("/demo") && !u.pathname.startsWith("/access"), {
+      timeout: 60_000,
+    });
   },
 
   shots: [

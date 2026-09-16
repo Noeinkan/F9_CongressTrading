@@ -30,6 +30,7 @@ import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerLink } from "@/components/TickerLink";
 import { COPY } from "@/copy";
+import { useDemoLock } from "@/hooks/useDemoLock";
 import { formatDate, formatNumber } from "@/utils/format";
 
 function quartersParam(quarters: string[]): string | undefined {
@@ -66,6 +67,7 @@ function ReviewRowActions({
   const resolveMutation = useResolveReviewItem();
   const acceptMutation = useAcceptReviewItem();
   const dismissMutation = useDismissReviewItem();
+  const reviewLock = useDemoLock("review_actions");
 
   const busy =
     resolveMutation.isPending || acceptMutation.isPending || dismissMutation.isPending;
@@ -78,7 +80,15 @@ function ReviewRowActions({
     );
   }
 
+  // In the demo the controls stay visible and clickable — hiding them would
+  // make the product look smaller than it is — but a click opens the same
+  // wall a real 403 would raise, instead of firing a mutation the API would
+  // only refuse with DEMO_LOCKED anyway.
   const run = async (action: () => Promise<unknown>) => {
+    if (reviewLock.locked) {
+      reviewLock.open();
+      return;
+    }
     setLocalError(null);
     try {
       await action();
@@ -181,11 +191,12 @@ export function Review() {
 
   const { data, isLoading, isError } = useReviewSummary(reviewParams);
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 0;
-  // The demo serves a real SQLite queue, so the source check passes — but the
-  // API refuses every write. Fold the demo into the existing read-only path
-  // rather than offering buttons that come back 403.
+  // The demo serves a real SQLite queue, so the source check would pass —
+  // but the API refuses every write. The controls stay visible either way;
+  // ReviewRowActions is what actually gates a click on the demo lock.
   const isDemo = useDemoStatus().data?.enabled ?? false;
-  const canMutate = !isDemo && Boolean(data?.review_source?.startsWith("sqlite:"));
+  const sourceOk = Boolean(data?.review_source?.startsWith("sqlite:"));
+  const canMutate = isDemo || sourceOk;
 
   useEffect(() => {
     if (!data) return;
@@ -286,11 +297,15 @@ export function Review() {
                       data-testid="review-apply-to-asset"
                     />
                   </Group>
-                  {!canMutate ? (
+                  {!sourceOk && !isDemo ? (
                     <Text size="sm" c="dimmed">
-                      {isDemo
-                        ? "The queue is shown as captured. Saving a ticker, accepting a fuzzy match or dismissing a row changes the data, so those actions are off in the public demo."
-                        : `Triage actions need a live SQLite review queue (current source: ${data.review_source}).`}
+                      {`Triage actions need a live SQLite review queue (current source: ${data.review_source}).`}
+                    </Text>
+                  ) : null}
+                  {isDemo ? (
+                    <Text size="sm" c="dimmed">
+                      Save, Accept and Dismiss are shown for reference — resolving a row changes the
+                      data, so that needs full access.
                     </Text>
                   ) : null}
                   <Table.ScrollContainer minWidth={1100}>

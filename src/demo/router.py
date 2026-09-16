@@ -1,24 +1,22 @@
-"""Demo endpoints: the status probe and the one-click sign-in.
+"""Demo status: what the banner, the nav, the sign-in page and the wall need to know.
 
-``POST /api/demo/session`` is the security boundary — with ``DEMO_MODE`` off it
-404s, so no demo session can be minted on a production deployment no matter what
-the frontend asks for. ``GET /api/demo/status`` answers on both, returning
+``GET /api/demo/status`` answers on every deployment, returning
 ``{"enabled": false}`` when the demo is off: it leaks nothing, and it lets the
-same frontend build serve the private app and the public demo.
+same frontend build serve the private app and the public demo. It is never behind
+the email gate, because the sign-in page reads it.
+
+There is no sign-in route here any more. The one-click door (``POST
+/api/demo/session``) is gone: the way in is a verified email
+(:mod:`src.demo.access.gate`).
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.exceptions import HTTPException
+from starlette.concurrency import run_in_threadpool
 
-from ..api.security import login_session
-from .config import (
-    demo_mode,
-    demo_username,
-    snapshot_date,
-    snapshot_label,
-    source_url,
-)
+from .access.settings import CONTACT_EMAIL, AccessSettings
+from .config import demo_mode, snapshot_date, snapshot_label, source_url
+from .tiers import public_locked
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
 
@@ -34,10 +32,18 @@ NOTICE = (
 
 
 @router.get("/status")
-def demo_status() -> dict[str, object]:
-    """What the banner and the nav need to know. Safe to call when the demo is off."""
+async def demo_status(request: Request) -> dict[str, object]:
+    """Safe to call when the demo is off, and without signing in."""
     if not demo_mode():
         return {"enabled": False}
+    access = getattr(request.app.state, "demo_access", None)
+    if access is not None:
+        visitor = await run_in_threadpool(access.visitor_for, request)
+        settings = access.settings
+        access_payload: dict[str, object] = access.payload(visitor)
+    else:
+        settings = AccessSettings.from_env()
+        access_payload = {"gate": False}
     return {
         "enabled": True,
         "readOnly": True,
@@ -46,20 +52,8 @@ def demo_status() -> dict[str, object]:
         "snapshotLabel": snapshot_label(),
         "hiddenRoutes": list(HIDDEN_ROUTES),
         "sourceUrl": source_url(),
+        "contactEmail": settings.contact_email or CONTACT_EMAIL,
+        "session": {"minutes": settings.session_minutes},
+        "locked": public_locked(),
+        "access": access_payload,
     }
-
-
-@router.post("/session")
-def mint_demo_session(request: Request) -> dict[str, object]:
-    """Sign the visitor in as the demo user, so the landing link is one click.
-
-    The login gate stays in front of anyone arriving at the root URL; this is the
-    door the ``Try the demo`` link on the landing page opens. 404 — not 403 —
-    when the demo is off, so a production deployment does not advertise that the
-    route exists at all.
-    """
-    if not demo_mode():
-        raise HTTPException(status_code=404, detail="Not Found")
-    user = demo_username()
-    login_session(request, user)
-    return {"user": user, "demo": True, "snapshotDate": snapshot_date()}

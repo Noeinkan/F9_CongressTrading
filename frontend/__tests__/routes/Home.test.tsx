@@ -11,10 +11,17 @@ import { Home } from "@/routes/Home";
 const useHomeSummary = vi.fn();
 const useTickerDrilldown = vi.fn();
 const useTickerPriceOverlay = vi.fn();
+const useDemoStatusMock = vi.fn();
 
 vi.mock("@/api/home", () => ({
   useHomeSummary: (...args: unknown[]) => useHomeSummary(...args),
   netTradeCsvUrl: () => "/api/home/net_trade.csv?lookback=1",
+}));
+
+// Off-demo by default: useDemoLock (and therefore the CSV-download gating)
+// only kicks in when a test opts a demo status in.
+vi.mock("@/api/demo", () => ({
+  useDemoStatus: () => useDemoStatusMock(),
 }));
 
 vi.mock("@/api/tickerDrilldown", () => ({
@@ -174,6 +181,8 @@ describe("Home route", () => {
     useHomeSummary.mockReset();
     useTickerDrilldown.mockReset();
     useTickerPriceOverlay.mockReset();
+    useDemoStatusMock.mockReset();
+    useDemoStatusMock.mockReturnValue({ data: { enabled: false } });
     useTickerDrilldown.mockReturnValue({
       data: {
         ticker_timeline: [],
@@ -435,5 +444,26 @@ describe("Home route", () => {
       .getAllByTestId("home-latest-row")
       .map((row) => row.querySelector("td")?.textContent);
     expect(memberCells).toEqual(["Dan", "Carol", "Bob", "Alice"]);
+  });
+
+  it("blocks navigation and shows a hint on a locked CSV download in the demo", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: {
+        enabled: true,
+        locked: [
+          { feature: "csv_export", label: "CSV downloads", message: "CSV needs full access." },
+        ],
+      },
+    });
+    useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderHome(["/?net_view=table"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("home-net-table")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("home-net-download");
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("home-net-download-lock-hint")).toBeInTheDocument();
   });
 });

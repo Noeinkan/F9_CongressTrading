@@ -1,12 +1,18 @@
 # congress-demo — the public demo of the Congressional Disclosure Tracker.
 #
-# Two containers, one hostname. The edge proxies congress.demos.noeinsolutions.com
-# to `web` only; `web` serves the React build and hands /api/* to `api`. `api`
-# sits on an internal network with no route out, so the demo can make no
-# outbound call even by accident — the snapshot is all it has.
+# Three containers, one hostname. The edge proxies congress.demos.noeinsolutions.com
+# to `web` only; `web` serves the React build and hands /api/* and /admin to `api`.
+# `api` sits on an internal network with no route out, so the demo can make no
+# outbound call even by accident — the snapshot is all it has. The one exception
+# is the sign-in email: `mail-relay` is on both networks and forwards to the Neo
+# mail server's host:port and nowhere else.
 #
-# Secrets come from /opt/sites/congress-demo/.env (0600, root-owned, never in git):
-# only APP_SESSION_SECRET. Everything else below is published on purpose.
+# Secrets come from /opt/sites/congress-demo/.env (0600, root-owned, never in git),
+# and are read by `api` only: APP_SESSION_SECRET, NEO_SMTP_HOST, NEO_SMTP_PORT (587),
+# NEO_SMTP_USER, NEO_SMTP_PASS (single-quoted: Compose would expand the `$` in it),
+# EMAIL_FROM, DEMO_ADMIN_TOKEN and DEMO_NOTIFY_EMAIL. None of them may appear under
+# `environment:` below — a key there overrides the same key from the .env file.
+# Everything else below is published on purpose.
 services:
   web:
     build:
@@ -54,25 +60,37 @@ services:
     env_file:
       - .env
     environment:
-      # The kill switch. Off, and the mint route 404s, the read-only guard
-      # stands down and the banner disappears — so the database path below is
-      # equally explicit: this container has no live database to fall back to.
+      # The kill switch. Off, and the sign-in routes 404, the gate and the
+      # read-only guard stand down and the banner disappears — so the database
+      # path below is equally explicit: this container has no live database to
+      # fall back to.
       DEMO_MODE: "1"
-      DEMO_USERNAME: demo
-      DEMO_PASSWORD: demo
       DEMO_SOURCE_URL: https://noeinsolutions.com/builds.html
       CONGRESS_DB_PATH: /app/data/db/demo-snapshot.sqlite
-      # The login gate a visitor arriving at / meets. Published credentials.
-      APP_USERNAME: demo
-      APP_PASSWORD: demo
+      # The email gate (docs/DEMO.md). No APP_PASSWORD: a verified address is the
+      # only way in, and the old published demo/demo login is gone.
+      DEMO_ACCESS_DB: /app/data/access/access.sqlite3
+      DEMO_SESSION_MINUTES: "45"
+      DEMO_RETENTION_DAYS: "365"
+      DEMO_CODES_PER_DAY: "200"
+      DEMO_MAIL_BACKEND: smtp
+      DEMO_MAIL_RELAY: mail-relay:2587
+      DEMO_PUBLIC_URL: https://congress.demos.noeinsolutions.com
+      DEMO_CONTACT_EMAIL: support@noeinsolutions.com
       APP_SESSION_COOKIE: f9_demo_session
       APP_SESSION_HTTPS_ONLY: "1"
       API_SERVER_ADDRESS: 0.0.0.0
       API_SERVER_PORT: "9101"
     networks:
       - internal
+    depends_on:
+      - mail-relay
     restart: unless-stopped
     read_only: true
+    volumes:
+      # Who signed in and when their 45 minutes end. It must survive a restart
+      # and a redeploy — a session that resets with the container is no limit.
+      - access:/app/data/access
     tmpfs:
       # The 42 MB snapshot is expanded here at every start. SQLite needs a
       # writable directory for its WAL files even though no write is accepted.
@@ -100,8 +118,50 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  mail-relay:
+    # The one door out: forwards every connection to the Neo mail server and
+    # nowhere else (src/demo/access/relay.py). Its image holds that one file.
+    # It reads no .env — the mail password never enters this container, and the
+    # api upgrades to TLS and checks Neo's certificate straight through it.
+    build:
+      context: .
+      dockerfile: Dockerfile.relay
+    image: site-congress-demo-relay:${SITE_TAG:-latest}
+    container_name: site-congress-demo-relay
+    environment:
+      MAIL_RELAY_TARGET: smtp0001.neo.space:587
+      MAIL_RELAY_LISTEN: 0.0.0.0:2587
+    networks:
+      - internal
+      - egress
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 2587), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  # Never `docker compose down -v`: that deletes every sign-in and every usage log.
+  access:
+
 networks:
   edge:
     external: true
   internal:
     internal: true
+  # Outbound only, and only the relay is on it.
+  egress: {}

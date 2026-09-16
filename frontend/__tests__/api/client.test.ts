@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch } from "@/api/client";
+import { ApiError, apiFetch, onDemoRefusal } from "@/api/client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -53,5 +53,54 @@ describe("apiFetch", () => {
       status: 401,
       body: { detail: "Not authenticated" },
     } satisfies Partial<ApiError>);
+  });
+
+  it("broadcasts a DEMO_* refusal to onDemoRefusal listeners, then still throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ code: "DEMO_LOCKED", feature: "csv_export", detail: "Nope." }),
+      }),
+    );
+
+    const listener = vi.fn();
+    const unsubscribe = onDemoRefusal(listener);
+    try {
+      await expect(apiFetch("/api/home/net_trade.csv")).rejects.toMatchObject({
+        name: "ApiError",
+        status: 403,
+      });
+      expect(listener).toHaveBeenCalledWith({
+        code: "DEMO_LOCKED",
+        feature: "csv_export",
+        detail: "Nope.",
+      });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("does not broadcast an ordinary error body without a DEMO_* code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ detail: "Internal error" }),
+      }),
+    );
+
+    const listener = vi.fn();
+    const unsubscribe = onDemoRefusal(listener);
+    try {
+      await expect(apiFetch("/api/health")).rejects.toBeInstanceOf(ApiError);
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 });

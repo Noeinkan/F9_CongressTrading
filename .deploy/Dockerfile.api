@@ -22,11 +22,15 @@ COPY repo/demo/ /app/demo/
 COPY repo/scripts/unpack_demo_snapshot.py /app/scripts/unpack_demo_snapshot.py
 COPY repo/data/committees.json repo/data/legislators_parties.json /app/data/
 
+# /app/data/access is owned by the app user here so the named volume Compose
+# mounts on it starts out writable (Docker copies the ownership on first use).
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin demo \
- && mkdir -p /app/data/db
+ && mkdir -p /app/data/db /app/data/access \
+ && chown demo /app/data/access
 USER demo
 
 EXPOSE 9101
 # Compose mounts a tmpfs on /app/data/db, so every start expands the committed
-# fixture afresh: a restart always serves exactly the snapshot in git.
+# fixture afresh: a restart always serves exactly the snapshot in git. The email
+# gate's sign-ins live on the named volume at /app/data/access and survive it.
 CMD ["sh", "-c", "python scripts/unpack_demo_snapshot.py --out /app/data/db/demo-snapshot.sqlite && exec python -m src.api"]

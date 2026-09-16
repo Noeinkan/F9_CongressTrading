@@ -1,0 +1,18 @@
+# congress-demo / mail-relay — the one door out of the sealed demo network.
+#
+# Carries a single stdlib file: it forwards TCP to MAIL_RELAY_TARGET and nothing
+# else. No app code, no dependencies, no .env.
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /relay
+COPY repo/src/demo/access/relay.py /relay/relay.py
+
+RUN useradd --uid 10002 --no-create-home --shell /usr/sbin/nologin relay
+USER relay
+
+EXPOSE 2587
+CMD ["python", "/relay/relay.py"]

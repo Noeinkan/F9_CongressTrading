@@ -6,6 +6,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 
 import { DemoBanner } from "./DemoBanner";
+import { DemoWall } from "./DemoWall";
 import { FilterProvider } from "./FilterContext";
 import { SidebarFilters } from "./SidebarFilters";
 import { TopBar } from "./TopBar";
@@ -35,6 +36,7 @@ export function SidebarLayout() {
 
   return (
     <FilterProvider>
+      <DemoWall />
       <MantineAppShell
         header={{ height: 64 }}
         navbar={{

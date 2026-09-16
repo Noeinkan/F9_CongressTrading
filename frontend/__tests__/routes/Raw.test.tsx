@@ -9,10 +9,17 @@ import { FilterProvider } from "@/components/FilterContext";
 import { Raw } from "@/routes/Raw";
 
 const useRawTransactions = vi.fn();
+const useDemoStatusMock = vi.fn();
 
 vi.mock("@/api/raw", () => ({
   useRawTransactions: (...args: unknown[]) => useRawTransactions(...args),
   rawExportCsvUrl: () => "/api/raw/export.csv?lookback=1&sort=transaction_date&order=desc&page=1&page_size=50",
+}));
+
+// Off-demo by default: useDemoLock (and therefore the CSV-download gating)
+// only kicks in when a test opts a demo status in.
+vi.mock("@/api/demo", () => ({
+  useDemoStatus: () => useDemoStatusMock(),
 }));
 
 const sampleData = {
@@ -70,6 +77,8 @@ function renderRaw(initialEntries = ["/raw"]) {
 describe("Raw route", () => {
   beforeEach(() => {
     useRawTransactions.mockReset();
+    useDemoStatusMock.mockReset();
+    useDemoStatusMock.mockReturnValue({ data: { enabled: false } });
   });
 
   it("renders table rows from API data", async () => {
@@ -116,5 +125,26 @@ describe("Raw route", () => {
       expect(lastParams?.sort).toBe("member");
       expect(lastParams?.order).toBe("desc");
     });
+  });
+
+  it("blocks navigation and shows a hint on a locked CSV download in the demo", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: {
+        enabled: true,
+        locked: [
+          { feature: "csv_export", label: "CSV downloads", message: "CSV needs full access." },
+        ],
+      },
+    });
+    useRawTransactions.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
+    renderRaw();
+    await waitFor(() => {
+      expect(screen.getByTestId("raw-download")).toBeInTheDocument();
+    });
+    const link = screen.getByTestId("raw-download");
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("raw-download-lock-hint")).toBeInTheDocument();
   });
 });

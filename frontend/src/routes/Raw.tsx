@@ -27,6 +27,7 @@ import { MemberLink } from "@/components/MemberLink";
 import { PageState } from "@/components/PageState";
 import { SectionIntro } from "@/components/SectionIntro";
 import { TickerLink } from "@/components/TickerLink";
+import { useDemoLock } from "@/hooks/useDemoLock";
 import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
 import {
   classifyTransaction,
@@ -109,6 +110,7 @@ export function Raw() {
   );
 
   const { data, isLoading, isError } = useRawTransactions(rawParams);
+  const csvLock = useDemoLock("csv_export");
 
   // Debounce search draft → URL so typing filters without requiring Enter.
   useEffect(() => {
@@ -189,15 +191,28 @@ export function Raw() {
               />
             </div>
           </Group>
-          <Button
-            component="a"
-            href={rawExportCsvUrl(rawParams)}
-            download
-            variant="light"
-            data-testid="raw-download"
-          >
-            Download CSV
-          </Button>
+          <Group gap="xs" align="center">
+            <Button
+              component="a"
+              href={rawExportCsvUrl(rawParams)}
+              download
+              variant="light"
+              onClick={(event) => {
+                if (csvLock.locked) {
+                  event.preventDefault();
+                  csvLock.open();
+                }
+              }}
+              data-testid="raw-download"
+            >
+              Download CSV
+            </Button>
+            {csvLock.locked ? (
+              <Text size="xs" c="dimmed" data-testid="raw-download-lock-hint">
+                Available with full access
+              </Text>
+            ) : null}
+          </Group>
         </Group>
 
         <ChartCard title="Transactions" testId="raw-table-card">

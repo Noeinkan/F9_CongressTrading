@@ -11,16 +11,9 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return { ...actual, useNavigate: () => navigateMock };
 });
 
-const useSessionProbeMock = vi.fn();
-vi.mock("@/api/auth", () => ({
-  useSessionProbe: () => useSessionProbeMock(),
-}));
-
 const useDemoStatusMock = vi.fn();
-const signInMock = vi.fn();
 vi.mock("@/api/demo", () => ({
   useDemoStatus: () => useDemoStatusMock(),
-  useDemoSignIn: () => ({ mutateAsync: signInMock }),
 }));
 
 function renderEntry() {
@@ -36,36 +29,57 @@ function renderEntry() {
 describe("DemoEntry", () => {
   beforeEach(() => {
     navigateMock.mockReset();
-    signInMock.mockReset();
-    useSessionProbeMock.mockReturnValue({
-      data: { authenticated: false, auth_required: true, user: null },
-    });
-    useDemoStatusMock.mockReturnValue({ data: { enabled: true } });
   });
 
-  it("signs the visitor in and lands them on the dashboard", async () => {
-    signInMock.mockResolvedValue({ user: "demo", demo: true, snapshotDate: "2026-09-12" });
+  it("shows a loader while the demo status is still in flight", () => {
+    useDemoStatusMock.mockReturnValue({ data: undefined });
     renderEntry();
-
     expect(screen.getByTestId("demo-entry-loading")).toBeInTheDocument();
-    await waitFor(() => expect(signInMock).toHaveBeenCalledTimes(1));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("sends a signed-out visitor to the email sign-in form", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, access: { gate: true, status: "signed_out" } },
+    });
+    renderEntry();
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/access", { replace: true }));
+  });
+
+  it("sends an already-active visitor straight to the dashboard", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, access: { gate: true, status: "active" } },
+    });
+    renderEntry();
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }));
+  });
+
+  it("sends an ended visitor to the ended page", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, access: { gate: true, status: "ended" } },
+    });
+    renderEntry();
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }),
+      expect(navigateMock).toHaveBeenCalledWith("/access/ended", { replace: true }),
     );
   });
 
-  it("never mints twice, even across re-renders", async () => {
-    signInMock.mockResolvedValue({ user: "demo", demo: true, snapshotDate: "2026-09-12" });
-    const { rerender } = renderEntry();
-    await waitFor(() => expect(signInMock).toHaveBeenCalledTimes(1));
-    rerender(
-      <MantineProvider>
-        <MemoryRouter initialEntries={["/demo"]}>
-          <DemoEntry />
-        </MemoryRouter>
-      </MantineProvider>,
+  it("sends a revoked visitor to the ended page", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, access: { gate: true, status: "revoked" } },
+    });
+    renderEntry();
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/access/ended", { replace: true }),
     );
-    expect(signInMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips straight to the dashboard when the gate itself is off", async () => {
+    useDemoStatusMock.mockReturnValue({
+      data: { enabled: true, access: { gate: false } },
+    });
+    renderEntry();
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }));
   });
 
   it("falls back to the real sign-in when this deployment has no demo", async () => {
@@ -74,14 +88,6 @@ describe("DemoEntry", () => {
     await waitFor(() =>
       expect(screen.getByText(/not the public demo/i)).toBeInTheDocument(),
     );
-    expect(signInMock).not.toHaveBeenCalled();
-  });
-
-  it("falls back when the mint call itself fails", async () => {
-    signInMock.mockRejectedValue(new Error("404"));
-    renderEntry();
-    await waitFor(() =>
-      expect(screen.getByText(/not the public demo/i)).toBeInTheDocument(),
-    );
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
