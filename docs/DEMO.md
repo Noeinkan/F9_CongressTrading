@@ -255,7 +255,8 @@ All JSON; all 404 when the demo or the gate is off.
 | `frontend/src/routes/DemoEntry.tsx` | `/demo`, the URL on the landing card: sends the visitor to sign-in, the dashboard or the ended page. Falls back to `/login` where there is no demo. |
 | `frontend/src/routes/Access*.tsx` | `/access` (email, then code), `/access/verify` (the link's button), `/access/ended`. |
 | `frontend/src/components/DemoBanner.tsx` | The honesty line and the countdown; the clock survives a dismiss. |
-| `frontend/src/components/DemoWall.tsx` | One notice for every refusal code the API sends. |
+| `frontend/src/components/DemoWall.tsx` | One notice for every refusal code the API sends. `apiFetch` (`frontend/src/api/client.ts`) passes each `DEMO_*` code to it. |
+| `frontend/src/hooks/useDemoLock.ts` | Tells a button whether its feature is locked, and opens the same notice a server refusal would. |
 | `frontend/src/api/demo.ts` | The status query and the sign-in calls. |
 
 Places that change behaviour when the status says demo:

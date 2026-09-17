@@ -1,7 +1,7 @@
 import { Alert, Anchor, Button, Center, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { demoQueryKey, useDemoAccessCode, useDemoAccessRequest, useDemoStatus } from "@/api/demo";
@@ -63,6 +63,16 @@ export function Access() {
   const snapshotLabel = status.data?.snapshotLabel;
   const codeMinutes = status.data?.access?.codeMinutes ?? 15;
   const privacy = status.data?.access?.privacy ?? [];
+  const accessStatus = status.data?.enabled ? status.data.access?.status : undefined;
+
+  // A visitor who is already in (a bookmarked /access, the back button) goes
+  // where they were headed; one whose time is up goes to the ended page.
+  if (accessStatus === "active") {
+    return <Navigate to={nextPath} replace />;
+  }
+  if (accessStatus === "ended" || accessStatus === "revoked") {
+    return <Navigate to="/access/ended" replace />;
+  }
 
   const backToEmail = () => {
     setStep("email");
@@ -130,7 +140,7 @@ export function Access() {
             <form onSubmit={handleRequestSubmit} data-testid="access-email-form">
               <Stack gap="sm">
                 <TextInput
-                  label="Work email"
+                  label="Email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.currentTarget.value)}

@@ -54,8 +54,9 @@ export function DemoWall() {
         }
         case "DEMO_LOCKED": {
           const entry = data?.locked?.find((item) => item.feature === body.feature);
+          // Lead with what the visitor reached, not with what is forbidden.
           setWall({
-            title: entry ? `${entry.label}: full access only` : "Full access only",
+            title: entry ? entry.label : "Part of the full product",
             message: refusalDetail(body),
           });
           break;

@@ -7,6 +7,7 @@ store's clock instead of sleeping.
 from __future__ import annotations
 
 import re
+import secrets
 import socket
 import threading
 from pathlib import Path
@@ -14,7 +15,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-ADMIN_TOKEN = "a-very-long-admin-token-for-tests-0123"
+# Minted per run: tests/test_no_committed_secrets.py refuses a token-shaped literal.
+ADMIN_TOKEN = secrets.token_urlsafe(32)
 START = 1_790_000_000.0  # 2026-09-21, a fixed instant for the store's clock
 
 
@@ -528,7 +530,7 @@ def test_admin_sign_in_shows_the_person_and_escapes_what_they_typed(demo_env, cl
     assert page.status_code == 200
     assert 'name="token"' in page.text  # the form, not the data
     assert "brien" not in page.text
-    assert admin.post("/admin/login", data={"token": "wrong-token-wrong-token-wrong"}).status_code == 401
+    assert admin.post("/admin/login", data={"token": secrets.token_urlsafe(32)}).status_code == 401
     _admin(admin)
 
     page = admin.get("/admin")

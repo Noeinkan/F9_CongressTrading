@@ -195,6 +195,7 @@ export function Review() {
   // but the API refuses every write. The controls stay visible either way;
   // ReviewRowActions is what actually gates a click on the demo lock.
   const isDemo = useDemoStatus().data?.enabled ?? false;
+  const reviewLock = useDemoLock("review_actions");
   const sourceOk = Boolean(data?.review_source?.startsWith("sqlite:"));
   const canMutate = isDemo || sourceOk;
 
@@ -302,10 +303,9 @@ export function Review() {
                       {`Triage actions need a live SQLite review queue (current source: ${data.review_source}).`}
                     </Text>
                   ) : null}
-                  {isDemo ? (
-                    <Text size="sm" c="dimmed">
-                      Save, Accept and Dismiss are shown for reference — resolving a row changes the
-                      data, so that needs full access.
+                  {isDemo && reviewLock.message ? (
+                    <Text size="sm" c="dimmed" data-testid="review-lock-note">
+                      {reviewLock.message}
                     </Text>
                   ) : null}
                   <Table.ScrollContainer minWidth={1100}>

@@ -1,6 +1,6 @@
 import { Anchor, Button, Center, Paper, Stack, Text, Title } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 
 import { demoQueryKey, useDemoSignOut, useDemoStatus } from "@/api/demo";
 
@@ -16,9 +16,20 @@ export function AccessEnded() {
   const status = useDemoStatus();
   const signOut = useDemoSignOut();
 
-  const revoked = status.data?.access?.status === "revoked";
+  const access = status.data?.access;
+  const revoked = access?.status === "revoked";
   const minutes = status.data?.session?.minutes ?? 45;
   const contactEmail = status.data?.contactEmail;
+
+  // Back in only when the server says there is real time left (the owner granted
+  // more): a second of clock skew at zero must not bounce the visitor back and forth.
+  const secondsLeft =
+    access?.status === "active" && access.expiresAt && access.serverNow
+      ? (new Date(access.expiresAt).getTime() - new Date(access.serverNow).getTime()) / 1000
+      : 0;
+  if (secondsLeft > 5) {
+    return <Navigate to="/" replace />;
+  }
 
   const handleSignOut = async () => {
     try {
