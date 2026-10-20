@@ -1,4 +1,7 @@
 import type { NetTradeRow } from "@/api/types";
+import { formatCurrency } from "@/utils/format";
+
+import { DIRECTION_COLOR } from "./palette";
 
 export function buildNetTradeOption(rows: NetTradeRow[]): Record<string, unknown> {
   const sorted = [...rows].sort((a, b) => a.net_amount - b.net_amount);
@@ -6,7 +9,8 @@ export function buildNetTradeOption(rows: NetTradeRow[]): Record<string, unknown
   const values = sorted.map((r) => r.net_amount);
   return {
     grid: { left: 80, right: 24, top: 12, bottom: 24 },
-    xAxis: { type: "value", axisLabel: { formatter: (v: number) => `$${Math.abs(v / 1000).toFixed(0)}K` } },
+    // Sign dropped on the axis: left of zero is net selling, shown by the bar colour.
+    xAxis: { type: "value", axisLabel: { formatter: (v: number) => (v === 0 ? "$0" : formatCurrency(Math.abs(v))) } },
     yAxis: {
       type: "category",
       data: tickers,
@@ -19,7 +23,7 @@ export function buildNetTradeOption(rows: NetTradeRow[]): Record<string, unknown
         cursor: "pointer",
         data: values.map((v) => ({
           value: v,
-          itemStyle: { color: v >= 0 ? "#2f6f4e" : "#a64b2a" },
+          itemStyle: { color: v >= 0 ? DIRECTION_COLOR.buy : DIRECTION_COLOR.sell },
         })),
       },
     ],

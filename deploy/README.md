@@ -186,7 +186,9 @@ went out, e.g. `Telegram — alerts: quiet · digest: sent today at 14:02`.
 ## Scheduled job
 
 One cron entry drives everything; its file is `deploy/f9-congress-trading.cron`
-(03:30 server time, as root).
+(03:30 server time, as the `deploy` user — the same user as the API, so the
+Refresh button can overwrite what the night wrote. If started as root, the
+script fixes ownership of `data/` and the log, then re-runs itself as `deploy`).
 
 1. **Check whether it is already installed.** On the VPS:
    `cat /etc/cron.d/f9-congress-trading`. If it prints an entry calling

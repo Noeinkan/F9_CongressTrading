@@ -1,13 +1,7 @@
 import type { TickerTimelineRow } from "@/api/types";
 import { formatCurrency } from "@/utils/format";
 
-const TYPE_COLORS: Record<string, string> = {
-  Buy: "#2f6f4e",
-  Sell: "#a64b2a",
-  "Sell (partial)": "#c6922b",
-  Exchange: "#4a6fa5",
-  Unknown: "#64748b",
-};
+import { TRADE_TYPE_COLOR as TYPE_COLORS } from "./palette";
 
 /** Pixel diameter range for amount-scaled bubbles. */
 const SYMBOL_SIZE_MIN = 8;

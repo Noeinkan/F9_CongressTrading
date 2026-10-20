@@ -8,7 +8,10 @@
     delaycompress
     missingok
     notifempty
-    create 0640 root root
+    # The ingest runs as 'deploy', so the log and its directory belong to it;
+    # `su` stops logrotate refusing a directory not owned by root.
+    su deploy deploy
+    create 0640 deploy deploy
     dateext
     dateformat -%Y%m%d
 }

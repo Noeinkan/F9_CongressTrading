@@ -35,6 +35,22 @@ PYTHON="${REPO}/.venv/bin/python"
 LOG_DIR="/var/log/f9-congress-trading"
 LOG="${LOG_DIR}/ingest.log"
 LOCK="/var/lock/f9-congress-trading-ingest.lock"
+RUN_AS="deploy"
+
+# Why drop to the deploy user?
+#   The API (congress-api.service) runs as 'deploy' and its Refresh button
+#   rewrites the same files. When cron ran this script as root, every file it
+#   created under data/ was root-owned with mode 0600, and the next Refresh died
+#   with "[Errno 13] Permission denied" on data/raw/senate/*.html (Oct 2026).
+#   As root we only repair ownership, then re-exec as deploy, so an old cron
+#   entry that still says "root" is harmless.
+if [ "$(id -u)" -eq 0 ]; then
+  mkdir -p "$LOG_DIR"
+  touch "$LOG" "$LOCK"
+  chown "$RUN_AS:$RUN_AS" "$LOG_DIR" "$LOG" "$LOCK"
+  chown -R "$RUN_AS:$RUN_AS" "$REPO/data"
+  exec runuser -u "$RUN_AS" -- bash "$0" "$@"
+fi
 
 mkdir -p "$LOG_DIR"
 

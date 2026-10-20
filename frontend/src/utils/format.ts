@@ -22,9 +22,34 @@ export function formatCurrency(value: unknown): string {
   if (n === 0) return "—";
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+  if (abs >= 1_000) return `${sign}$${compactAbs(abs)}`;
   return `${sign}$${abs.toLocaleString()}`;
+}
+
+// 1_500_000 -> "1.5M", 2_000_000 -> "2M" (parseFloat drops the trailing ".0").
+function compactAbs(abs: number): string {
+  if (abs >= 1e9) return `${parseFloat((abs / 1e9).toFixed(1))}B`;
+  if (abs >= 1e6) return `${parseFloat((abs / 1e6).toFixed(1))}M`;
+  if (abs >= 1e3) return `${parseFloat((abs / 1e3).toFixed(1))}K`;
+  return abs.toLocaleString("en-US", { maximumFractionDigits: 1 });
+}
+
+/** Short count for bar labels and axes: 1234 -> "1.2K", 42 -> "42". */
+export function formatCompact(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${n < 0 ? "-" : ""}${compactAbs(Math.abs(n))}`;
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-05" -> "May 2026" for month axes; anything else passes through. */
+export function formatMonthTick(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  const m = /^(\d{4})-(\d{2})$/.exec(s);
+  const name = m ? MONTH_NAMES[Number(m[2]) - 1] : undefined;
+  return m && name ? `${name} ${m[1]}` : s;
 }
 
 export function formatNumber(value: unknown, decimals = 2): string {

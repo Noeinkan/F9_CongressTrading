@@ -1,14 +1,6 @@
 import type { TickerCumulativeExposureRow } from "@/api/types";
 
-// Per-transaction-type colors (kept consistent with the rest of the dashboard:
-// tickerTimeline.ts / priceOverlay.ts).
-const TYPE_COLORS: Record<string, string> = {
-  Buy: "#15803d",
-  Sell: "#be123c",
-  "Sell (partial)": "#c2410c",
-  Exchange: "#1d4ed8",
-  Unknown: "#64748b",
-};
+import { TRADE_TYPE_COLOR as TYPE_COLORS } from "./palette";
 
 // Per-member accent palette — one hue per line on the shared canvas.
 const MEMBER_PALETTE = [

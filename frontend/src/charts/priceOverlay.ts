@@ -1,10 +1,4 @@
-const TYPE_COLORS: Record<string, string> = {
-  Buy: "#15803d",
-  Sell: "#be123c",
-  "Sell (partial)": "#c2410c",
-  Exchange: "#1d4ed8",
-  Unknown: "#64748b",
-};
+import { TRADE_TYPE_COLOR as TYPE_COLORS } from "./palette";
 
 export type PriceBar = { date: string; close: number };
 export type PriceTrade = {

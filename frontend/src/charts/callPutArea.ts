@@ -1,3 +1,7 @@
+import { formatMonthTick } from "@/utils/format";
+
+import { DIRECTION_COLOR } from "./palette";
+
 export type CallPutMonthlyRow = {
   month: string | null;
   option_side: string;
@@ -17,13 +21,16 @@ export function buildCallPutAreaOption(rows: CallPutMonthlyRow[]): Record<string
   });
   return {
     grid: { left: 48, right: 24, top: 24, bottom: 48 },
-    xAxis: { type: "category", data: months },
+    xAxis: { type: "category", data: months, axisLabel: { formatter: formatMonthTick } },
     yAxis: { type: "value", name: "Transactions" },
     legend: { bottom: 0 },
     series: [
-      { name: "Call", type: "line", stack: "options", areaStyle: {}, data: callData, itemStyle: { color: "#15803d" } },
-      { name: "Put", type: "line", stack: "options", areaStyle: {}, data: putData, itemStyle: { color: "#be123c" } },
+      { name: "Call", type: "line", stack: "options", areaStyle: {}, data: callData, itemStyle: { color: DIRECTION_COLOR.buy } },
+      { name: "Put", type: "line", stack: "options", areaStyle: {}, data: putData, itemStyle: { color: DIRECTION_COLOR.sell } },
     ],
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { label: { formatter: (p: { value: string }) => formatMonthTick(p.value) } },
+    },
   };
 }

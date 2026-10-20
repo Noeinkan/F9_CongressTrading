@@ -1,4 +1,6 @@
-import { formatCurrency, formatDisclosedRange } from "@/utils/format";
+import { formatCurrency, formatDisclosedRange, formatMonthTick } from "@/utils/format";
+
+import { DIRECTION_COLOR } from "./palette";
 
 export type MonthlyActivityRow = {
   month: string | null;
@@ -100,7 +102,7 @@ export function buildMonthlyActivityOption(
       bottom: 0,
       data: ["Buy", "Sell", "Other", "Disclosed $ high"],
     },
-    xAxis: { type: "category", data: months },
+    xAxis: { type: "category", data: months, axisLabel: { formatter: formatMonthTick } },
     yAxis: [
       { type: "value", name: "Trades", nameGap: 10 },
       {
@@ -119,7 +121,7 @@ export function buildMonthlyActivityOption(
         type: "bar",
         stack: "side",
         data: buys,
-        itemStyle: { color: "#2f6f4e" },
+        itemStyle: { color: DIRECTION_COLOR.buy },
         markArea,
       },
       {
@@ -127,14 +129,14 @@ export function buildMonthlyActivityOption(
         type: "bar",
         stack: "side",
         data: sells,
-        itemStyle: { color: "#a64b2a" },
+        itemStyle: { color: DIRECTION_COLOR.sell },
       },
       {
         name: "Other",
         type: "bar",
         stack: "side",
         data: others,
-        itemStyle: { color: "#94a3b8" },
+        itemStyle: { color: DIRECTION_COLOR.other },
       },
       {
         name: "Disclosed $ high",
@@ -166,7 +168,7 @@ export function buildMonthlyActivityOption(
             return `${p.marker ?? ""}${p.seriesName ?? ""}: <b>${display}</b>`;
           })
           .join("<br/>");
-        return `<div><b>${month}</b><br/>${lines}<br/>Range: ${range}${lagNote}</div>`;
+        return `<div><b>${formatMonthTick(month)}</b><br/>${lines}<br/>Range: ${range}${lagNote}</div>`;
       },
     },
   };

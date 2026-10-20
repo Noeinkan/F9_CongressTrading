@@ -327,7 +327,7 @@ export function Tickers() {
             )}
 
             {kpis ? (
-              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+              <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
                 <KpiTile kpi={{ key: "trades", label: "Trades", value: kpis.trades }} />
                 <KpiTile kpi={{ key: "members", label: "Members", value: kpis.members }} />
                 <KpiTile
@@ -348,7 +348,7 @@ export function Tickers() {
             ) : null}
 
             {kpis ? (
-              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+              <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
                 <KpiTile
                   kpi={{
                     key: "weighted_return",

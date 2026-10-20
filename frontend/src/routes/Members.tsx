@@ -261,7 +261,7 @@ export function Members() {
                 data-testid="members-trade-view"
               />
 
-              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+              <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
                 <KpiTile
                   kpi={{
                     key: "trades",

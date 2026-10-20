@@ -12,4 +12,7 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-30 3 * * * root bash /opt/F9_CongressTrading/scripts/nightly_ingest.sh
+# Runs as 'deploy', the same user as the API: files written by root broke the
+# Refresh button with "Permission denied" (the script also drops to deploy on
+# its own if started as root).
+30 3 * * * deploy bash /opt/F9_CongressTrading/scripts/nightly_ingest.sh

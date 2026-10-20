@@ -1,3 +1,5 @@
+import { formatCompact } from "@/utils/format";
+
 export type RankBarRow = { label: string; value: number; detail?: string };
 
 export function buildRankBarsOption(
@@ -8,8 +10,8 @@ export function buildRankBarsOption(
   const labels = rows.map((r) => r.label).reverse();
   const values = rows.map((r) => r.value).reverse();
   return {
-    grid: { left: 120, right: 24, top: 12, bottom: 24 },
-    xAxis: { type: "value" },
+    grid: { left: 120, right: 40, top: 12, bottom: 24 },
+    xAxis: { type: "value", axisLabel: { formatter: (v: number) => formatCompact(v) } },
     yAxis: {
       type: "category",
       data: labels,
@@ -25,7 +27,12 @@ export function buildRankBarsOption(
         type: "bar",
         data: values,
         itemStyle: { color },
-        label: { show: true, position: "right", formatter: "{c}" },
+        // "1.2K", not "1234", so the label never runs past the card.
+        label: {
+          show: true,
+          position: "right",
+          formatter: (p: { value: number }) => formatCompact(p.value),
+        },
         cursor: clickable ? "pointer" : "default",
       },
     ],

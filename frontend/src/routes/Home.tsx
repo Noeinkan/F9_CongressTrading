@@ -221,7 +221,7 @@ export function Home() {
             </SimpleGrid>
           </Card>
 
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="md">
+          <SimpleGrid cols={{ base: 2, md: 3, lg: 5 }} spacing="md">
             {data.kpis.map((kpi) => (
               <KpiTile key={kpi.key} kpi={kpi} />
             ))}
