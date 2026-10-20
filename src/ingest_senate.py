@@ -285,8 +285,7 @@ def ingest_senate(
             key=lambda p: str(p).casefold(),
         )
         if not senate_files:
-            # Il job 'Refresh data' mostra gia un messaggio piu dettagliato; qui stampiamo solo un
-            # reminder sintetico quando ingest_senate viene invocato standalone (CLI / script).
+            # Sole message for an empty folder, from the CLI and from the Refresh job alike.
             print(
                 "Senate: 0 PTR (PDF/HTML) in data/raw/senate/. "
                 "Esegui 'python -m src.main download-senate' oppure aggiungi i file a mano da https://efdsearch.senate.gov/."

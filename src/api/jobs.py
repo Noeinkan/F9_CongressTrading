@@ -219,21 +219,20 @@ def _summarize_house_fd_extract(year: int) -> dict[str, int]:
 
 
 def _summarize_senate_dir() -> dict[str, Any]:
-    """Conta i PDF PTR nella cartella data/raw/senate per dare feedback chiaro all'utente."""
+    """Count the Senate PTRs on disk (scanned PDFs + electronic HTML) for the job result.
+
+    Called after ingest_senate, so the count includes whatever the auto-download
+    just fetched. It used to run before the download and count only *.pdf, so a
+    folder of 411 HTML filings was reported as empty.
+    """
     from pathlib import Path
     from ..config import SENATE_RAW_DIR
 
     p = Path(SENATE_RAW_DIR)
     if not p.exists():
-        return {"dir": str(p), "exists": False, "pdfs": 0, "reason": "directory non presente"}
-    pdfs = list(p.glob("*.pdf"))
-    reason = ""
-    if not pdfs:
-        reason = (
-            "Nessun PDF trovato in data/raw/senate/. Senate eFD non consente scrape automatico: "
-            "scarica i PTR a mano da https://efdsearch.senate.gov/ e copiali in quella cartella."
-        )
-    return {"dir": str(p), "exists": True, "pdfs": len(pdfs), "reason": reason}
+        return {"dir": str(p), "exists": False, "files": 0}
+    files = sum(1 for f in p.rglob("*") if f.suffix.lower() in {".pdf", ".html"})
+    return {"dir": str(p), "exists": True, "files": files}
 
 
 def _summarize_oge_registry() -> dict[str, int]:
@@ -414,12 +413,6 @@ def run_ingest_all(
 
         from ..ingest_senate import ingest_senate
 
-        senate_summary = _summarize_senate_dir()
-        if senate_summary["pdfs"] == 0:
-            print(senate_summary["reason"])
-        else:
-            print(f"Senate: trovati {senate_summary['pdfs']} PDF in {senate_summary['dir']}.")
-
         senate_hook = _make_progress_hook(
             state,
             phase="ingest-senate",
@@ -429,8 +422,9 @@ def run_ingest_all(
             progress_start=65,
             progress_span=15,
         )
+        # ingest_senate logs the file count itself, after its download step.
         ingest_senate(cancel_event=cancel_event, progress_hook=senate_hook)
-        state.result["senate"] = senate_summary
+        state.result["senate"] = _summarize_senate_dir()
 
         if skip_oge:
             state.progress = 100
