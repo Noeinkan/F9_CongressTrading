@@ -273,7 +273,7 @@ export async function deliverNote(note: FeedbackNote): Promise<FeedbackDelivery>
   if (relay) {
     const outcome = await postToRelay(relay, note, subject, body);
     if (outcome.ok) {
-      return { ...base, status: "sent", detail: `Sent — it is in ${to}. Thank you.` };
+      return { ...base, status: "sent", detail: "Sent — thank you." };
     }
     const fallback = openMailClient(to, subject, body);
     return {
@@ -290,7 +290,7 @@ export async function deliverNote(note: FeedbackNote): Promise<FeedbackDelivery>
     return {
       ...base,
       status: "failed",
-      detail: `Your mail app did not open (${handoff.detail}). Copy the note below and send it to ${to}.`,
+      detail: `Your mail app did not open (${handoff.detail}). Copy the note below so it is not lost.`,
     };
   }
   const longNote =
@@ -300,7 +300,7 @@ export async function deliverNote(note: FeedbackNote): Promise<FeedbackDelivery>
   return {
     ...base,
     status: "handed-off",
-    detail: `Your mail app should be opening with the note addressed to ${to}. Nothing is sent until you press send there.${longNote}`,
+    detail: `Your mail app should be opening with the note. Nothing is sent until you press send there.${longNote}`,
   };
 }
 

@@ -26,7 +26,6 @@ import {
   categoryById,
   collectContext,
   deliverNote,
-  feedbackEmail,
   mailtoUrl,
   validateNote,
   type FeedbackCategoryId,
@@ -68,7 +67,6 @@ export function FeedbackButton() {
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<FeedbackDelivery | null>(null);
 
-  const to = feedbackEmail();
   // Read on every render rather than memoised: the rows on screen are then
   // always the ones that will be sent, never a stale snapshot.
   const context = collectContext(route);
@@ -242,10 +240,8 @@ export function FeedbackButton() {
               failed send is the thing nobody scrolls to. */}
           {result ? <ComposedNote result={result} /> : null}
 
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              Goes to {to}
-            </Text>
+          {/* No destination address on screen: it stays inside the mailto link. */}
+          <Group justify="flex-end">
             <Group gap="sm">
               <Button variant="subtle" color="gray" onClick={close}>
                 Close
@@ -263,11 +259,11 @@ export function FeedbackButton() {
 
 /**
  * The copy-out panel. This is the part that makes a silent failure
- * recoverable: whatever the transport did, the exact text and the address it
- * belongs to are on screen.
+ * recoverable: whatever the transport did, the exact text is on screen. The
+ * destination address is not — the mail-app link below carries it.
  */
 function ComposedNote({ result }: { result: FeedbackDelivery }) {
-  const full = `To: ${result.to}\nSubject: ${result.subject}\n\n${result.body}`;
+  const full = `Subject: ${result.subject}\n\n${result.body}`;
   return (
     <Stack gap="xs" data-testid="feedback-composed">
       <Text size="sm" fw={600}>
@@ -276,7 +272,7 @@ function ComposedNote({ result }: { result: FeedbackDelivery }) {
       <Text size="xs" c="dimmed">
         {result.status === "sent"
           ? "Keep this if you want a record of it."
-          : `If your mail app did not open, paste this into an email to ${result.to}.`}
+          : "If your mail app did not open, copy the note and try the mail-app link again."}
       </Text>
       <Code
         block

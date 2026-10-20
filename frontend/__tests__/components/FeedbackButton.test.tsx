@@ -92,8 +92,8 @@ describe("FeedbackButton trigger", () => {
 
     await user.click(trigger);
     expect(await screen.findByTestId("feedback-message")).toBeInTheDocument();
-    // The destination is on screen before anything is sent.
-    expect(screen.getByText(/Goes to .+@.+/)).toBeInTheDocument();
+    // The maintainer's address is never printed in the modal.
+    expect(document.body).not.toHaveTextContent(/@[\w-]+\./);
   });
 });
 
