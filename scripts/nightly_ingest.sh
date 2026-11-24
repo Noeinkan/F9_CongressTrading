@@ -110,6 +110,12 @@ notify_rc=0
   echo "--- notify-digest ---"
   "$PYTHON" -m src.main notify-digest || notify_rc=$?
 
+  # SearchForAlpha lab digest. Best-effort: this night's data is already on
+  # disk, and the lab container may be absent on a host that has not deployed
+  # F2. scripts/run_alpha_flow.sh exits 0 in that case.
+  echo "--- alpha-flow digest ---"
+  bash "$REPO/scripts/run_alpha_flow.sh" || echo "alpha-flow: digest command failed; congress ingest still succeeded"
+
   if [ "$notify_rc" -ne 0 ]; then
     echo "[$(date -Iseconds)] nightly ingest done, NOTIFICATIONS FAILED (rc=${notify_rc})"
   else

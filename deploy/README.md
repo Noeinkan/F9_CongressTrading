@@ -207,6 +207,13 @@ script fixes ownership of `data/` and the log, then re-runs itself as `deploy`).
    should end with `nightly ingest done (rc=0)`. Nothing there means cron never
    fired: re-check step 2's permissions.
 
+After notifications, the same script runs `scripts/run_alpha_flow.sh`. That
+asks the SearchForAlpha lab container (`site-alpha-lab-web`) to write the
+research digest from this database and F8's DuckDB. It does not download
+filings. If the container is not running, the log says so and the night still
+counts as a successful ingest. Deploy the lab (`bash deploy.sh` in
+`F2_SearchForAlpha_lab`) before expecting a digest file.
+
 ## Firewall
 
 ```bash
