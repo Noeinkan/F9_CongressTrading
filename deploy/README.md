@@ -214,6 +214,17 @@ filings. If the container is not running, the log says so and the night still
 counts as a successful ingest. Deploy the lab (`bash deploy.sh` in
 `F2_SearchForAlpha_lab`) before expecting a digest file.
 
+The night job runs as `deploy`, which has no docker access. One sudo rule
+lets it run that single command and nothing else:
+
+```bash
+echo 'deploy ALL=(root) NOPASSWD: /usr/bin/docker exec site-alpha-lab-web python -m lib.alpha_flow' \
+  | sudo tee /etc/sudoers.d/f9-alpha-flow
+sudo chmod 440 /etc/sudoers.d/f9-alpha-flow && sudo visudo -c
+```
+
+Without it the log says "digest not run" every night.
+
 ## Firewall
 
 ```bash

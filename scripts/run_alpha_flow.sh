@@ -6,25 +6,26 @@
 # are in the database. A missing container or a docker permission problem is
 # logged and does not fail the night — the ingest already succeeded.
 #
-# ALPHA_FLOW_CONTAINER overrides the container name (default site-alpha-lab-web).
+# nightly_ingest.sh drops to `deploy`, which is not in the docker group. It is
+# allowed exactly one command through sudo, by /etc/sudoers.d/f9-alpha-flow:
+#
+#   deploy ALL=(root) NOPASSWD: /usr/bin/docker exec site-alpha-lab-web python -m lib.alpha_flow
+#
+# sudo matches the arguments literally, so CMD must stay word-for-word the
+# same as that rule. As root, or as a docker-group user, plain docker is used.
 
-set -euo pipefail
+set -uo pipefail
 
-CONTAINER="${ALPHA_FLOW_CONTAINER:-site-alpha-lab-web}"
+CMD=(/usr/bin/docker exec site-alpha-lab-web python -m lib.alpha_flow)
 
-if docker info >/dev/null 2>&1; then
-  DOCKER=(docker)
-elif sudo -n docker info >/dev/null 2>&1; then
-  DOCKER=(sudo -n docker)
+if [ "$(id -u)" -eq 0 ] || docker info >/dev/null 2>&1; then
+  RUN=("${CMD[@]}")
 else
-  echo "alpha-flow: docker is not available to $(id -un); digest not run"
-  exit 0
+  RUN=(sudo -n "${CMD[@]}")
 fi
 
-if ! "${DOCKER[@]}" ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  echo "alpha-flow: container ${CONTAINER} is not running; digest not run"
-  exit 0
+echo "alpha-flow: ${RUN[*]}"
+if ! "${RUN[@]}"; then
+  echo "alpha-flow: digest not run (lab container down, or /etc/sudoers.d/f9-alpha-flow missing)"
 fi
-
-echo "alpha-flow: python -m lib.alpha_flow in ${CONTAINER}"
-"${DOCKER[@]}" exec "$CONTAINER" python -m lib.alpha_flow
+exit 0
