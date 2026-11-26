@@ -254,6 +254,17 @@ def render_test_message() -> str:
     )
 
 
+def render_notice_message(title: str, detail: str, *, when: object = None) -> str:
+    """A data-source warning that is not a failed night (e.g. a Senate FMP gap)."""
+    return "\n".join(
+        [
+            f"⚠️ <b>Congress trades — {escape(title.strip())}</b>",
+            escape(_today_label(when)),
+            escape(detail.strip() or "No detail captured."),
+        ]
+    )
+
+
 def render_failure_message(detail: str, *, when: object = None) -> str:
     return "\n".join(
         [

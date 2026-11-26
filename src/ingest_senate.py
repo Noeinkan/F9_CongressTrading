@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from .config import RAW_DIR, SENATE_RAW_DIR, senate_efd_auto_download_enabled
+from .config import RAW_DIR, SENATE_RAW_DIR, fmp_api_key, senate_efd_auto_download_enabled
 from .db import (
     get_connection,
     init_db,
@@ -21,6 +21,14 @@ from .db import (
 from .member_states import ptr_member_state_and_party
 from .parse_fd import iter_fd_files, parse_fd_txt, parse_fd_xml
 from .parse_ptr import parse_ptr_pdf_safe, parse_senate_ptr_html
+from .senate_fmp import (
+    gap_alert_detail,
+    is_fmp_file,
+    parse_senate_fmp_json,
+    poll_senate_fmp,
+    purge_filing_rows,
+    resolve_member_name,
+)
 from .ticker_lookup import resolve_asset
 from .utils import (
     extract_zip,
@@ -68,6 +76,32 @@ def _auto_download_senate(
             send_failure_alert(detail)
         except Exception as notify_exc:  # the alert is best-effort; the ingest must go on
             print(f"Senate eFD: failure alert not sent: {notify_exc}", flush=True)
+
+
+def _send_alert(title: str, detail: str) -> None:
+    try:
+        from .notify.service import send_notice
+
+        send_notice(title, detail)
+    except Exception as notify_exc:  # best-effort, like the eFD alert
+        print(f"Senate FMP: alert not sent: {notify_exc}", flush=True)
+
+
+def _poll_fmp_senate() -> None:
+    """One FMP poll before parsing, so the night never waits on the 30-minute cron.
+
+    Same rule as the eFD download: a failure is reported and parsing goes on.
+    """
+    try:
+        result = poll_senate_fmp()
+    except Exception as exc:
+        detail = f"Senate FMP poll failed ({exc}). Parsing files already on disk."
+        print(detail, flush=True)
+        _send_alert("Senate FMP poll failed", detail)
+        return
+    print(result.summary(), flush=True)
+    if result.possible_gap:
+        _send_alert("Senate trades may be missing", gap_alert_detail(result))
 
 
 def _persist_ptr_filing(
@@ -232,6 +266,8 @@ def ingest_senate(
 
         if senate_efd_auto_download_enabled():
             _auto_download_senate(cancel_event, progress_hook)
+        if fmp_api_key():
+            _poll_fmp_senate()
 
         zip_paths = list(SENATE_RAW_DIR.glob("*.zip")) + list(RAW_DIR.glob("*.zip"))
         for zip_path in zip_paths:
@@ -279,11 +315,20 @@ def ingest_senate(
                     source_hash=make_content_hash(row.get("source_file"), row.get("doc_id"), row.get("filing_date")),
                 )
 
-        # Corpus = PDF PTR (scansioni / vecchi) + HTML dei PTR elettronici efdsearch.
-        senate_files = sorted(
-            (p for p in SENATE_RAW_DIR.rglob("*") if p.suffix.lower() in {".pdf", ".html"}),
-            key=lambda p: str(p).casefold(),
-        )
+        # Corpus = PDF PTR (scansioni / vecchi) + HTML dei PTR elettronici efdsearch
+        # + JSON from FMP (data/raw/senate/fmp/). An eFD file of the same filing wins
+        # over its FMP JSON, whose rows are removed.
+        efd_files = [p for p in SENATE_RAW_DIR.rglob("*") if p.suffix.lower() in {".pdf", ".html"}]
+        efd_stems = {p.stem.lower() for p in efd_files}
+        fmp_files = []
+        for p in SENATE_RAW_DIR.rglob("*.json"):
+            if not is_fmp_file(p):
+                continue
+            if p.stem.lower() in efd_stems:
+                purge_filing_rows(conn, str(p))
+                continue
+            fmp_files.append(p)
+        senate_files = sorted(efd_files + fmp_files, key=lambda p: str(p).casefold())
         if not senate_files:
             # Sole message for an empty folder, from the CLI and from the Refresh job alike.
             print(
@@ -310,7 +355,16 @@ def ingest_senate(
                     progress_hook(f"Senate {ptr_path.name} (skip)", file_index + 1, total, unit="PTRs")
                 continue
 
-            if ptr_path.suffix.lower() == ".html":
+            source_url = ""
+            if is_fmp_file(ptr_path):
+                # The file grows as polls add rows: drop what its last version wrote.
+                purge_filing_rows(conn, str(ptr_path))
+                header, rows = parse_senate_fmp_json(ptr_path)
+                header["member"] = resolve_member_name(
+                    conn, header.get("first_name"), header.get("last_name")
+                )
+                source_url = header.get("source_url") or ""
+            elif ptr_path.suffix.lower() == ".html":
                 header, rows = parse_senate_ptr_html(ptr_path)
             else:
                 header, rows = parse_ptr_pdf_safe(ptr_path)
@@ -330,6 +384,7 @@ def ingest_senate(
                 rows=rows,
                 source_path=ptr_path,
                 sha=sha,
+                source_url=source_url,
             )
             mark_file_ingested(conn, str(ptr_path), sha)
             if progress_hook is not None:

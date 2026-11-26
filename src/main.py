@@ -93,6 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Riscarica anche se l'HTML è già presente su disco.",
     )
 
+    sub.add_parser(
+        "poll-senate-fmp",
+        help=(
+            "Fetch the newest 25 Senate trades from FMP into data/raw/senate/fmp/ "
+            "(needs FMP_API_KEY; the server runs it every 30 minutes, ingest-senate parses the files)"
+        ),
+    )
+
     dl = sub.add_parser(
         "download-house-fd",
         help="Scarica bulk FD annuali (.zip) dal Clerk della House in data/raw/house/",
@@ -329,6 +337,22 @@ def main() -> None:
             overwrite=bool(getattr(args, "overwrite", False)),
         )
         print(f"download-senate: {downloaded} downloaded, {already_present} already present.")
+        return
+
+    if args.command == "poll-senate-fmp":
+        from .senate_fmp import FmpError, gap_alert_detail, poll_senate_fmp
+
+        try:
+            result = poll_senate_fmp()
+        except FmpError as exc:
+            # No Telegram here: this runs every 30 minutes. The nightly
+            # ingest-senate polls once more and alerts if it fails too.
+            raise SystemExit(f"poll-senate-fmp: {exc}")
+        print(result.summary())
+        if result.possible_gap:
+            from .notify.service import send_notice
+
+            send_notice("Senate trades may be missing", gap_alert_detail(result))
         return
 
     if args.command == "download-house-fd":

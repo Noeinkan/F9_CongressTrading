@@ -61,18 +61,29 @@ APP_PASSWORD=<long-random-secret>
 APP_SESSION_SECRET=<optional-explicit-secret>
 API_SERVER_ADDRESS=127.0.0.1
 API_SERVER_PORT=9001
-SENATE_EFD_AUTO_DOWNLOAD=1
+SENATE_EFD_AUTO_DOWNLOAD=0
+FMP_API_KEY=<free key from financialmodelingprep.com>
 ```
 
 When `APP_PASSWORD` is set, the login page appears before any transaction data loads.
 
-`SENATE_EFD_AUTO_DOWNLOAD=1` makes the nightly `ingest-all` fetch new Senate
-PTRs from efdsearch.senate.gov, the same way it fetches House PTRs. The site
-sits behind Akamai, which blocks many data-centre addresses; on 12 September
-2026 it let this VPS through. If it starts refusing, the download failure sends
-one Telegram alert and the rest of the night (OGE, exports, notifications) still
-runs. `publish_senate.ps1` stays as the fallback: it scrapes from a home
-connection and pushes the files here.
+**Senate source: FMP, not efdsearch.** From 26 October 2026
+efdsearch.senate.gov answers "Access Denied" (Akamai) to every address outside
+the US — this VPS and a home connection in Italy alike — so
+`SENATE_EFD_AUTO_DOWNLOAD` is off and `publish_senate.ps1` no longer works from
+Italy. Senate trades now come from Financial Modeling Prep:
+
+- `FMP_API_KEY` (free plan) turns the source on. The free plan returns only the
+  newest 25 Senate rows, so cron runs `poll-senate-fmp` every 30 minutes
+  (`deploy/f9-congress-trading.cron`, log `senate-fmp.log`). Each poll merges
+  rows into `data/raw/senate/fmp/<eFD uuid>.json`; the nightly `ingest-senate`
+  polls once more and parses those files like eFD HTML.
+- When a whole poll is new, rows may have scrolled past: one Telegram
+  "Senate trades may be missing" message lists the filings to check.
+- Filings from 9 October to 25 November 2026 are not recoverable on the free
+  plan (it has no older pages).
+- If an eFD HTML of the same filing ever lands in `data/raw/senate/`, it wins:
+  the FMP rows of that filing are removed at the next ingest.
 
 > **The variables were renamed and the server was not.** Until 12 September 2026
 > the VPS `.env` carried `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` — the names

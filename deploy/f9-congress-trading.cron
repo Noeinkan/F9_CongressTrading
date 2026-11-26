@@ -1,4 +1,5 @@
-# The one scheduled job for the Congress Trading board.
+# The scheduled jobs for the Congress Trading board: the nightly run, and the
+# 30-minute Senate poll at the bottom.
 # Install as /etc/cron.d/f9-congress-trading (see deploy/README.md, "Scheduled job").
 #
 # Every night at 03:30 server time, scripts/nightly_ingest.sh downloads and
@@ -16,3 +17,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Refresh button with "Permission denied" (the script also drops to deploy on
 # its own if started as root).
 30 3 * * * deploy bash /opt/F9_CongressTrading/scripts/nightly_ingest.sh
+
+# Senate trades from FMP (src/senate_fmp.py). efdsearch.senate.gov refuses
+# non-US addresses since late Oct 2026, and FMP's free plan shows only the newest
+# 25 Senate rows, so poll often enough that nothing scrolls past between two
+# polls: 48 calls a day of the 250 allowed. It only writes JSON files under
+# data/raw/senate/fmp/; the nightly ingest-senate parses them. Minutes 7 and 37
+# keep it clear of the 03:30 run.
+7,37 * * * * deploy cd /opt/F9_CongressTrading && .venv/bin/python -m src.main poll-senate-fmp >> /var/log/f9-congress-trading/senate-fmp.log 2>&1

@@ -50,7 +50,9 @@ All CLI: **`python -m src.main <command>`** from repo root.
 
 | `ingest-house` | House PTR + FD pipeline |
 
-| `ingest-senate` | Senate PTR (expects PDFs present) |
+| `ingest-senate` | Senate PTR: eFD PDF/HTML in `data/raw/senate/` plus FMP JSON in `data/raw/senate/fmp/` (an eFD file of the same filing wins). With `FMP_API_KEY` set it polls FMP once first |
+
+| `poll-senate-fmp` | Newest 25 Senate trades from Financial Modeling Prep → `data/raw/senate/fmp/<eFD uuid>.json` (`src/senate_fmp.py`). efdsearch refuses non-US addresses since Oct 2026; the free plan has no older pages, so the server polls every 30 min and sends "Senate trades may be missing" when a whole page is new |
 
 | `ingest-oge` | OGE Executive (278-T + 278e) PDFs from `data/raw/oge/`. 278-T rows go to `transactions`; 278e rows go to the dedicated `executive_holdings` table. |
 

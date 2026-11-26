@@ -89,6 +89,21 @@ def senate_efd_download_min_year() -> int:
     return HOUSE_PTR_AUTO_DOWNLOAD_MIN_FILING_YEAR_DEFAULT
 
 
+# Senate PTRs from Financial Modeling Prep (src/senate_fmp.py). Since late October
+# 2026 efdsearch.senate.gov refuses every non-US address, the VPS and a home
+# connection in Italy alike; FMP republishes the same filings with the eFD link.
+# The free plan returns only the newest 25 Senate trades (page 0, limit <= 25),
+# so the server polls every 30 minutes (deploy/f9-congress-trading.cron).
+FMP_SENATE_LATEST_URL = "https://financialmodelingprep.com/stable/senate-latest"
+FMP_SENATE_PAGE_LIMIT = 25
+SENATE_FMP_DIR = SENATE_RAW_DIR / "fmp"
+
+
+def fmp_api_key() -> str:
+    """FMP_API_KEY; empty means the FMP Senate source is off."""
+    return (os.getenv("FMP_API_KEY") or "").strip()
+
+
 def house_ingest_force_reparse_pdfs() -> bool:
     """Se true, riesegue il parsing di ogni PDF PTR anche se gia in files_ingested (aggiorna transazioni via upsert)."""
     v = (os.getenv("HOUSE_INGEST_FORCE_REPARSE_PDFS") or "").strip().lower()

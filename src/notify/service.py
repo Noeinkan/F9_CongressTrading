@@ -24,6 +24,7 @@ from .format import (
     render_bootstrap_message,
     render_event_message,
     render_failure_message,
+    render_notice_message,
     render_test_message,
 )
 from .links import DashboardLinks
@@ -409,4 +410,15 @@ def send_failure_alert(
     if not settings.active and not dry_run:
         return _not_configured_outcome(settings)
     result = _deliver(render_failure_message(detail), settings, dry_run=dry_run)
+    return RunOutcome(status=_sent_status(result), message=result.summary, send=result)
+
+
+def send_notice(
+    title: str, detail: str, *, dry_run: bool = False, settings: NotifySettings | None = None
+) -> RunOutcome:
+    """A data-source warning (Senate FMP poll failed, possible gap). Touches no state."""
+    settings = settings or load_settings()
+    if not settings.active and not dry_run:
+        return _not_configured_outcome(settings)
+    result = _deliver(render_notice_message(title, detail), settings, dry_run=dry_run)
     return RunOutcome(status=_sent_status(result), message=result.summary, send=result)

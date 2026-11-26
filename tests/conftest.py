@@ -20,6 +20,8 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # the operator's actual chat.
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    # Same reason: with the key set, every ingest_senate test would poll FMP live.
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
 
 
 # ---------------------------------------------------------------------------
