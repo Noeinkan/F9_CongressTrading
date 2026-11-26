@@ -112,28 +112,7 @@ export function msnMoneyQuoteUrl(ticker: string): string {
   return `https://www.msn.com/en-us/money/stockdetails/fi-${encodeURIComponent(ticker.trim().toUpperCase())}`;
 }
 
-const SEARCH_FOR_ALPHA_DEFAULT_URL = "http://77.42.70.26:8060";
-
-/**
- * Base URL for the SearchForAlpha Lab (F2) dashboard. Override with
- * `VITE_SEARCHFORALPHA_URL` at build time (trailing slash stripped).
- */
-export function searchForAlphaBaseUrl(): string {
-  const raw = import.meta.env.VITE_SEARCHFORALPHA_URL ?? SEARCH_FOR_ALPHA_DEFAULT_URL;
-  return raw.replace(/\/+$/, "");
-}
-
-/**
- * Build the SearchForAlpha Lab (F2) ticker page URL, e.g.
- * `http://77.42.70.26:8060/ticker/NVDA`. If the ticker is empty, returns
- * `{base}/ticker/` (used when the button is disabled).
- */
-export function searchForAlphaUrl(ticker: string): string {
-  const base = searchForAlphaBaseUrl();
-  const symbol = ticker.trim().toUpperCase();
-  if (!symbol) return `${base}/ticker/`;
-  return `${base}/ticker/${encodeURIComponent(symbol)}`;
-}
+// Links to SearchForAlpha and the 13F Screener: src/config/siblingApps.ts.
 
 const KOFI_DEFAULT_URL = "https://ko-fi.com/noeinkan";
 

@@ -16,7 +16,7 @@ from ..db import get_connection, init_db
 from ..demo import router as demo_router
 from ..demo.config import demo_mode
 from ..demo.readonly import DemoReadOnlyMiddleware
-from . import settings
+from . import owner_login, settings
 from .repository import polygon_daily_bar_cache_size
 from .routers import admin, executive, home, members, patterns, raw, review, senate, tickers
 from .security import current_user, login_session, logout_session, require_auth
@@ -28,6 +28,12 @@ class LoginRequest(BaseModel):
 
 
 def create_app() -> FastAPI:
+    # Fail at startup, not at the first sign-in: a half-configured owner login
+    # would otherwise sign cookies with the public dev secret.
+    owner_login.validate_config()
+    if owner_login.enabled() and demo_mode():
+        raise owner_login.LoginConfigError("SITE_LOGIN_PASSWORD_HASH and DEMO_MODE cannot both be on")
+
     app = FastAPI(
         title="Congress Trading API",
         version="0.1.0",
@@ -88,9 +94,17 @@ def create_app() -> FastAPI:
     def login(payload: LoginRequest, request: Request) -> dict[str, object]:
         from .security import verify_credentials
 
-        if not verify_credentials(payload.username.strip(), payload.password):
+        # nginx (the only way in on the server) sets X-Real-IP.
+        ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+        if owner_login.locked(ip):
+            raise HTTPException(status_code=429, detail="Too many wrong tries. Wait 15 minutes and try again.")
+        ok = verify_credentials(payload.username.strip(), payload.password)
+        owner_login.record(ip, ok)
+        if not ok:
             raise HTTPException(status_code=401, detail="Invalid username or password.")
         username = payload.username.strip() or "dashboard"
+        if owner_login.enabled():
+            username = username.lower()
         login_session(request, username)
         return {"user": username, "auth_required": app_auth_required()}
 

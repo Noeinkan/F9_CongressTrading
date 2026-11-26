@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { DonateButton } from "./DonateButton";
 import { FeedbackButton } from "./FeedbackButton";
+import { BackToSibling, SiblingAppsMenu } from "./SiblingApps";
 import { UserMenu } from "./UserMenu";
 import { useDemoStatus } from "@/api/demo";
 import { useIsMobile } from "@/hooks/useMediaQuery";
@@ -73,6 +74,8 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
         </Group>
       ) : null}
       <Group gap="sm" wrap="nowrap">
+        {!isMobile ? <BackToSibling /> : null}
+        <SiblingAppsMenu />
         <FeedbackButton />
         <DonateButton />
         <UserMenu />

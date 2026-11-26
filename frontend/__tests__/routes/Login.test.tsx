@@ -50,7 +50,7 @@ describe("Login", () => {
   it("renders the sign-in form", () => {
     renderLogin();
     expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
   });
 
@@ -59,7 +59,7 @@ describe("Login", () => {
     mutateAsync.mockResolvedValue({ user: "admin", auth_required: true });
     renderLogin();
 
-    await user.type(screen.getByLabelText(/username/i), "admin");
+    await user.type(screen.getByLabelText(/email/i), "admin");
     await user.type(screen.getByLabelText(/password/i), "secret");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
@@ -78,7 +78,7 @@ describe("Login", () => {
     );
     renderLogin();
 
-    const username = screen.getByLabelText(/username/i) as HTMLInputElement;
+    const username = screen.getByLabelText(/email/i) as HTMLInputElement;
     const password = screen.getByLabelText(/password/i) as HTMLInputElement;
     await user.type(username, "admin");
     await user.type(password, "wrong");
@@ -86,7 +86,7 @@ describe("Login", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("login-error")).toHaveTextContent(
-        /invalid username or password/i,
+        /invalid email or password/i,
       );
     });
     expect(password.value).toBe("");
@@ -99,7 +99,7 @@ describe("Login", () => {
     renderLogin();
 
     const password = screen.getByLabelText(/password/i) as HTMLInputElement;
-    await user.type(screen.getByLabelText(/username/i), "admin");
+    await user.type(screen.getByLabelText(/email/i), "admin");
     await user.type(password, "secret");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 

@@ -22,6 +22,13 @@ def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
     # Same reason: with the key set, every ingest_senate test would poll FMP live.
     monkeypatch.delenv("FMP_API_KEY", raising=False)
+    # The owner login (src/api/owner_login.py) is opt-in per test, and its
+    # per-IP lockout is process-wide: one test's wrong tries must not lock the next.
+    monkeypatch.delenv("SITE_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("SITE_LOGIN_PASSWORD_HASH", raising=False)
+    from src.api import owner_login
+
+    owner_login._failures.clear()
 
 
 # ---------------------------------------------------------------------------

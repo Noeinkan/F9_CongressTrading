@@ -150,9 +150,19 @@ def app_password() -> str:
     return os.getenv("APP_PASSWORD") or ""
 
 
+def site_login_email() -> str:
+    """The owner's email for the production login (same variable as SearchForAlpha)."""
+    return (os.getenv("SITE_LOGIN_EMAIL") or "").strip().lower()
+
+
+def site_login_password_hash() -> str:
+    """Werkzeug hash of the owner's password (``scrypt:…`` / ``pbkdf2:…``)."""
+    return (os.getenv("SITE_LOGIN_PASSWORD_HASH") or "").strip()
+
+
 def app_auth_required() -> bool:
-    """True when APP_PASSWORD is set (login gate enabled)."""
-    return bool(app_password().strip())
+    """True when a login is configured: the owner's hashed one, or legacy APP_PASSWORD."""
+    return bool(site_login_password_hash() or app_password().strip())
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

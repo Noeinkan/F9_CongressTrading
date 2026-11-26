@@ -96,7 +96,10 @@ export function Login() {
       navigate(from, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        setError("Invalid username or password.");
+        setError("Invalid email or password.");
+        setPassword("");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError("Too many wrong tries. Wait 15 minutes and try again.");
         setPassword("");
       } else {
         setError("Login failed. Please try again.");
@@ -121,7 +124,7 @@ export function Login() {
               </Alert>
             ) : null}
             <TextInput
-              label="Username"
+              label="Email"
               value={username}
               onChange={(event) => setUsername(event.currentTarget.value)}
               autoComplete="username"

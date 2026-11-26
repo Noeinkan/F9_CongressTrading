@@ -43,9 +43,10 @@ import {
   formatSignedPercent,
   msnMoneyQuoteUrl,
   returnColor,
-  searchForAlphaUrl,
   yahooFinanceQuoteUrl,
 } from "@/utils/format";
+import { siblingLabel, siblingUrl } from "@/config/siblingApps";
+import { useSiblingApps } from "@/components/SiblingApps";
 import { classifyAmountRange, rangeOpacity } from "@/utils/transactions";
 
 function quartersParam(quarters: string[]): string | undefined {
@@ -91,6 +92,7 @@ function ChevronRightIcon() {
 
 export function Tickers() {
   const { lookback, quarters } = useFilters();
+  const siblingApps = useSiblingApps();
   const [searchParams, setSearchParams] = useSearchParams();
   const [manualTicker, setManualTicker] = useState(searchParams.get("ticker_override") ?? "");
   const [amountRange, setAmountRange] = useState<AmountRangeFilterValue>(null);
@@ -204,32 +206,41 @@ export function Tickers() {
             title={COPY.tickers.title}
             copy={COPY.tickers.copy}
           />
-          <Tooltip
-            label={
-              tickerForView
-                ? `Open ${tickerForView} in SearchForAlpha Lab (new tab)`
-                : "Pick a ticker first"
-            }
-            withArrow
-          >
-            <Button
-              component="a"
-              href={searchForAlphaUrl(tickerForView)}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="light"
-              color="orange"
-              data-disabled={!tickerForView}
-              aria-disabled={!tickerForView}
-              onClick={(event) => {
-                if (!tickerForView) event.preventDefault();
-              }}
-              data-testid="tickers-open-searchforalpha"
-              style={{ flexShrink: 0 }}
-            >
-              Open in SearchForAlpha
-            </Button>
-          </Tooltip>
+          <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+            {(
+              [
+                ["sfa", "Open in SearchForAlpha", "tickers-open-searchforalpha", "orange"],
+                ["13f", "13F holders", "tickers-open-13f", "gray"],
+              ] as const
+            )
+              .filter(([key]) => siblingApps.includes(key))
+              .map(([key, label, testId, color]) => (
+              <Tooltip
+                key={key}
+                label={
+                  tickerForView
+                    ? `Open ${tickerForView} in ${siblingLabel(key)}`
+                    : "Pick a ticker first"
+                }
+                withArrow
+              >
+                <Button
+                  component="a"
+                  href={siblingUrl(key, tickerForView) ?? undefined}
+                  variant="light"
+                  color={color}
+                  data-disabled={!tickerForView}
+                  aria-disabled={!tickerForView}
+                  onClick={(event) => {
+                    if (!tickerForView) event.preventDefault();
+                  }}
+                  data-testid={testId}
+                >
+                  {label}
+                </Button>
+              </Tooltip>
+            ))}
+          </Group>
         </Group>
 
         <Group grow align="flex-end">

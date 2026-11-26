@@ -22,6 +22,17 @@ vi.mock("@/api/tickers", () => ({
   useTickerCumulativeExposure: (...args: unknown[]) => useTickerCumulativeExposure(...args),
 }));
 
+const useSessionQuery = vi.fn();
+const useDemoStatus = vi.fn();
+
+vi.mock("@/api/auth", () => ({
+  useSessionQuery: () => useSessionQuery(),
+}));
+
+vi.mock("@/api/demo", () => ({
+  useDemoStatus: () => useDemoStatus(),
+}));
+
 vi.mock("echarts-for-react", () => ({
   default: () => <div data-testid="echarts-mock" />,
 }));
@@ -43,6 +54,12 @@ function renderTickers(initialEntries = ["/?ticker=AAPL"]) {
 
 describe("Tickers route", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("VITE_SEARCHFORALPHA_URL", "https://alpha.example.test/");
+    vi.stubEnv("VITE_13F_URL", "http://127.0.0.1:5173");
+    // Signed in: the dashboard has one account, the owner's.
+    useSessionQuery.mockReturnValue({ data: { authenticated: true, auth_required: true, user: "owner" } });
+    useDemoStatus.mockReturnValue({ data: { enabled: false }, isLoading: false });
     useTickersList.mockReturnValue({
       data: {
         ready: true,
@@ -208,9 +225,41 @@ describe("Tickers route", () => {
     renderTickers();
     await waitFor(() => screen.getByTestId("tickers-page"));
     const link = screen.getByTestId("tickers-open-searchforalpha");
-    expect(link).toHaveAttribute("href", "http://77.42.70.26:8060/ticker/AAPL");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveAttribute("href", "https://alpha.example.test/ticker/AAPL?from=congress");
+    // Same tab: the sibling offers a "Back to Congress Trading" link.
+    expect(link).not.toHaveAttribute("target");
+  });
+
+  it("links to the 13F Screener holders search with the active ticker", async () => {
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    expect(screen.getByTestId("tickers-open-13f")).toHaveAttribute(
+      "href",
+      "http://127.0.0.1:5173/holdings-search?q=AAPL&from=congress",
+    );
+  });
+
+  it("shows no sibling links on the public demo", async () => {
+    useDemoStatus.mockReturnValue({ data: { enabled: true }, isLoading: false });
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    expect(screen.queryByTestId("tickers-open-searchforalpha")).toBeNull();
+    expect(screen.queryByTestId("tickers-open-13f")).toBeNull();
+  });
+
+  it("shows no sibling links to a visitor who is not signed in", async () => {
+    useSessionQuery.mockReturnValue({ data: { authenticated: false, auth_required: true, user: null } });
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    expect(screen.queryByTestId("tickers-open-searchforalpha")).toBeNull();
+  });
+
+  it("hides a sibling this build has no URL for", async () => {
+    vi.stubEnv("VITE_13F_URL", "");
+    renderTickers();
+    await waitFor(() => screen.getByTestId("tickers-page"));
+    expect(screen.getByTestId("tickers-open-searchforalpha")).toBeInTheDocument();
+    expect(screen.queryByTestId("tickers-open-13f")).toBeNull();
   });
 
   it("disables the SearchForAlpha button when no ticker is selected", async () => {
@@ -222,7 +271,7 @@ describe("Tickers route", () => {
     renderTickers(["/"]);
     await waitFor(() => screen.getByTestId("tickers-page"));
     const link = screen.getByTestId("tickers-open-searchforalpha");
-    expect(link).toHaveAttribute("href", "http://77.42.70.26:8060/ticker/");
+    expect(link).toHaveAttribute("href", "https://alpha.example.test/?from=congress");
     expect(link).toHaveAttribute("data-disabled", "true");
     expect(link).toHaveAttribute("aria-disabled", "true");
   });

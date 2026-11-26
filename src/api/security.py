@@ -12,7 +12,12 @@ _SESSION_USER_KEY = "user"
 
 
 def verify_credentials(username: str, password: str) -> bool:
-    """Constant-time check against APP_USERNAME / APP_PASSWORD."""
+    """The owner's email + hashed password when configured, else APP_USERNAME / APP_PASSWORD."""
+    from . import owner_login
+
+    if owner_login.enabled():
+        return owner_login.verify(username, password) is not None
+
     expected_password = app_password()
     if not expected_password.strip():
         return True
