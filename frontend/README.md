@@ -60,7 +60,7 @@ src/
   styles/       global CSS
 ```
 
-Layout shell: `SidebarLayout` wraps authenticated routes with `TopBar` + collapsible `SidebarFilters` (lookback/quarters). `RequireAuth` guards the layout; `FilterContext` holds the period slice shared by all pages.
+Layout shell: `SidebarLayout` wraps authenticated routes with `TopBar` (nav, `RefreshControl`, user menu); there is no sidebar, and the period slice comes from `?lookback=` / `?quarters=`. `RequireAuth` guards the layout; `FilterContext` holds the period slice shared by all pages.
 
 File-by-file map: see **PROJECT_INDEX.md** (`frontend/` section) instead of grepping.
 

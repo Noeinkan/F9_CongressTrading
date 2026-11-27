@@ -1,59 +1,26 @@
-import { AppShell as MantineAppShell, ScrollArea } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
-import { useEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
-
-import { useIsMobile } from "@/hooks/useMediaQuery";
+import { AppShell as MantineAppShell } from "@mantine/core";
+import { Outlet } from "react-router-dom";
 
 import { DemoBanner } from "./DemoBanner";
 import { DemoWall } from "./DemoWall";
 import { FilterProvider } from "./FilterContext";
-import { SidebarFilters } from "./SidebarFilters";
 import { TopBar } from "./TopBar";
 
-/** Persistent shell: top bar with brand/nav/user, collapsible left sidebar with global filters. */
+/**
+ * Persistent shell: top bar with brand, nav, refresh and user menu.
+ *
+ * There is no left sidebar any more. The period slice (`FilterProvider`) still
+ * wraps every page and is read from `?lookback=` / `?quarters=`, so shared
+ * links keep working; without them pages show the default 1-year window.
+ */
 export function SidebarLayout() {
-  const isMobile = useIsMobile();
-  const [mobileOpened, mobileHandlers] = useDisclosure(false);
-  const [desktopOpened, desktopHandlers] = useDisclosure(true);
-  const location = useLocation();
-
-  // Auto-close the mobile drawer on every route change.
-  useEffect(() => {
-    if (isMobile && mobileOpened) {
-      mobileHandlers.close();
-    }
-  }, [location.pathname, isMobile, mobileOpened, mobileHandlers]);
-
-  const navbarOpen = isMobile ? mobileOpened : desktopOpened;
-  const onToggle = () => {
-    if (isMobile) {
-      mobileHandlers.toggle();
-    } else {
-      desktopHandlers.toggle();
-    }
-  };
-
   return (
     <FilterProvider>
       <DemoWall />
-      <MantineAppShell
-        header={{ height: 64 }}
-        navbar={{
-          width: 260,
-          breakpoint: "sm",
-          collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
-        }}
-        padding="md"
-      >
+      <MantineAppShell header={{ height: 64 }} padding="md">
         <MantineAppShell.Header>
-          <TopBar onToggleNavbar={onToggle} navbarOpen={navbarOpen} />
+          <TopBar />
         </MantineAppShell.Header>
-        <MantineAppShell.Navbar>
-          <ScrollArea h="100%" type="auto" offsetScrollbars>
-            <SidebarFilters />
-          </ScrollArea>
-        </MantineAppShell.Navbar>
         <MantineAppShell.Main>
           <DemoBanner />
           <Outlet />

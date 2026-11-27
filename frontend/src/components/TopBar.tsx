@@ -1,9 +1,10 @@
-import { Group, Text } from "@mantine/core";
+import { Group, Menu, Text } from "@mantine/core";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
 
 import { DonateButton } from "./DonateButton";
 import { FeedbackButton } from "./FeedbackButton";
+import { RefreshControl } from "./RefreshControl";
 import { BackToSibling, SiblingAppsMenu } from "./SiblingApps";
 import { UserMenu } from "./UserMenu";
 import { useDemoStatus } from "@/api/demo";
@@ -22,11 +23,6 @@ export const NAV_ITEMS = [
 
 export type NavItem = (typeof NAV_ITEMS)[number];
 
-type TopBarProps = {
-  onToggleNavbar: () => void;
-  navbarOpen: boolean;
-};
-
 const burgerStyle = {
   background: "transparent",
   border: "1px solid var(--mantine-color-gray-3)",
@@ -37,24 +33,55 @@ const burgerStyle = {
   lineHeight: 1,
 } as const;
 
-export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
+/** Phones have no room for the inline nav, so the pages live in a menu. */
+function MobilePagesMenu({ items }: { items: readonly NavItem[] }) {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  return (
+    <Menu position="bottom-start" shadow="md" width={200}>
+      <Menu.Target>
+        <button
+          type="button"
+          aria-label="Dashboard pages"
+          data-testid="topbar-pages-menu"
+          style={burgerStyle}
+        >
+          ☰
+        </button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {items.map((item) => {
+          const active = isActive(location.pathname, item.to);
+          return (
+            <Menu.Item
+              key={item.to}
+              component={Link}
+              to={`${item.to}${periodSearch(searchParams)}`}
+              fw={active ? 600 : 400}
+              c={active ? "navy.7" : undefined}
+            >
+              {item.label}
+            </Menu.Item>
+          );
+        })}
+      </Menu.Dropdown>
+    </Menu>
+  );
+}
+
+export function TopBar() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const navItems = useVisibleNavItems();
+  // The refresh runs the disclosure ingest against the Clerk. The demo serves a
+  // frozen snapshot and the API refuses the call anyway, so the control is
+  // hidden rather than left to fail under a stranger's click.
+  const isDemo = useDemoStatus().data?.enabled ?? false;
 
   return (
     <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="sm">
       <Group gap="sm" wrap="nowrap">
-        <button
-          type="button"
-          onClick={onToggleNavbar}
-          aria-label={navbarOpen ? "Close sidebar" : "Open sidebar"}
-          aria-expanded={navbarOpen}
-          data-testid="topbar-burger"
-          style={burgerStyle}
-        >
-          {navbarOpen ? "✕" : "☰"}
-        </button>
+        {isMobile ? <MobilePagesMenu items={navItems} /> : null}
         <Text
           component={Link}
           to="/"
@@ -74,6 +101,7 @@ export function TopBar({ onToggleNavbar, navbarOpen }: TopBarProps) {
         </Group>
       ) : null}
       <Group gap="sm" wrap="nowrap">
+        {isDemo ? null : <RefreshControl />}
         {!isMobile ? <BackToSibling /> : null}
         <SiblingAppsMenu />
         <FeedbackButton />

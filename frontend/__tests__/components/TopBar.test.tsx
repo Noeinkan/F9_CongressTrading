@@ -30,11 +30,16 @@ vi.mock("@/api/demo", () => ({
   useDemoStatus: () => useDemoStatusMock(),
 }));
 
+// The refresh control polls the API; stub it so the bar renders without a client.
+vi.mock("@/components/RefreshControl", () => ({
+  RefreshControl: () => <div data-testid="topbar-refresh" />,
+}));
+
 function renderTopBar(path = "/") {
   return render(
     <MantineProvider>
       <MemoryRouter initialEntries={[path]}>
-        <TopBar onToggleNavbar={vi.fn()} navbarOpen={true} />
+        <TopBar />
       </MemoryRouter>
     </MantineProvider>,
   );
@@ -53,9 +58,21 @@ describe("TopBar", () => {
     expect(screen.getByText(/congress trading/i)).toBeInTheDocument();
   });
 
-  it("shows the sidebar burger on desktop", () => {
+  it("has no sidebar toggle or pages menu on desktop", () => {
     renderTopBar();
-    expect(screen.getByTestId("topbar-burger")).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-burger")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-pages-menu")).not.toBeInTheDocument();
+  });
+
+  it("shows the refresh control off-demo", () => {
+    renderTopBar();
+    expect(screen.getByTestId("topbar-refresh")).toBeInTheDocument();
+  });
+
+  it("hides the refresh control on the demo", () => {
+    useDemoStatusMock.mockReturnValue({ data: { enabled: true, hiddenRoutes: [] } });
+    renderTopBar();
+    expect(screen.queryByTestId("topbar-refresh")).not.toBeInTheDocument();
   });
 
   it("shows all 6 nav links on desktop", () => {

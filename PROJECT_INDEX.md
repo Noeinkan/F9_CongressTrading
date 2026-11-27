@@ -161,8 +161,8 @@ the dashboard describe a trade identically.
 | `PillStrip.tsx` | Horizontal filter/selection pills |
 | `AmountRangeFilter.tsx` | Amount low/high filter control |
 | `FilterContext.tsx` | Shared period/lookback slice for pages |
-| `SidebarLayout.tsx` | Authenticated shell (TopBar + sidebar) |
-| `SidebarFilters.tsx` | Lookback / quarters sidebar |
+| `SidebarLayout.tsx` | Authenticated shell (TopBar, no sidebar; holds `FilterProvider`) |
+| `RefreshControl.tsx` | Top-bar admin refresh: button + status, details popover |
 | `TopBar.tsx` | Nav + user menu |
 | `UserMenu.tsx` | Account / logout |
 | `DonateButton.tsx` | Ko-fi "Support" link |
