@@ -4,7 +4,7 @@ import { buildMiniSparklineOption } from "@/charts/miniSparkline";
 import { EChartsChart } from "./EChartsChart";
 
 type MiniSparklineProps = {
-  points: SparklinePoint[];
+  points: Array<SparklinePoint | number>;
   height?: number;
   color?: string;
 };

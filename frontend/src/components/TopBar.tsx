@@ -79,7 +79,7 @@ export function TopBar() {
   const isDemo = useDemoStatus().data?.enabled ?? false;
 
   return (
-    <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="sm">
+    <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="sm" className="dashboard-topbar">
       <Group gap="sm" wrap="nowrap">
         {isMobile ? <MobilePagesMenu items={navItems} /> : null}
         <Text

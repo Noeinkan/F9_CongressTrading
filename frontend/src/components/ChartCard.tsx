@@ -7,6 +7,7 @@ type ChartCardProps = {
   caption?: string;
   children: ReactNode;
   testId?: string;
+  id?: string;
   headerRight?: ReactNode;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
@@ -39,6 +40,7 @@ export function ChartCard({
   caption,
   children,
   testId,
+  id,
   headerRight,
   collapsible = false,
   defaultCollapsed = false,
@@ -66,7 +68,7 @@ export function ChartCard({
   );
 
   return (
-    <Card withBorder radius="md" padding="md" data-testid={testId}>
+    <Card withBorder radius="md" padding="md" id={id} data-testid={testId}>
       <Stack gap="sm">
         <Stack gap={2}>
           <Card.Section inheritPadding py="xs">

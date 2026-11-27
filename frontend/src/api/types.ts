@@ -111,8 +111,8 @@ export type HomeKpi = {
   label: string;
   value: number | string;
   detail: string;
-  sparkline: SparklinePoint[];
-  delta: KpiDelta | null;
+  sparkline: number[];
+  delta: string | null;
 };
 
 export type HomeTransactionRow = {

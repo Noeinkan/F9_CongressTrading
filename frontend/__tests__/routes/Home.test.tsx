@@ -63,8 +63,8 @@ const sampleData = {
       label: "Transactions",
       value: 100,
       detail: "Rows",
-      sparkline: [{ month: "2024-01", value: 10 }],
-      delta: { value: 1, percent: false, label: "+1" },
+      sparkline: [10, 11],
+      delta: "+1 vs prior month",
     },
   ],
   latest_transactions: [
@@ -211,7 +211,9 @@ describe("Home route", () => {
       expect(screen.getByTestId("home-page")).toBeInTheDocument();
     });
     expect(screen.getByTestId("home-hero")).toBeInTheDocument();
-    expect(screen.getByTestId("kpi-tile-transactions")).toBeInTheDocument();
+    const kpi = screen.getByTestId("kpi-tile-transactions");
+    expect(within(kpi).getByText("+1 vs prior month")).toBeInTheDocument();
+    expect(within(kpi).getByTestId("mini-sparkline")).toBeInTheDocument();
   });
 
   it("renders the members leaderboard with a clickable link to the profile", async () => {
@@ -356,7 +358,7 @@ describe("Home route", () => {
     expect(buySig).not.toBe(sellSig);
   });
 
-  it("applies a higher opacity to the largest disclosed range than to a small one", async () => {
+  it("emphasises larger disclosed ranges through the badge background", async () => {
     useHomeSummary.mockReturnValue({ data: sampleData, isLoading: false, isError: false });
     renderHome();
     await waitFor(() => {
@@ -367,13 +369,13 @@ describe("Home route", () => {
     const carolRow = rows.find((r) => r.textContent?.includes("Carol"));
     expect(danRow).toBeDefined();
     expect(carolRow).toBeDefined();
-    // Carol's range high is $100,000; Dan's high is $15,000. Carol should be
-    // rendered with a higher opacity.
+    // Carol's range high is $100,000; Dan's high is $15,000.
     const carolBadge = within(carolRow!).getByTestId("home-latest-type");
     const danBadge = within(danRow!).getByTestId("home-latest-type");
-    const carolOpacity = Number.parseFloat(carolBadge.style.opacity);
-    const danOpacity = Number.parseFloat(danBadge.style.opacity);
-    expect(carolOpacity).toBeGreaterThan(danOpacity);
+    const carolTint = Number.parseFloat(carolBadge.style.getPropertyValue("--home-trade-emphasis"));
+    const danTint = Number.parseFloat(danBadge.style.getPropertyValue("--home-trade-emphasis"));
+    expect(carolTint).toBeGreaterThan(danTint);
+    expect(danBadge.style.opacity).toBe("");
   });
 
   it("respects the Rows size selector", async () => {
@@ -421,8 +423,8 @@ describe("Home route", () => {
     const sellRange = ranges.find((el) => el.getAttribute("data-direction") === "sell");
     expect(buyRange).toBeDefined();
     expect(sellRange).toBeDefined();
-    expect(buyRange!.style.color).toContain("teal");
-    expect(sellRange!.style.color).toContain("red");
+    expect(buyRange).toHaveClass("home-trade-amount");
+    expect(sellRange).toHaveClass("home-trade-amount");
   });
 
   it("sorts the latest table by member when the Member header is clicked", async () => {

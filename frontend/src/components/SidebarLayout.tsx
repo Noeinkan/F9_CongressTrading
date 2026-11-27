@@ -1,5 +1,5 @@
 import { AppShell as MantineAppShell } from "@mantine/core";
-import { Outlet } from "react-router-dom";
+import { Outlet, useMatch } from "react-router-dom";
 
 import { DemoBanner } from "./DemoBanner";
 import { DemoWall } from "./DemoWall";
@@ -14,10 +14,16 @@ import { TopBar } from "./TopBar";
  * links keep working; without them pages show the default 1-year window.
  */
 export function SidebarLayout() {
+  const isHome = Boolean(useMatch("/"));
+
   return (
     <FilterProvider>
       <DemoWall />
-      <MantineAppShell header={{ height: 64 }} padding="md">
+      <MantineAppShell
+        className={isHome ? "home-shell" : undefined}
+        header={{ height: isHome ? { base: 104, lg: 64 } : 64 }}
+        padding="md"
+      >
         <MantineAppShell.Header>
           <TopBar />
         </MantineAppShell.Header>

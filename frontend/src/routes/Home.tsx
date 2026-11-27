@@ -13,7 +13,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { netTradeCsvUrl, useHomeSummary } from "@/api/home";
@@ -22,7 +22,7 @@ import { useTickerPriceOverlay } from "@/api/tickers";
 import type { HomeTransactionRow } from "@/api/types";
 import { ChartCard } from "@/components/ChartCard";
 import { CumulativeExposurePerMember } from "@/components/CumulativeExposurePerMember";
-import { useFilters } from "@/components/FilterContext";
+import { DEFAULT_LOOKBACK, useFilters } from "@/components/FilterContext";
 import { KpiTile } from "@/components/KpiTile";
 import { MemberLink } from "@/components/MemberLink";
 import { MembersLeaderboardTable } from "@/components/MembersLeaderboardTable";
@@ -32,7 +32,6 @@ import { PageState } from "@/components/PageState";
 import { PillStrip } from "@/components/PillStrip";
 import { PriceOverlayChart } from "@/components/PriceOverlayChart";
 import { RankBars } from "@/components/RankBars";
-import { SectionIntro } from "@/components/SectionIntro";
 import { TickerLink } from "@/components/TickerLink";
 import { TickerTimeline } from "@/components/TickerTimeline";
 import { COPY } from "@/copy";
@@ -45,6 +44,7 @@ import {
   parseRangeHigh,
   rangeOpacity,
 } from "@/utils/transactions";
+import "./Home.css";
 
 type LatestSortKey =
   | "member"
@@ -90,24 +90,19 @@ function SortableTh({ label, sortKey, active, onSort }: SortableThProps) {
   const indicator = !isActive ? "↕" : active.dir === "asc" ? "↑" : "↓";
   return (
     <Table.Th
-      role="button"
-      tabIndex={0}
-      aria-sort={isActive ? (active.dir === "asc" ? "ascending" : "descending") : "none"}
-      onClick={() =>
-        onSort({ key: sortKey, dir: isActive && active.dir === "asc" ? "desc" : "asc" })
-      }
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSort({ key: sortKey, dir: isActive && active.dir === "asc" ? "desc" : "asc" });
-        }
-      }}
-      style={{ cursor: "pointer", userSelect: "none" }}
-      data-testid={`home-latest-sort-${sortKey}`}
+      scope="col"
+      aria-sort={isActive ? (active.dir === "asc" ? "ascending" : "descending") : undefined}
     >
-      <span>
-        {label} <span style={{ opacity: 0.5, fontSize: "0.85em" }}>{indicator}</span>
-      </span>
+      <button
+        type="button"
+        className="home-sort"
+        onClick={() =>
+          onSort({ key: sortKey, dir: isActive && active.dir === "asc" ? "desc" : "asc" })
+        }
+        data-testid={`home-latest-sort-${sortKey}`}
+      >
+        {label} <span aria-hidden="true">{indicator}</span>
+      </button>
     </Table.Th>
   );
 }
@@ -134,6 +129,19 @@ export function Home() {
 
   const { data, isLoading, isError } = useHomeSummary(periodParams);
   const csvLock = useDemoLock("csv_export");
+  const flows = data?.net_trade_amounts ?? [];
+  const [netBuy] = flows;
+  const netSell = flows[flows.length - 1];
+  const flowHighlights = [
+    { label: "Largest net buy", row: netBuy && netBuy.net_amount > 0 ? netBuy : undefined },
+    { label: "Largest net sell", row: netSell && netSell.net_amount < 0 ? netSell : undefined },
+  ];
+  const tickerPeriod = new URLSearchParams();
+  if (lookback !== DEFAULT_LOOKBACK) {
+    tickerPeriod.set("lookback", lookback === null ? "all" : String(lookback));
+  }
+  if (periodParams.quarters) tickerPeriod.set("quarters", periodParams.quarters);
+  const tickerPeriodQuery = tickerPeriod.size ? `&${tickerPeriod}` : "";
 
   const visibleLatestRows = useMemo(() => {
     const rows = data?.latest_transactions ?? [];
@@ -167,189 +175,209 @@ export function Home() {
   return (
     <PageState isLoading={isLoading} isError={isError} ready={data?.ready ?? false}>
       {data ? (
-        <Stack gap="md" data-testid="home-page">
-          <SectionIntro
-            kicker="Overview"
-            title="Where activity is clustering"
-            copy="KPIs, sparklines, and rollups for the active period slice from /api/home/summary."
-          />
-
-          <Card withBorder radius="md" padding="lg" data-testid="home-hero">
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-              <Stack gap="xs">
-                <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
-                  Congress Trading
-                </Text>
-                <Title order={2}>Activity in the active slice</Title>
-                <Text c="dimmed" size="sm">
-                  {data.hero.disclosed_range} disclosed across {data.hero.total_transactions.toLocaleString()}{" "}
-                  transactions from {data.hero.total_members} members.
-                </Text>
+        <Stack gap="md" className="home-dashboard" data-testid="home-page">
+          <Card component="section" withBorder padding="md" className="home-overview" data-testid="home-hero">
+            <div className="home-overview-layout">
+              <Stack gap={6}>
+                <Title order={1}>Congressional trading activity</Title>
                 <Group gap="xs">
                   {data.hero.active_chambers
                     ? data.hero.active_chambers.split(", ").map((c) => (
-                        <Badge key={c} variant="light" color="teal">
+                        <Badge key={c} variant="outline" color="navy">
                           {c}
                         </Badge>
                       ))
                     : null}
-                  <Badge variant="light" color="navy">
-                    {data.hero.tracked_tickers} tickers
-                  </Badge>
-                  <Badge variant="light" color="orange">
-                    {data.hero.open_reviews} open reviews
-                  </Badge>
+                  <Text size="sm" c="dimmed">
+                    Trades from {formatDate(data.hero.coverage_from)} to {formatDate(data.hero.coverage_to)}
+                  </Text>
                 </Group>
               </Stack>
-              <Stack gap={4}>
-                <Text size="sm">
-                  <Text span fw={600}>
-                    Coverage:
-                  </Text>{" "}
-                  {formatDate(data.hero.coverage_from)} – {formatDate(data.hero.coverage_to)}
-                </Text>
-                <Text size="sm">
-                  <Text span fw={600}>
-                    Avg confidence:
-                  </Text>{" "}
-                  {data.hero.avg_confidence_label}
-                </Text>
-                <Text size="xs" c="dimmed">
-                  Sources: {data.hero.transaction_source} · {data.hero.review_source}
-                </Text>
-              </Stack>
-            </SimpleGrid>
+              <dl className="home-coverage">
+                <div>
+                  <dt>Latest filing</dt>
+                  <dd>{formatDate(data.hero.latest_filing)}</dd>
+                </div>
+                <div>
+                  <dt>Average confidence</dt>
+                  <dd>{data.hero.avg_confidence_label}</dd>
+                </div>
+              </dl>
+            </div>
+            <details className="home-sources">
+              <summary>Data sources</summary>
+              <Text size="sm">Trades · {data.hero.transaction_source}</Text>
+              <Text size="sm">Reviews · {data.hero.review_source}</Text>
+            </details>
           </Card>
 
-          <SimpleGrid cols={{ base: 2, md: 3, lg: 5 }} spacing="md">
+          <SimpleGrid cols={{ base: 2, md: 3, lg: 5 }} spacing="sm" className="home-kpis">
             {data.kpis.map((kpi) => (
-              <KpiTile key={kpi.key} kpi={kpi} />
+              <KpiTile key={kpi.key} kpi={kpi} compact />
             ))}
           </SimpleGrid>
 
-          <ChartCard
-            collapsible
-            title="Latest activity"
-            caption="Most recent disclosures in the slice (preview). Click a ticker to open its profile."
-            headerRight={
-              <Group gap="xs" data-testid="home-latest-size">
-                <Text size="xs" c="dimmed">
-                  Rows
-                </Text>
-                <SegmentedControl
-                  value={latestSize}
-                  onChange={setLatestSize}
-                  data={LATEST_SIZE_OPTIONS}
-                  size="xs"
-                />
-              </Group>
-            }
-          >
-            <Table.ScrollContainer minWidth={700}>
-              <Table striped highlightOnHover data-testid="home-latest-table">
-                <Table.Thead>
-                  <Table.Tr>
-                    <SortableTh
-                      label="Member"
-                      sortKey="member"
-                      active={latestSort}
-                      onSort={setLatestSort}
-                    />
-                    <SortableTh
-                      label="Ticker"
-                      sortKey="ticker"
-                      active={latestSort}
-                      onSort={setLatestSort}
-                    />
-                    <SortableTh
-                      label="Type"
-                      sortKey="transaction_type_label"
-                      active={latestSort}
-                      onSort={setLatestSort}
-                    />
-                    <SortableTh
-                      label="Traded"
-                      sortKey="transaction_date"
-                      active={latestSort}
-                      onSort={setLatestSort}
-                    />
-                    <SortableTh
-                      label="Range"
-                      sortKey="amount_range_raw"
-                      active={latestSort}
-                      onSort={setLatestSort}
-                    />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {visibleLatestRows.map((row, i) => {
-                    const direction = classifyTransaction(row.transaction_type_label);
-                    const color = directionColor(direction);
-                    const opacity = rangeOpacity(row.amount_range_raw);
-                    const badgeStyle = { opacity } as const;
-                    return (
-                      <Table.Tr
-                        key={`${row.member}-${row.transaction_date}-${i}`}
-                        data-testid="home-latest-row"
-                      >
-                        <Table.Td>
-                          <MemberLink name={row.member} />
-                        </Table.Td>
-                        <Table.Td>
-                          {row.ticker ? (
-                            <TickerLink
-                              ticker={row.ticker}
-                              fw={500}
-                              data-testid="home-latest-ticker"
-                            />
-                          ) : (
-                            <Text size="sm" fw={500}>
-                              —
+          <div className="home-workspace">
+            <ChartCard
+              collapsible
+              id="home-latest-detail"
+              title="Latest activity"
+              caption={`${visibleLatestRows.length} of ${data.latest_transactions.length} recent trades. Select a member or ticker to investigate.`}
+              headerRight={
+                <Group gap="xs" data-testid="home-latest-size">
+                  <Text size="xs" c="dimmed">
+                    Rows
+                  </Text>
+                  <SegmentedControl
+                    aria-label="Rows to show"
+                    value={latestSize}
+                    onChange={setLatestSize}
+                    data={LATEST_SIZE_OPTIONS}
+                    size="xs"
+                  />
+                </Group>
+              }
+            >
+              <Text size="xs" c="dimmed" className="home-scroll-hint">
+                Scroll across for trade dates and disclosed amounts.
+              </Text>
+              <div className="home-trade-scroll" tabIndex={0} role="region" aria-label="Recent transactions">
+                <Table stickyHeader striped highlightOnHover className="home-trade-table" data-testid="home-latest-table">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <SortableTh
+                        label="Member"
+                        sortKey="member"
+                        active={latestSort}
+                        onSort={setLatestSort}
+                      />
+                      <SortableTh
+                        label="Ticker"
+                        sortKey="ticker"
+                        active={latestSort}
+                        onSort={setLatestSort}
+                      />
+                      <SortableTh
+                        label="Type"
+                        sortKey="transaction_type_label"
+                        active={latestSort}
+                        onSort={setLatestSort}
+                      />
+                      <SortableTh
+                        label="Traded"
+                        sortKey="transaction_date"
+                        active={latestSort}
+                        onSort={setLatestSort}
+                      />
+                      <SortableTh
+                        label="Disclosed range"
+                        sortKey="amount_range_raw"
+                        active={latestSort}
+                        onSort={setLatestSort}
+                      />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {visibleLatestRows.map((row, i) => {
+                      const direction = classifyTransaction(row.transaction_type_label);
+                      const color = directionColor(direction);
+                      const emphasis = rangeOpacity(row.amount_range_raw);
+                      return (
+                        <Table.Tr
+                          key={`${row.member}-${row.transaction_date}-${i}`}
+                          data-testid="home-latest-row"
+                        >
+                          <Table.Td>
+                            <MemberLink name={row.member} />
+                          </Table.Td>
+                          <Table.Td>
+                            {row.ticker ? (
+                              <TickerLink
+                                ticker={row.ticker}
+                                fw={500}
+                                data-testid="home-latest-ticker"
+                              />
+                            ) : (
+                              <Text size="sm" fw={500}>
+                                —
+                              </Text>
+                            )}
+                            {row.issuer_name ? (
+                              <Text size="xs" c="dimmed" lineClamp={1}>
+                                {row.issuer_name}
+                              </Text>
+                            ) : null}
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge
+                              variant="light"
+                              color={color}
+                              className="home-direction"
+                              style={{ "--home-trade-emphasis": `${Math.round(emphasis * 18)}%` } as CSSProperties}
+                              data-testid="home-latest-type"
+                              data-direction={direction}
+                            >
+                              {row.transaction_type_label || "—"}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
+                          <Table.Td>
+                            <Text
+                              size="sm"
+                              className="home-trade-amount"
+                              data-testid="home-latest-range"
+                              data-direction={direction}
+                            >
+                              {row.amount_range_raw || "—"}
                             </Text>
-                          )}
-                          {row.issuer_name ? (
-                            <Text size="xs" c="dimmed" lineClamp={1}>
-                              {row.issuer_name}
-                            </Text>
-                          ) : null}
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge
-                            variant="light"
-                            color={color}
-                            style={badgeStyle}
-                            data-testid="home-latest-type"
-                            data-direction={direction}
-                          >
-                            {row.transaction_type_label || "—"}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>{formatDate(row.transaction_date)}</Table.Td>
-                        <Table.Td>
-                          <Text
-                            size="sm"
-                            style={{
-                              opacity,
-                              color:
-                                direction === "buy"
-                                  ? "var(--mantine-color-teal-7)"
-                                  : direction === "sell"
-                                    ? "var(--mantine-color-red-7)"
-                                    : undefined,
-                            }}
-                            data-testid="home-latest-range"
-                            data-direction={direction}
-                          >
-                            {row.amount_range_raw}
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </ChartCard>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                    {visibleLatestRows.length === 0 ? (
+                      <Table.Tr><Table.Td colSpan={5}>No recent trades in this period.</Table.Td></Table.Tr>
+                    ) : null}
+                  </Table.Tbody>
+                </Table>
+              </div>
+            </ChartCard>
+
+            <Stack component="aside" gap="md" aria-label="Research shortcuts">
+              <Card withBorder padding="md" className="home-flow">
+                <Stack gap="sm">
+                  <div>
+                    <Title order={2}>Net flow leaders</Title>
+                    <Text size="sm" c="dimmed">Estimated net trade amounts in this period.</Text>
+                  </div>
+                  {flowHighlights.map(({ label, row }) => row ? (
+                    <Anchor
+                      key={label}
+                      component={Link}
+                      to={`${tickerHref(row.ticker)}${tickerPeriodQuery}`}
+                      className="home-flow-link"
+                    >
+                      <Text component="span" size="xs" c="dimmed">{label}</Text>
+                      <span className="home-flow-value">
+                        <strong>{row.ticker}</strong>
+                        <span data-direction={row.net_amount > 0 ? "buy" : "sell"}>{row.net_label}</span>
+                      </span>
+                    </Anchor>
+                  ) : null)}
+                  {flows.length === 0 ? <Text size="sm">No directional amounts for this period.</Text> : null}
+                  <Text size="sm" c="dimmed">Open a ticker to see price history and return since trade when available.</Text>
+                  <Anchor href="#home-flow-detail" size="sm" fw={600}>See net trade breakdown ↓</Anchor>
+                </Stack>
+              </Card>
+              <Card component="nav" aria-label="Explore this page" withBorder padding="md">
+                <Title order={2} className="home-explore-title">Explore this page</Title>
+                <Group gap="sm" mt="xs">
+                  <Anchor href="#home-monthly-detail" size="sm">Monthly activity</Anchor>
+                  <Anchor href="#home-leaderboard-detail" size="sm">Members leaderboard</Anchor>
+                  <Anchor href="#home-ticker-detail" size="sm">Ticker drill-down</Anchor>
+                </Group>
+              </Card>
+            </Stack>
+          </div>
 
           <Stack gap="xs">
             <PillStrip
@@ -372,6 +400,7 @@ export function Home() {
 
           <ChartCard
             collapsible
+            id="home-flow-detail"
             title="Net trade amount"
             caption="Net signed dollar flow per ticker — green is net buying, red is net selling."
             testId="home-net-trade"
@@ -442,7 +471,7 @@ export function Home() {
             )}
           </ChartCard>
 
-          <ChartCard collapsible title="Monthly activity" caption={COPY.home.monthlyActivity}>
+          <ChartCard collapsible id="home-monthly-detail" title="Monthly activity" caption={COPY.home.monthlyActivity}>
             <MonthlyActivityChart rows={data.monthly_activity} />
           </ChartCard>
 
@@ -473,6 +502,7 @@ export function Home() {
 
           <ChartCard
             collapsible
+            id="home-leaderboard-detail"
             title="Members leaderboard"
             caption="Full per-filer ranking for the active period slice. Click a name to open the profile on the Members page."
             testId="home-leaderboard"
@@ -486,6 +516,7 @@ export function Home() {
           <ChartCard
             collapsible
             defaultCollapsed
+            id="home-ticker-detail"
             title="Ticker drill-down"
             caption="Quick peek here, or open the full Tickers page for price overlay and exposure charts."
             testId="home-drilldown"

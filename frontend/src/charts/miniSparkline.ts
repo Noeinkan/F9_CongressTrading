@@ -1,11 +1,11 @@
 import type { SparklinePoint } from "@/api/types";
 
 export function buildMiniSparklineOption(
-  points: SparklinePoint[],
+  points: Array<SparklinePoint | number>,
   color = "#20344a",
 ): Record<string, unknown> | null {
   if (!points.length) return null;
-  const values = points.map((p) => p.value);
+  const values = points.map((p) => (typeof p === "number" ? p : p.value));
   return {
     grid: { left: 0, right: 0, top: 4, bottom: 4 },
     xAxis: { type: "category", show: false, data: points.map((_, i) => i) },
